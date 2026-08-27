@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 .venv/
 venv/
 env/
@@ -7,3 +8,21 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+=======
+# Geospatial data
+data/raw/*
+data/process/*
+data/output/*
+
+# Keep folder structure
+!data/raw/.gitkeep
+!data/process/.gitkeep
+!data/output/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+>>>>>>> 02d2154 (Add GeoTIFF data preprocessing pipeline)
