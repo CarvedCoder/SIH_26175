@@ -52,15 +52,16 @@ def verify_cleaned(path: Path) -> VerificationResult:
     )
 
 
-def verify_preprocessed(path: Path) -> VerificationResult:
+def  verify_preprocessed(
+     path: Path, method: str = config.NORMALIZATION_METHOD
+ ) -> VerificationResult:
     """Verify the normalized-DEM output of preprocess_dem().
 
-    In addition to the generic raster checks, confirms the valid data
-    range falls within the expected normalized bounds for the "minmax"
-    method (i.e. no unnormalized/raw values leaked through).
+   For the "minmax" method, additionally confirms the valid data range
+     falls within [0, 1] (allowing a small numerical tolerance)
     """
     ok, reason = _check_single_raster(path)
-    if ok:
+    if ok and method == "minmax":
         with rasterio.open(path) as dataset:
             data = dataset.read(1)
             _, _, _, invalid_mask = build_invalid_mask(data, dataset.nodata)
