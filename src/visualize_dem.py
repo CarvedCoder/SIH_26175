@@ -71,6 +71,15 @@ def visualize_dem(
 
     figure_path: Optional[Path] = None
     if output_dir is not None or show:
+        if show:
+            try:
+                plt.switch_backend("TkAgg")
+            except Exception as exc:
+                raise RuntimeError(
+                    "show=True requires an interactive matplotlib backend (e.g. TkAgg). "
+                    "Install Tk support or call visualize_dem(show=False)."
+                ) from exc
+
         display_data = np.where(valid_mask, data, np.nan).astype(np.float64)
 
         fig, ax = plt.subplots(figsize=(10, 8))
