@@ -49,10 +49,15 @@ from src.schemas import TileInfo, TilingResult
 
 def _tile_starts(dimension: int, tile_size: int, overlap: int) -> list[int]:
     """Compute tile start offsets along one axis with full coverage."""
+    if dimension <= tile_size:
+         return [0]
+
+    
     stride = max(tile_size - overlap, 1)
-    starts = list(range(0, max(dimension, 1), stride))
-    # `range` always includes 0, so even a raster smaller than tile_size
-    # yields a single tile starting at 0 (padded up to tile_size).
+    max_start = dimension - tile_size
+    starts = list(range(0, max_start + 1, stride))
+    if starts[-1] != max_start:
+         starts.append(max_start)
     return starts
 
 

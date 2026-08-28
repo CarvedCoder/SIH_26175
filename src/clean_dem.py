@@ -25,7 +25,7 @@ elevation values"):
    reused as the sentinel (so pixels already correctly marked nodata are
    left bit-for-bit identical). If the source has no declared nodata
    value but does contain NaN/inf pixels, a new sentinel
-   (config.CLEAN_NODATA_SENTINEL) is chosen and every NaN/inf pixel is
+   (CLEAN_NODATA_SENTINEL) is chosen and every NaN/inf pixel is
    set to it; this is the one case where pixel *values* change, and it
    is logged in CleaningResult.notes.
 

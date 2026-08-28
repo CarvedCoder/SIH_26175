@@ -164,25 +164,24 @@ def run_pipeline(input_path: Path) -> PipelineResult:
             6: "Verifying tiles",
             7: "Preparing model input",
         }
-        completed = sum(
-            1
-            for field in (
-                result.metadata,
-                result.cleaning,
-                result.preprocessing,
-                result.validation,
-                result.tiling,
-                result.verification,
-                result.model_inputs,
-            )
-            if field is not None
-        )
-        failed_stage_number = completed + 1
-        failed_stage_name = stage_names.get(failed_stage_number, "Unknown stage")
-        print("FAILED")
-        print(f"\nReason:\n{exc}")
-        result.failed_stage = failed_stage_name
-        result.error_message = str(exc)
+    if result.metadata is None:
+             failed_stage_name = stage_names[1]
+    elif result.cleaning is None:
+             failed_stage_name = stage_names[2]
+    elif result.preprocessing is None:
+             failed_stage_name = stage_names[3]
+    elif result.validation is None:
+             failed_stage_name = stage_names[4]
+    elif result.tiling is None:
+             failed_stage_name = stage_names[5]
+    elif result.verification is None or not result.verification.all_ok:
+             failed_stage_name = stage_names[6]
+    else:
+             failed_stage_name = stage_names[7]
+    print("FAILED")
+    print(f"\nReason:\n{exc}")
+    result.failed_stage = failed_stage_name
+    result.error_message = str(exc)
 
     return result
 
