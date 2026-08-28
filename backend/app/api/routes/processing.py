@@ -4,32 +4,40 @@ from app.schemas.processing import (
     ProcessingResponse,
     ProcessingResult,
     ProcessingStatus,
+    ProcessingStatusResponse,
 )
-
 from app.services.processing_service import process_image
 
-router = APIRouter(prefix="/api/processing", tags=["Processing"])
+
+router = APIRouter(
+    prefix="/api/processing",
+    tags=["Processing"],
+)
 
 
 @router.post(
     "/{job_id}",
-    response_model=ProcessingResult,
+    response_model=ProcessingResponse,
 )
 async def start_processing(job_id: str):
-
     result = process_image(job_id)
 
-    return result
+    return ProcessingResponse(
+        job_id=result.job_id,
+        status=result.status,
+    )
 
 
 @router.get(
     "/{job_id}/status",
-    response_model=ProcessingResponse,
+    response_model=ProcessingStatusResponse,
 )
 async def get_processing_status(job_id: str):
-    return ProcessingResponse(
+    return ProcessingStatusResponse(
         job_id=job_id,
-        status=ProcessingStatus.processing,
+        status=ProcessingStatus.running,
+        progress=50,
+        stage="Processing imagery",
     )
 
 
