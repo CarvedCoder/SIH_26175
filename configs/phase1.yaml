@@ -1,0 +1,26 @@
+# Phase-1 configuration — single source of truth for scripts 04/05.
+# Edit paths to match YOUR machine; everything downstream reads this file.
+
+paths:
+  rgb_dir: rgb_data/Train-Track1-RGB/Track1-RGB
+  truth_dir: rgb_data_truth/Train-Track1-Truth/Track1-Truth
+  splits_json: outputs/splits/splits.json
+  depth_cache_dir: outputs/depth_cache
+  outputs_dir: outputs
+
+split:
+  mode: block          # 'block' (recommended, leakage-aware) or 'tile'
+  fractions: [0.7, 0.15, 0.15]
+  seed: 42
+
+depth:
+  model: depth-anything/Depth-Anything-V2-Base-hf
+  input_size: 518
+
+baseline:
+  fit: lstsq           # 'lstsq' reproduces your original method class
+  stride: 4            # pixel subsampling for the fit (memory guard)
+
+dataset:
+  clamp_agl_min: 0.0   # AGL is above-ground height; negatives are noise
+  imagenet_norm: true
