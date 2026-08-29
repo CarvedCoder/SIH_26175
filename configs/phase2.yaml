@@ -1,0 +1,30 @@
+# Phase-2 configuration — calibration net training.
+# Paths are inherited from phase1.yaml conventions; edit to match YOUR machine.
+
+paths:
+  rgb_dir: rgb_data/Train-Track1-RGB/Track1-RGB
+  truth_dir: rgb_data_truth/Train-Track1-Truth/Track1-Truth
+  splits_json: outputs/splits/splits.json
+  depth_cache_dir: outputs/depth_cache
+  affine_json: outputs/baseline/global_affine.json
+  reference_json: outputs/reference/reference_card.json
+  outputs_dir: outputs
+
+model:
+  use_rgb: false            # ablation flag: false -> Dn only (Phase 2 core), true -> Dn+RGB (Phase 3 preview)
+  widths: [16, 32, 64]
+  clamp_min: 0.0
+
+train:
+  crop_size: 512
+  batch_size: 4
+  epochs: 40
+  lr: 0.001
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1                  # 'l1' (matches MAE/floors) or 'huber'
+  huber_delta: 5.0
+  workers: 2
+  val_subset: 48            # val tiles per monitoring pass (full val via script 09)
+  patience: 8               # early stop: epochs without subset-MAE improvement
+  seed: 42
