@@ -288,7 +288,7 @@ def save_quicklook(tile: Dict[str, np.ndarray], out_png: Path, cls_ids: Optional
         axes[2].imshow(cls, cmap=cmap, norm=norm, interpolation="nearest")
     else:
         axes[2].imshow(cls, cmap="tab20", interpolation="nearest")
-    axes[2].set_title("CLS (raw ids — meanings UNVERIFIED)")
+    axes[2].set_title("CLS (raw ids — legend per report)")
     for ax in axes:
         ax.set_xticks([]), ax.set_yticks([])
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -330,12 +330,15 @@ def dump_json(obj: dict, path: Path | str) -> None:
 
 
 def resolve_cache_dir(root, subdir: str | None = None) -> "Path":
-    """Resolve the depth-cache directory across both layouts.
+    """Resolve the depth-cache directory across all layouts.
 
-    Script 03 writes a model-tagged SUBDIR (depth_cache/<tag>/*.npy) so that
-    several backbones can coexist; older/manual layouts may hold *.npy
-    directly in the root. This helper accepts either, fails loudly when
-    ambiguous — never mix depth outputs across backbones.
+    Layouts (Phase 1+ of the GAMUS integration):
+      <out_dir>/<tag>/*.npy                 legacy flat (pre-GAMUS)
+      <out_dir>/<tag>/<dataset>/*.npy       NEW namespaced (dfc2019 | gamus)
+    This helper returns the MODEL-TAGGED directory in every case; it accepts
+    <out_dir> (auto-resolving the tag when unambiguous) or the tagged dir
+    itself, fails loudly when ambiguous — never mix depth outputs across
+    backbones.
 
     Usage: resolve_cache_dir(paths["depth_cache_dir"], args.cache_subdir)
     """
@@ -349,12 +352,47 @@ def resolve_cache_dir(root, subdir: str | None = None) -> "Path":
             raise FileNotFoundError(f"--cache-subdir '{subdir}' not found under {root}")
         return d
     if list(root.glob("*.npy")):
-        return root
+        return root                              # legacy flat model dir
     subs = sorted(d for d in root.iterdir() if d.is_dir())
-    if len(subs) == 1:
-        return subs[0]
+    model_subs = [d for d in subs if d.name not in DATASET_NAMESPACES]
+    if subs and not model_subs:
+        # children are dataset namespaces -> root IS the model-tag dir
+        return root
+    if len(model_subs) == 1:
+        return model_subs[0]
     if not subs:
-        raise FileNotFoundError(f"no *.npy under {root} — run 03_precompute_depth.py")
+        raise FileNotFoundError(f"no *.npy under {root} — run the depth command")
     raise FileNotFoundError(
-        f"multiple model caches under {root}: {[d.name for d in subs]} — "
+        f"multiple model caches under {root}: {[d.name for d in model_subs]} — "
         "pass cache_subdir explicitly. Never mix depths across backbones.")
+
+
+# ---------------------------------------------------------------------------
+# Depth-cache entry paths (multi-dataset, Phase 1 of the GAMUS integration)
+# ---------------------------------------------------------------------------
+
+# Dataset namespace directory names (also used by resolve_cache_dir to tell
+# "dataset namespace under a model dir" apart from "model tag under out_dir").
+DATASET_NAMESPACES = ("dfc2019", "gamus", "mixed")
+
+# Datasets that may exist under a pre-GAMUS (flat) cache layout.
+_LEGACY_FLAT_DATASETS = ("dfc2019",)
+
+
+def depth_npy_candidates(model_cache_dir, dataset: str, sample_id: str) -> List[Path]:
+    """Candidate .npy paths for one depth-cache entry, NEW namespaced layout
+    first, LEGACY flat layout second (dfc2019 only).
+
+    NEW (Phase 1+):   <model_tag>/<dataset>/{sample_id}.npy
+    LEGACY (pre-GAMUS): <model_tag>/{sample_id}.npy           (dfc2019 only)
+
+    ``model_cache_dir`` is the MODEL-TAGGED directory (what
+    resolve_cache_dir returns). Same model+tile ⇒ same content in both
+    layouts; when both exist the first (namespaced) wins — writers refresh
+    both only via an explicit --overwrite.
+    """
+    root = Path(model_cache_dir)
+    cands = [root / dataset / f"{sample_id}.npy"]
+    if dataset in _LEGACY_FLAT_DATASETS:
+        cands.append(root / f"{sample_id}.npy")
+    return cands

@@ -10,7 +10,13 @@ matplotlib>=3.8
 tqdm>=4.66
 scipy>=1.11               # depthwizard.demprior: separable Gaussian for synth_dem_from_agl
 
-# Inference service (webapp bridge): python main.py serve
+# GAMUS ingestion (GAMUS integration, Phase 2+): raw HDF5 release + lazy
+# per-file download from the HuggingFace Hub (local-dir mode needs no
+# network). Runtime-optional — DFC-only usage never imports them.
+h5py>=3.10
+huggingface_hub>=0.23
+
+# Inference service (webapp bridge): python model.py serve
 fastapi>=0.115
 uvicorn>=0.30
 python-multipart>=0.0.9   # multipart form parsing (image uploads)
