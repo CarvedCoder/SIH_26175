@@ -2,11 +2,11 @@
 
 This is the bridge that CONNECTS the frontend to the backend: the Next.js
 `/api/predict` route proxies here (DW_API_URL), and this service runs the
-SAME inference code path as `python main.py infer` (depthwizard.inference).
+SAME inference code path as `python model.py infer` (depthwizard.inference).
 One code path, two doors — drift is impossible by construction.
 
 Usage:
-  python main.py serve --port 8000                # dev
+  python model.py serve --port 8000                # dev
   uvicorn service.api:app --host 0.0.0.0 --port 8000   # production (Docker)
 """
 

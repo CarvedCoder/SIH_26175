@@ -16,8 +16,8 @@ Memory discipline: tiles stream one at a time through PooledStats
 accumulators — a full split is never materialized.
 
 Usage:
-  python main.py eval-baseline --config configs/phase1.yaml
-  python main.py eval-baseline --config configs/phase1.yaml --stratify-cls
+  python model.py eval-baseline --config configs/phase1.yaml
+  python model.py eval-baseline --config configs/phase1.yaml --stratify-cls
 """
 
 from __future__ import annotations
@@ -29,7 +29,8 @@ import numpy as np
 
 from depthwizard.cli.args import add_config_arg, load_config
 from depthwizard.dataset import DFC2019Config, discover_and_split
-from depthwizard.geo import dump_json, load_json, parse_stem, read_tile
+from depthwizard.geo import (depth_npy_candidates, dump_json, load_json,
+                             parse_stem, read_tile)
 from depthwizard.metrics import height_metrics, mean_std_over_tiles
 from depthwizard.normalize import clean_agl, minmax_normalize, valid_target_mask
 from depthwizard.streaming import PooledStats
@@ -38,13 +39,26 @@ NAME = "eval-baseline"
 HELP = "masked evaluation of the global affine baseline + error maps"
 
 
+def _find_depth_npy(cache_dir: Path, stem: str) -> Path:
+    """Depth-cache lookup: NEW namespaced layout first, LEGACY flat second
+    (same resolution order as dataset._load_depth — keeps fresh
+    `depth --dataset dfc2019` caches visible to this command)."""
+    cands = depth_npy_candidates(cache_dir, "dfc2019", stem)
+    f = next((p for p in cands if p.exists()), None)
+    if f is None:
+        raise FileNotFoundError(
+            f"depth cache miss for '{stem}': none of {cands} — run the "
+            "depth command first.")
+    return f
+
+
 def evaluate_split(ds, a: float, b: float, cache_dir: Path):
     per_tile = []
     pooled_stats = PooledStats()
     city_stats = {}
 
     for t in ds.tiles:
-        raw = np.load(cache_dir / f"{t.stem}.npy", mmap_mode="r")
+        raw = np.load(_find_depth_npy(cache_dir, t.stem), mmap_mode="r")
         dn = minmax_normalize(raw)
         data = read_tile(t)
         agl = clean_agl(data["agl"])
@@ -78,7 +92,7 @@ def _stratify_test(ds, a, b, cache_dir):
     """Streaming raw-class stratification (keys stay cls_2 / cls_65)."""
     class_stats = {}
     for t in ds.tiles:
-        raw = np.load(cache_dir / f"{t.stem}.npy", mmap_mode="r")
+        raw = np.load(_find_depth_npy(cache_dir, t.stem), mmap_mode="r")
         dn = minmax_normalize(raw)
         data = read_tile(t)
         agl = clean_agl(data["agl"])
@@ -145,7 +159,7 @@ def run(args) -> int:
     bl_path = args.baseline_json or (
         Path(paths["outputs_dir"]) / "baseline" / "global_affine.json")
     if not bl_path.exists():
-        print(f"[error] baseline not found at {bl_path} — run `main.py fit-baseline` first.")
+        print(f"[error] baseline not found at {bl_path} — run `model.py fit-baseline` first.")
         return 1
     bl = load_json(bl_path)
     a, b = bl["a"], bl["b"]
@@ -155,7 +169,7 @@ def run(args) -> int:
     cache_dir = next((d for d in Path(paths["depth_cache_dir"]).iterdir()
                       if d.is_dir()), None)
     if cache_dir is None:
-        print("[error] no depth cache found — run `main.py depth` first.")
+        print("[error] no depth cache found — run `model.py depth` first.")
         return 1
 
     ds_cfg = DFC2019Config(
@@ -180,12 +194,14 @@ def run(args) -> int:
         report["test_stratified_by_raw_cls"] = _stratify_test(
             ds["test"], a, b, cache_dir)
         print("[i] test stratified by raw CLS ids: "
-              f"{list(report['test_stratified_by_raw_cls'])} (meanings UNVERIFIED)")
+              f"{list(report['test_stratified_by_raw_cls'])} "
+              "(legend VERIFIED: pubgeo/dfc2019 — 2 Ground, 5 Trees, "
+              "6 Buildings, 9 Water, 17 Bridge, 65 void)")
 
     out_dir = Path(paths["outputs_dir"]) / "baseline"
     n_maps = min(args.error_maps, len(ds["test"].tiles))
     for t in ds["test"].tiles[:n_maps]:
-        raw = np.load(cache_dir / f"{t.stem}.npy", mmap_mode="r")
+        raw = np.load(_find_depth_npy(cache_dir, t.stem), mmap_mode="r")
         dn = minmax_normalize(raw)
         data = read_tile(t)
         pred = (a * dn + b).astype(np.float32)

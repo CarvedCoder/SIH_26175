@@ -10,12 +10,17 @@ Checkpoint contract (written by the ``train`` command, do not change):
     {
       "model_state":  OrderedDict — CalibrationNet state_dict,
       "use_rgb":      bool        -> in_ch 4 | 1,
+      "use_sem":      bool (Exp4/5, default False) -> semantic one-hot block,
+      "sem_classes":  int  (default 0, K=6 when semantic channels present),
+      "sem_aux_head": bool (default False; aux semantic logits head),
       "widths":       [w1, w2, w3],
       "clamp_min":    float | missing -> 0.0,
       "affine_init":  {"a": a0, "b": b0},
       "epoch":        int, "loss": str, "val_subset_mae": float,
       "splits_json":  str, "created": iso-timestamp,
     }
+Every new field is read via ckpt.get(...) with the pre-Exp-4 default, so
+OLD checkpoints rebuild bit-identically (plan risk R2: contract drift).
 """
 
 from __future__ import annotations
@@ -39,6 +44,9 @@ class LoadedModel:
     epoch: int
     checkpoint: Path
     val_subset_mae: Optional[float]
+    use_sem: bool = False            # Exp 4/5 checkpoints (additive defaults)
+    sem_classes: int = 0
+    sem_aux_head: bool = False
 
     @property
     def tag(self) -> str:
@@ -60,8 +68,8 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
     """Rebuild the flagship CalibrationNet from a training checkpoint.
 
     Mirrors the exact construction used by the ``evaluate`` command (09):
-    in_ch from ``use_rgb``, widths, affine-init biases, clamp_min. Any new
-    field defaults exactly like 09 does — never invent values.
+    in_ch from the ablation flags, widths, affine-init biases, clamp_min.
+    Any new field defaults exactly like 09 does — never invent values.
     """
     import torch
 
@@ -70,30 +78,34 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
     if not ckpt_path.exists():
         raise FileNotFoundError(
             f"checkpoint not found: {ckpt_path} — train first "
-            f"(`python main.py train`) or pass --checkpoint.")
+            f"(`python model.py train`) or pass --checkpoint.")
 
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
 
-    from .calibration_net import CalibrationNet
+    from .calibration_net import CalibrationNet, derive_in_ch
 
     use_rgb = bool(ckpt["use_rgb"])
     use_dem = bool(ckpt.get("use_dem", False))
-    # in_ch is reconstructed deterministically from use_rgb/use_dem:
-    #   in_ch=1 (Dn) | 2 (Dn+DEM) | 4 (Dn+RGB) | 5 (Dn+RGB+DEM).
-    # The explicit ``in_ch`` field (Method-D checkpoints) takes precedence
-    # so future variants beyond {1,2,4,5} are handled too.
+    use_sem = bool(ckpt.get("use_sem", False))
+    sem_classes = int(ckpt.get("sem_classes", 0))
+    sem_aux_head = bool(ckpt.get("sem_aux_head", False))
+    # in_ch is reconstructed deterministically from the flags (legacy
+    # use_rgb/use_dem mapping preserved EXACTLY for old checkpoints):
+    #   in_ch=1 (Dn) | 2 (Dn+DEM) | 4 (Dn+RGB) | 5 (Dn+RGB+DEM) | +K (sem).
+    # The explicit ``in_ch`` field (Method-D and Exp-4/5 checkpoints) takes
+    # precedence so any future variant is handled too.
     in_ch = ckpt.get("in_ch")
     if in_ch is None:
-        in_ch = (5 if (use_rgb and use_dem)
-                 else 4 if use_rgb
-                 else 2 if use_dem
-                 else 1)
+        in_ch = derive_in_ch(use_rgb=use_rgb, use_sem=use_sem,
+                             use_dem=use_dem, sem_classes=sem_classes)
     net = CalibrationNet(
         in_ch=int(in_ch),
         widths=tuple(ckpt["widths"]),
         a0=ckpt["affine_init"]["a"],
         b0=ckpt["affine_init"]["b"],
         clamp_min=ckpt.get("clamp_min", 0.0),
+        sem_classes=sem_classes,
+        sem_aux_head=sem_aux_head,
     ).to(device)
     net.load_state_dict(ckpt["model_state"])
     net.eval()
@@ -109,6 +121,9 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
         epoch=int(ckpt["epoch"]),
         checkpoint=ckpt_path,
         val_subset_mae=(float(subset_mae) if subset_mae is not None else None),
+        use_sem=use_sem,
+        sem_classes=sem_classes,
+        sem_aux_head=sem_aux_head,
     )
 
 

@@ -10,10 +10,10 @@ Endpoints:
                        -> scene payload JSON (see depthwizard.inference.
 
 The service calls ``depthwizard.inference.run_inference`` — the SAME code
-path as ``python main.py infer``. It never re-implements preprocessing, so
+path as ``python model.py infer``. It never re-implements preprocessing, so
 the webapp can never drift from the certified CLI forward pass.
 
-Run (dev):   python main.py serve --port 8000
+Run (dev):   python model.py serve --port 8000
 Run (prod):  uvicorn service.api:app --host 0.0.0.0 --port 8000
 
 Environment overrides (all optional; configs/infer.yaml is the base):
@@ -88,9 +88,11 @@ def _cache_dir() -> Optional[Path]:
 
 
 def _backbone_id() -> str:
+    # Phase 0.2: default aligned to ViT-B (matches the training cache; was
+    # V2-Large-hf before — mismatched cached-vs-live Dn distributions, risk R9).
     return os.environ.get("DW_BACKBONE",
                           _infer_cfg().get("backbone",
-                                           "depth-anything/Depth-Anything-V2-Large-hf"))
+                                           "depth-anything/Depth-Anything-V2-Base-hf"))
 
 
 def _live() -> bool:
@@ -113,7 +115,7 @@ def _out_root() -> Path:
 app = FastAPI(
     title="DepthWizard Inference Service",
     description="Backend bridge for the DepthWizard webapp. Same code path "
-                "as `python main.py infer`.",
+                "as `python model.py infer`.",
     version="2.0.0",
 )
 

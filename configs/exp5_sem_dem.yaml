@@ -1,0 +1,64 @@
+# Exp 5 — RGB + Dn + SEMANTIC + DEM -> U-Net calibration (SIH26175).
+#
+# ARCHITECTURE: in_ch = 1 (Dn) + 3 (RGB) + 6 (SEM one-hot) + 1 (DEM) = 11.
+#   Channel order (frozen): [ Dn | RGB | SEM | DEM ].
+#
+# DEM HONESTY (inherited from the Method-D challenger, binding): DFC2019
+# Track-1 has NO CRS, so a real DEM cannot be honestly aligned to training
+# tiles. The DEM channel therefore uses the SYNTHETIC-DEM-PROXY
+# (demprior.synth_dem_from_agl) unless a real per-tile DEM cache exists.
+# Any resulting win is a MECHANISM result, NOT a citable "DEM conditioning
+# works" claim — the SYNTHETIC-DEM-PROXY tag travels into the checkpoint
+# (dem_source) and every output line.
+#
+# RUNBOOK (DFC2019 Exp 5):
+#   python model.py train --config configs/exp5_sem_dem.yaml \
+#       --use-rgb --use-sem --use-dem --synth-dem --cosine \
+#       --out-tag rgb_sem_dem
+#   python model.py evaluate --config configs/exp5_sem_dem.yaml \
+#       --checkpoint outputs/calib_net/rgb_sem_dem/best.pt
+#
+# CHECKPOINT: outputs/calib_net/rgb_sem_dem/best.pt
+#   (use_sem=true, use_dem=true, sem_classes=6, in_ch=11,
+#    dem_source=SYNTHETIC-DEM-PROXY)
+# LOGGING: train_log.json + eval_calib.json / eval_calib.md.
+
+paths:
+  rgb_dir: rgb_data/Train-Track1-RGB/Track1-RGB
+  truth_dir: rgb_data_truth/Train-Track1-Truth/Track1-Truth
+  splits_json: outputs/splits/splits.json
+  depth_cache_dir: outputs/depth_cache
+  affine_json: outputs/baseline/global_affine.json
+  reference_json: outputs/reference/reference_card.json
+  outputs_dir: outputs
+
+dataset:
+  name: dfc2019
+  load_semantics: true
+  # DEM fields (consumed when --use-dem is passed to train):
+  # dem_dir: outputs/dem_cache            # real per-tile DEMs (if you have them)
+  # synth_dem_fallback: true              # set automatically by --synth-dem
+  # synth_dem_sigma_m: 8.0
+  # synth_dem_gsd_m: null                 # None -> assumes 1 m/px (SYNTHETIC-PROXY)
+
+model:
+  use_rgb: true
+  widths: [16, 32, 64]
+  clamp_min: 0.0
+
+train:
+  crop_size: 512
+  batch_size: 4
+  epochs: 40
+  lr: 0.001
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1
+  huber_delta: 5.0
+  workers: 2
+  val_subset: 48
+  patience: 8
+  seed: 42
+  w_grad: 0.0
+  w_smooth: 0.0
+  w_sem: 0.0

@@ -10,15 +10,26 @@ Why this parameterization (PS milestone: Scale Calibration):
     story writes itself: any val improvement is attributable to spatial
     variation of (a, b), not to architecture luck.
   * a(x, y), b(x, y) are free per-pixel fields from a small U-Net over Dn
-    (+ optional RGB as ablation flag). The output stays a physically
-    interpretable per-pixel affine remap of relative depth.
+    (+ optional RGB / SEMANTIC one-hot / DEM ablation channels — see
+    ``derive_in_ch``). The output stays a physically interpretable per-pixel
+    affine remap of relative depth.
   * clamp(min=0): AGL truth is clamped >= 0 (clean_agl), so negative
     predictions are pure loss; the clamp lets the net express the
     median-like "ground = 0" behaviour that beat the baseline in Phase 1.
 
+Channel order (FROZEN — train/eval/infer must agree):
+    [ Dn (1) | RGB (3) | SEM one-hot (K) | DEM (1) ]
+    The semantic block sits BETWEEN RGB and DEM. ``sem`` is the project
+    one-hot [K,H,W] (K=6, datasets/semantics.py). When a checkpoint expects
+    semantic channels but none are supplied at inference (no GT semantics
+    exist on arbitrary images), the channels are ZERO-FILLED and the sample
+    is flagged — the model stays evaluable (plan risk R8: semantics are
+    privileged information during training).
+
 Loss: masked L1 by default (matches MAE metric and floors), Huber optional
 (--loss huber). Never pure L2 — Phase 1 showed L2's upward bias is fatal on
-ground-dominated data.
+ground-dominated data. Additional configurable terms (gradient / edge-aware
+    smoothness / semantic CE) live in depthwizard.losses — NOT here.
 """
 
 from __future__ import annotations
@@ -28,6 +39,18 @@ from typing import Dict, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+def derive_in_ch(use_rgb: bool = False, use_sem: bool = False,
+                 use_dem: bool = False, sem_classes: int = 6) -> int:
+    """Input channel count from the ablation flags (single source).
+
+    in_ch = 1 (Dn) + 3 (RGB) + K (semantic one-hot) + 1 (DEM)
+    Legacy mappings stay exact: Dn=1, Dn+DEM=2, Dn+RGB=4, Dn+RGB+DEM=5.
+    """
+    return (1 + (3 if use_rgb else 0)
+            + (int(sem_classes) if use_sem else 0)
+            + (1 if use_dem else 0))
 
 
 def _conv_block(cin: int, cout: int) -> nn.Sequential:
@@ -40,16 +63,27 @@ def _conv_block(cin: int, cout: int) -> nn.Sequential:
 
 
 class CalibrationNet(nn.Module):
-    """Small U-Net: (Dn [, RGB [, DEM]]) -> per-pixel (a, b) -> H = clamp(a*Dn + b).
+    """Small U-Net: (Dn [, RGB [, SEM ]][, DEM]) -> per-pixel (a, b) -> H.
 
-    Channel counts the constructor accepts:
+    Channel counts the constructor accepts (see ``derive_in_ch``):
       * ``in_ch=1``  — Dn only                       (frozen dn_only variant)
       * ``in_ch=4``  — Dn + RGB                       (frozen rgb_cos flagship)
-      * ``in_ch=5``  — Dn + RGB + DEM                 (Method-D challenger; the
-        DEM conditioning channel is the additive architecture change being
-        ablated — its zero-weight head + a0,b0 bias init makes the variant
-        start exactly at the flagship's numbers, per worklog Section 1)
-      * ``in_ch=2``  — Dn + DEM (no RGB; reserved for a future ablation)
+      * ``in_ch=5``  — Dn + RGB + DEM                 (Method-D challenger)
+      * ``in_ch=2``  — Dn + DEM (no RGB; reserved)
+      * ``in_ch=7``  — Dn + RGB + SEM(6)              (Exp 4, semantic input)
+      * ``in_ch=8``  — Dn + RGB + SEM(6) + DEM        (Exp 5, +DEM)
+      * ``in_ch=1+K`` etc. — any combination via derive_in_ch
+
+    ``sem_classes`` (default 0 = no semantic channels): the K of the one-hot
+    block. When > 0 and ``sem`` is not passed to forward, the channels are
+    ZERO-FILLED (flagged by the caller) so inference stays possible without
+    GT semantics.
+
+    ``sem_aux_head`` (default False): optional auxiliary conv head predicting
+    K semantic logits from the decoder features — enables semantic CE
+    supervision (depthwizard.losses) and predicted-semantics inference.
+    OFF by default = state_dict identical to the pre-Exp-4 class (old
+    checkpoints load unchanged).
 
     ~0.2 M params at widths (16, 32, 64) — trains on CPU in minutes per
     epoch subset, on any GPU in seconds.
@@ -60,9 +94,12 @@ class CalibrationNet(nn.Module):
                  widths: Tuple[int, int, int] = (16, 32, 64),
                  a0: float = 2.076463,
                  b0: float = 4.110271,
-                 clamp_min: float = 0.0):
+                 clamp_min: float = 0.0,
+                 sem_classes: int = 0,
+                 sem_aux_head: bool = False):
         super().__init__()
         self.clamp_min = clamp_min
+        self.sem_classes = int(sem_classes)
         w1, w2, w3 = widths
         self.enc1 = _conv_block(in_ch, w1)
         self.enc2 = _conv_block(w1, w2)
@@ -76,10 +113,14 @@ class CalibrationNet(nn.Module):
         nn.init.zeros_(self.head.weight)
         with torch.no_grad():
             self.head.bias.copy_(torch.tensor([a0, b0], dtype=torch.float32))
+        self.sem_aux_head = None
+        if sem_aux_head and self.sem_classes > 0:
+            self.sem_aux_head = nn.Conv2d(w1, self.sem_classes, 1)
 
     def forward(self, dn: torch.Tensor,
                 rgb: Optional[torch.Tensor] = None,
-                dem: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+                dem: Optional[torch.Tensor] = None,
+                sem: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
         # Accept BOTH [N,C,H,W] and unbatched [C,H,W] (dataset __getitem__
         # returns 3D; DataLoader adds the batch dim in training but direct
         # calls often forget). dim=1 cat on 3D would concat HEIGHT, not
@@ -91,16 +132,24 @@ class CalibrationNet(nn.Module):
                 rgb = rgb[None]
             if dem is not None:
                 dem = dem[None]
-        # Channel order is fixed: Dn [1ch] | RGB [3ch] | DEM [1ch].
+            if sem is not None:
+                sem = sem[None]
+        # Channel order is FIXED: Dn [1] | RGB [3] | SEM [K] | DEM [1].
         # in_ch at construction must match the number of channels actually
-        # passed: 1 (Dn only) | 4 (Dn+RGB) | 5 (Dn+RGB+DEM) | 2 (Dn+DEM).
-        # The zero-weight head + a0,b0 bias init means the network starts
-        # at EXACTLY the affine baseline regardless of in_ch — so the
-        # Dn+RGB+DEM variant also starts at the current flagship's numbers
-        # (worklog Section 1, "Affine init"; worklog Section 3, rule 4).
+        # concatenated. Semantic channels expected but absent -> ZERO-FILL
+        # (the model must remain evaluable without privileged GT semantics;
+        # callers flag the zero-fill in their outputs — plan risk R8).
+        sem_zero_filled = False
+        if self.sem_classes > 0 and sem is None:
+            sem = torch.zeros(dn.shape[0], self.sem_classes,
+                              *dn.shape[-2:], device=dn.device,
+                              dtype=dn.dtype)
+            sem_zero_filled = True
         parts = [dn]
         if rgb is not None:
             parts.append(rgb)
+        if sem is not None:
+            parts.append(sem)
         if dem is not None:
             parts.append(dem)
         x = dn if len(parts) == 1 else torch.cat(parts, dim=1)
@@ -122,7 +171,11 @@ class CalibrationNet(nn.Module):
         h = a * dn + b_
         if self.clamp_min is not None:
             h = torch.clamp(h, min=self.clamp_min)
-        return {"pred": h, "a": a, "b": b_}   # always [N,1,H,W]
+        out = {"pred": h, "a": a, "b": b_,           # always [N,1,H,W]
+                "sem_zero_filled": sem_zero_filled}
+        if self.sem_aux_head is not None:
+            out["sem_logits"] = self.sem_aux_head(y[..., :H, :W])  # [N,K,H,W]
+        return out
 
 
 def masked_l1_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:

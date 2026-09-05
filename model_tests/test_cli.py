@@ -2,7 +2,7 @@
 
 Guards the refactor's core promises:
   * every registered command's module matches the registry NAME/HELP
-  * main.py builds help WITHOUT importing torch (lazy design)
+  * model.py builds help WITHOUT importing torch (lazy design)
   * each command's --help parses (imports only that module)
   * unknown commands fail cleanly
 """
@@ -31,7 +31,7 @@ def test_registry_matches_command_modules():
 
 
 def test_skeleton_help_never_imports_torch(monkeypatch):
-    """`python main.py --help` must work with torch uninstalled/missing."""
+    """`python model.py --help` must work with torch uninstalled/missing."""
     monkeypatch.setitem(sys.modules, "torch", None)     # poison the import
     monkeypatch.setitem(sys.modules, "transformers", None)
     with pytest.raises(SystemExit) as exc:
@@ -59,8 +59,8 @@ def test_unknown_command_exits_with_error():
 
 
 def test_main_py_file_dispatch():
-    """The physical entry point `python main.py <cmd> --help` works."""
-    r = subprocess.run([sys.executable, str(ROOT / "main.py"), "infer", "--help"],
+    """The physical entry point `python model.py <cmd> --help` works."""
+    r = subprocess.run([sys.executable, str(ROOT / "model.py"), "infer", "--help"],
                        capture_output=True, text=True, cwd=ROOT, timeout=120)
     assert r.returncode == 0
     assert "--anchor-dem" in r.stdout

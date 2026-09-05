@@ -133,3 +133,79 @@ def format_metric_row(name: str, m: Dict[str, float]) -> str:
             f"| {m.get('medae', float('nan')):.3f} | {m.get('bias', float('nan')):+.3f} "
             f"| {m.get('pearson_r', float('nan')):.3f} | {m.get('neg_frac_pred', float('nan')):.3f} "
             f"| {m.get('n', 0):,} |")
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 extensions (GAMUS integration) — additive, nothing above changes.
+# ---------------------------------------------------------------------------
+
+def slope_error(pred: np.ndarray, target: np.ndarray,
+                gsd_m: Optional[float] = None,
+                valid_mask: Optional[np.ndarray] = None) -> Optional[Dict[str, float]]:
+    """Mean absolute error of SLOPE ANGLE (degrees), central differences.
+
+    slope(x) = atan( sqrt(dy^2 + dx^2) ) with gradients taken in METRES via
+    the pixel ground size ``gsd_m``. ``gsd_m=None`` -> ``None`` — the GSD
+    honesty rule (geo.pixel_size_metres): DFC2019 Track-1 ships without a
+    CRS, so its pixel size is UNKNOWN and a slope number would be a silent
+    fabrication. GAMUS documents GSD = 0.33 m (HF card) -> slope is honest
+    there (approximation-bounded like any central-difference slope).
+    """
+    if gsd_m is None or gsd_m <= 0:
+        return None
+    p = np.asarray(pred, dtype=np.float64)
+    t = np.asarray(target, dtype=np.float64)
+    if p.shape != t.shape:
+        raise ValueError(f"slope_error shape mismatch {p.shape} vs {t.shape}")
+    gy_p, gx_p = np.gradient(p, gsd_m, gsd_m)
+    gy_t, gx_t = np.gradient(t, gsd_m, gsd_m)
+    sp = np.degrees(np.arctan(np.sqrt(gy_p ** 2 + gx_p ** 2)))
+    st = np.degrees(np.arctan(np.sqrt(gy_t ** 2 + gx_t ** 2)))
+    mask = valid_mask if valid_mask is not None else np.isfinite(t)
+    mask = np.asarray(mask, dtype=bool)
+    # gradient edge pixels: exclude the 1-px border (undefined central diff)
+    if mask.shape == sp.shape:
+        mask = mask.copy()
+        mask[0, :] = mask[-1, :] = mask[:, 0] = mask[:, -1] = False
+    d = (sp - st)[mask]
+    if d.size == 0:
+        return None
+    return {"n": int(d.size), "slope_mae_deg": float(np.abs(d).mean()),
+            "slope_rmse_deg": float(np.sqrt((d ** 2).mean())),
+            "slope_bias_deg": float(d.mean())}
+
+
+def building_metrics(pred: np.ndarray, target: np.ndarray,
+                     building_mask: np.ndarray) -> Dict[str, float]:
+    """Height metrics restricted to BUILDING pixels (project class 0).
+
+    ``building_mask`` comes from the VERIFIED dataset legend mapped to the
+    project building class (datasets/semantics.py) — never from an invented
+    threshold. This is the building-height MAE/RMSE the evaluation spec
+    requires (buildings are where height errors matter most).
+    """
+    m = np.asarray(building_mask, dtype=bool)
+    if m.shape != np.asarray(target).shape:
+        raise ValueError("building_mask/target shape mismatch")
+    return height_metrics(pred, target, m)
+
+
+def stratified_by_project_class(pred: np.ndarray, target: np.ndarray,
+                                project_onehot: np.ndarray,
+                                class_names=None) -> Dict[str, Dict[str, float]]:
+    """Metrics per PROJECT class (building/vegetation/road/water/ground/
+    other), from the one-hot layer + its ignore handling.
+
+    project_onehot: [K,H,W] float (0/1); ignore pixels have all-zero columns
+    (excluded automatically because every channel is 0 there).
+    """
+    if class_names is None:
+        from depthwizard.datasets.semantics import PROJECT_CLASSES
+        class_names = PROJECT_CLASSES
+    out: Dict[str, Dict[str, float]] = {}
+    onehot = np.asarray(project_onehot)
+    for k, name in enumerate(class_names):
+        m = onehot[k] > 0.5
+        if m.sum() > 0:
+            out[name] = height_metrics(pred, target, m)
+    return out

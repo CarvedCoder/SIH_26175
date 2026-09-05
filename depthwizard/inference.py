@@ -1,7 +1,7 @@
 """Image -> AGL/DSM inference pipeline (the ONE code path for CLI + service).
 
 Who uses this module:
-    * the ``infer`` CLI command (``python main.py infer ...``)
+    * the ``infer`` CLI command (``python model.py infer ...``)
     * the FastAPI service (``/service/api.py``) that backs the webapp
     * the scene payload builder that feeds the Three.js viewer
 
@@ -191,7 +191,7 @@ class DepthWizardPredictor:
                  device: str = "cpu",
                  cache_dir: Optional[Path | str] = None,
                  live_backbone: bool = True,
-                 backbone_id: str = "depth-anything/Depth-Anything-V2-Large-hf"):
+                 backbone_id: str = "depth-anything/Depth-Anything-V2-Base-hf"):
         from .tifops import load_calib_net, make_predict_fn, resolve_torch_device
 
         self.device = resolve_torch_device(device)
@@ -241,7 +241,7 @@ class DepthWizardPredictor:
             f"no Dn for '{stem or '<array>'}': not found in cache "
             f"({self.cache_dir}), no --dn given, and live backbone is "
             f"disabled. Enable it or precompute the cache "
-            f"(`python main.py depth`).")
+            f"(`python model.py depth`).")
 
     # ------------------------------------------------------------------
     def predict(self, rgb_u8: np.ndarray, dn: np.ndarray,
@@ -459,7 +459,7 @@ def run_inference(input_path: Path | str,
                   dn_path: Optional[Path | str] = None,
                   cache_dir: Optional[Path | str] = None,
                   live_backbone: bool = True,
-                  backbone_id: str = "depth-anything/Depth-Anything-V2-Large-hf",
+                  backbone_id: str = "depth-anything/Depth-Anything-V2-Base-hf",
                   anchor_dem: Optional[Path | str] = None,
                   ground_elev: Optional[float] = None,
                   write_files: bool = True) -> Dict:
