@@ -1,10 +1,10 @@
 """Command registry — the single source of truth for the CLI surface.
 
 Lazy-subcommand design (standard for heavy CLIs like git/docker):
-    * ``main.py --help``          builds a SKELETON parser from the static
+    * ``model.py --help``          builds a SKELETON parser from the static
                                   table below — zero command-module imports,
                                   works before torch/transformers install.
-    * ``main.py <cmd> ...``       imports ONLY that command's module, builds
+    * ``model.py <cmd> ...``       imports ONLY that command's module, builds
                                   its full parser, runs it.
 
 The (module, name, help) triples below are duplicated in each command
@@ -30,6 +30,9 @@ SPECS: List[tuple] = [
      "dataset structure/alignment/class inspection + quicklooks"),
     ("make_splits", "splits",
      "freeze scene-level train/val/test splits (block mode default)"),
+    ("dataset_stats", "stats",
+     "per-dataset AGL/Dn statistics + normalization verification "
+     "(REQUIRED gate before mixed training)"),
     ("precompute_depth", "depth",
      "precompute the Depth-Anything-V2 raw depth cache (.npy per tile)"),
     ("fit_baseline", "fit-baseline",
@@ -59,9 +62,10 @@ SPECS: List[tuple] = [
 COMMANDS: Dict[str, str] = {name: mod for mod, name, _h in SPECS}
 HELPS: Dict[str, str] = {name: h for _m, name, h in SPECS}
 
-_EPILOG = ("Pipeline order: inspect -> splits -> depth -> fit-baseline -> "
-           "eval-baseline -> dummies -> reference -> train -> evaluate -> "
-           "infer | serve. Citable numbers: `evaluate` only.")
+_EPILOG = ("Pipeline order: inspect -> splits -> depth -> [stats: multi-"
+           "dataset verification gate] -> fit-baseline -> eval-baseline -> "
+           "dummies -> reference -> train -> evaluate -> infer | serve. "
+           "Citable numbers: `evaluate` only.")
 
 
 def load_command(name: str) -> ModuleType:
@@ -74,7 +78,7 @@ def load_command(name: str) -> ModuleType:
 def _skeleton_parser() -> argparse.ArgumentParser:
     """All command names + helps, NO command-module imports."""
     ap = argparse.ArgumentParser(
-        prog="main.py",
+        prog="model.py",
         description="DepthWizard (SIH26175) — single-view aerial RGB -> "
                     "LiDAR-derived height (AGL) estimation + 3D flythrough.",
         epilog=_EPILOG)
@@ -86,7 +90,7 @@ def _skeleton_parser() -> argparse.ArgumentParser:
 
 def _full_parser(mod: ModuleType) -> argparse.ArgumentParser:
     """Full parser hosting exactly one command's real subparser."""
-    ap = argparse.ArgumentParser(prog="main.py", epilog=_EPILOG)
+    ap = argparse.ArgumentParser(prog="model.py", epilog=_EPILOG)
     sub = ap.add_subparsers(dest="command", metavar="<command>")
     mod.add_parser(sub)
     return ap

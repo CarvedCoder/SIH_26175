@@ -10,7 +10,7 @@ This prints the same error/saturation lines the smoke test used; it is a
 diagnostic, never a citable number.
 
 Usage:
-  python main.py gt-check --pred outputs/infer/JAX_004_014/dsm.npy \
+  python model.py gt-check --pred outputs/infer/JAX_004_014/dsm.npy \
       --truth rgb_data_truth/.../JAX_004_014_AGL.tif
 """
 

@@ -12,7 +12,7 @@ Predictors (constants fitted on TRAIN split only, like the affine):
   train_median    H = median(AGL_train)
 
 Usage:
-  python main.py dummies --config configs/phase1.yaml
+  python model.py dummies --config configs/phase1.yaml
 """
 
 from __future__ import annotations

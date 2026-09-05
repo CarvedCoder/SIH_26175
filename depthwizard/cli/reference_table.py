@@ -10,7 +10,7 @@ affine actually beats them, and writes a frozen reference card used by:
   * training gates (success criteria, consumed by `evaluate`).
 
 Usage:
-  python main.py reference --config configs/phase1.yaml
+  python model.py reference --config configs/phase1.yaml
 """
 
 from __future__ import annotations

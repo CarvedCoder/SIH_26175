@@ -2,23 +2,23 @@
 
 Every pipeline stage fires from this file:
 
-    python main.py inspect      --rgb-dir ... --truth-dir ...     # dataset audit
-    python main.py splits       --rgb-dir ... --truth-dir ...     # freeze splits
-    python main.py depth        --rgb-dir ... --device auto       # DAv2 cache
-    python main.py fit-baseline --config configs/phase1.yaml      # H = a*Dn + b
-    python main.py eval-baseline --config configs/phase1.yaml     # masked eval
-    python main.py dummies      --config configs/phase1.yaml      # constant floors
-    python main.py reference    --config configs/phase1.yaml      # frozen gates
-    python main.py train        --config configs/phase2.yaml      # calibration net
-    python main.py evaluate     --config configs/phase2.yaml      # CITABLE numbers
-    python main.py infer        --input scene.tif                 # demo DSM
-    python main.py eval-scene   --pred dsm.tif --truth AGL.tif    # diagnostics
-    python main.py gt-check     --pred dsm.npy --truth AGL.tif    # smoke protocol
-    python main.py diag         --config configs/phase2.yaml      # run diagnostics
-    python main.py serve        --port 8000                       # webapp backend
+    python model.py inspect      --rgb-dir ... --truth-dir ...     # dataset audit
+    python model.py splits       --rgb-dir ... --truth-dir ...     # freeze splits
+    python model.py depth        --rgb-dir ... --device auto       # DAv2 cache
+    python model.py fit-baseline --config configs/phase1.yaml      # H = a*Dn + b
+    python model.py eval-baseline --config configs/phase1.yaml     # masked eval
+    python model.py dummies      --config configs/phase1.yaml      # constant floors
+    python model.py reference    --config configs/phase1.yaml      # frozen gates
+    python model.py train        --config configs/phase2.yaml      # calibration net
+    python model.py evaluate     --config configs/phase2.yaml      # CITABLE numbers
+    python model.py infer        --input scene.tif                 # demo DSM
+    python model.py eval-scene   --pred dsm.tif --truth AGL.tif    # diagnostics
+    python model.py gt-check     --pred dsm.npy --truth AGL.tif    # smoke protocol
+    python model.py diag         --config configs/phase2.yaml      # run diagnostics
+    python model.py serve        --port 8000                       # webapp backend
 
-    python main.py --help        # all commands
-    python main.py <command> --help
+    python model.py --help        # all commands
+    python model.py <command> --help
 
 Governance (frozen): FINAL / citable numbers come ONLY from `evaluate`.
 """

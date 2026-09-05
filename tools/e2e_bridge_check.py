@@ -4,7 +4,7 @@
 Simulates the full webapp loop without a trained flagship:
   1. build a tiny untrained CalibrationNet checkpoint (affine init exact)
   2. write a synthetic RGB image (+ a georeferenced variant + a DEM)
-  3. run `python main.py infer --json-out` (CLI transport)
+  3. run `python model.py infer --json-out` (CLI transport)
   4. boot the FastAPI service, POST /predict (service transport)
   5. assert both payloads satisfy the frontend contract (lib/dw.ts)
 
@@ -120,10 +120,10 @@ infer:
 """)
 
     # ------------------------------------------------------------------
-    print("\n[1/3] CLI transport: python main.py infer --json-out")
+    print("\n[1/3] CLI transport: python model.py infer --json-out")
     json_out = work / "payload_cli.json"
     r = subprocess.run(
-        [sys.executable, "main.py", "infer", "--config", str(cfg),
+        [sys.executable, "model.py", "infer", "--config", str(cfg),
          "--input", str(img_plain), "--json-out", str(json_out),
          "--out", str(work / "out" / "cli"), "--no-live"],
         cwd=ROOT, capture_output=True, text=True, timeout=600)
@@ -133,7 +133,7 @@ infer:
     raw = np.tile(np.linspace(1, 5, 300), (300, 1)).astype(np.float32)
     np.save(cache / "plain.npy", raw)
     r2 = subprocess.run(
-        [sys.executable, "main.py", "infer", "--config", str(cfg),
+        [sys.executable, "model.py", "infer", "--config", str(cfg),
          "--input", str(img_plain), "--json-out", str(json_out),
          "--out", str(work / "out" / "cli2")],
         cwd=ROOT, capture_output=True, text=True, timeout=600)
@@ -148,7 +148,7 @@ infer:
     # anchored run (georef image + DEM)
     json_anc = work / "payload_anchored.json"
     r3 = subprocess.run(
-        [sys.executable, "main.py", "infer", "--config", str(cfg),
+        [sys.executable, "model.py", "infer", "--config", str(cfg),
          "--input", str(img_geo), "--json-out", str(json_anc),
          "--out", str(work / "out" / "anc"), "--anchor-dem", str(dem),
          "--no-live"],
@@ -158,7 +158,7 @@ infer:
     check("anchored run without Dn source fails honestly", r3.returncode != 0)
     np.save(cache / "geo.npy", raw)
     r3 = subprocess.run(
-        [sys.executable, "main.py", "infer", "--config", str(cfg),
+        [sys.executable, "model.py", "infer", "--config", str(cfg),
          "--input", str(img_geo), "--json-out", str(json_anc),
          "--out", str(work / "out" / "anc"), "--anchor-dem", str(dem),
          "--cache-dir", str(cache)],

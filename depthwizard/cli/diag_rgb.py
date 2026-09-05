@@ -6,7 +6,7 @@
   C. Init exactness: net(dn, rgb) == clamp(a0*Dn + b0)?
   D. Pre-clip gradient norms (total/head) + clip-hit count.
 
-Usage: python main.py diag --config configs/phase2.yaml [--batches 20]
+Usage: python model.py diag --config configs/phase2.yaml [--batches 20]
 """
 
 from __future__ import annotations

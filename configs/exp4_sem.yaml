@@ -1,0 +1,74 @@
+# Exp 4 — RGB + Dn + SEMANTIC one-hot -> U-Net calibration (SIH26175).
+#
+# ARCHITECTURE: in_ch = 1 (Dn) + 3 (RGB) + 6 (project one-hot) = 10.
+#   Channel order (frozen): [ Dn | RGB | SEM | (DEM) ].
+#   The semantic block is the 6-channel ONE-HOT over the VERIFIED project
+#   classes (building, vegetation, road, water, ground, other) + explicit
+#   ignore mask (datasets/semantics.py). Raw dataset ids are preserved in
+#   sample['cls'] and meta — mapping provenance is in the legend module.
+#
+# HONESTY (risk R8, binding): GT semantics are PRIVILEGED information. This
+# experiment uses them as INPUT channels to measure the information value
+# of semantics. Inference without GT semantics ZERO-FILLS the channels and
+# flags it (CalibrationNet.forward sem_zero_filled). For a realistic
+# deployment path, train additionally with --sem-aux-head so semantics can
+# be PREDICTED from RGB+Dn at inference.
+#
+# RUNBOOK (DFC2019 Exp 4):
+#   # 0) prerequisites (already frozen for Exp 1-3): splits + depth cache
+#   #    + DFC affine baseline (outputs/baseline/global_affine.json)
+#   # 1) train
+#   python model.py train --config configs/exp4_sem.yaml \
+#       --use-rgb --use-sem --out-tag rgb_sem
+#   #    (optional aux head + semantic CE, still minimal-first:)
+#   #    add: --sem-aux-head --w-sem 0.2
+#   # 2) CITABLE evaluation (same governance as Exp 1-3)
+#   python model.py evaluate --config configs/exp4_sem.yaml \
+#       --checkpoint outputs/calib_net/rgb_sem/best.pt
+#   # 3) cross-dataset generalization probe (Exp 4 model on GAMUS):
+#   python model.py evaluate --config configs/gamus.yaml --dataset gamus \
+#       --checkpoint outputs/calib_net/rgb_sem/best.pt --splits val
+#
+# CHECKPOINT: outputs/calib_net/rgb_sem/best.pt
+#   (use_sem=true, sem_classes=6, in_ch=10, loss_weights recorded)
+# LOGGING: outputs/calib_net/rgb_sem/train_log.json (per-epoch history +
+#   loss-parts breakdown), eval_calib.json / eval_calib.md from evaluate.
+
+paths:
+  rgb_dir: rgb_data/Train-Track1-RGB/Track1-RGB
+  truth_dir: rgb_data_truth/Train-Track1-Truth/Track1-Truth
+  splits_json: outputs/splits/splits.json
+  depth_cache_dir: outputs/depth_cache
+  affine_json: outputs/baseline/global_affine.json
+  reference_json: outputs/reference/reference_card.json
+  outputs_dir: outputs
+
+# The dataset: section opts into the multi-dataset factory (adapters with
+# one-hot semantics). WITHOUT it, train uses the frozen legacy DFC path.
+dataset:
+  name: dfc2019
+  load_semantics: true          # produce sem_onehot [6,H,W] + sem_ignore
+
+model:
+  use_rgb: true
+  widths: [16, 32, 64]
+  clamp_min: 0.0
+
+train:
+  crop_size: 512
+  batch_size: 4
+  epochs: 40
+  lr: 0.001
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1                      # 'l1' | 'huber'
+  huber_delta: 5.0
+  workers: 2
+  val_subset: 48
+  patience: 8
+  seed: 42
+  # Phase-4 loss weights — ALL default 0 (exact pre-Phase-4 behavior).
+  # CLI: --w-grad / --w-smooth / --w-sem
+  w_grad: 0.0
+  w_smooth: 0.0
+  w_sem: 0.0

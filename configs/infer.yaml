@@ -1,4 +1,4 @@
-# Inference + service configuration — shared by `python main.py infer`
+# Inference + service configuration — shared by `python model.py infer`
 # and the FastAPI service (service/api.py). Paths relative to the repo root.
 
 paths:
@@ -10,11 +10,13 @@ paths:
 
 infer:
   # Flagship checkpoint (rgb_cos). Train your own with:
-  #   python main.py train --use-rgb --cosine --out-tag rgb_cos
+  #   python model.py train --use-rgb --cosine --out-tag rgb_cos
   checkpoint: outputs/calib_net/rgb_cos/best.pt
   device: auto                  # auto | cuda | cpu
   mode: auto                    # auto | crop | resize | tiles
   # Live Depth-Anything-V2 when no cached Dn exists (arbitrary uploads).
   # First call downloads weights from HuggingFace — see depthwizard/backbone.py.
   live_backbone: true
-  backbone: depth-anything/Depth-Anything-V2-Large-hf
+  # Aligned to ViT-B (Phase 0.2): the SAME variant the training cache was
+  # built with — live Dn stays distribution-consistent with cached Dn.
+  backbone: depth-anything/Depth-Anything-V2-Base-hf

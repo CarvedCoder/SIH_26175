@@ -19,9 +19,9 @@ NOT an evaluation tool: no gates, no metrics. Citable numbers come from
 `evaluate` only.
 
 Usage:
-  python main.py infer --config configs/infer.yaml --input IMG_0042.tif
-  python main.py infer --input scene.tif --mode tiles --anchor-dem dem.tif
-  python main.py infer --input photo.png --json-out payload.json --no-live
+  python model.py infer --config configs/infer.yaml --input IMG_0042.tif
+  python model.py infer --input scene.tif --mode tiles --anchor-dem dem.tif
+  python model.py infer --input photo.png --json-out payload.json --no-live
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def run(args) -> int:
         str(Path(paths.get("outputs_dir", "outputs")) / "calib_net" / "rgb_cos" / "best.pt")
     if not Path(ckpt).exists():
         print(f"[error] checkpoint not found: {ckpt}\n"
-              f"        train one (`python main.py train --out-tag rgb_cos`) or "
+              f"        train one (`python model.py train --out-tag rgb_cos`) or "
               f"pass --checkpoint.")
         return 1
 
@@ -87,7 +87,7 @@ def run(args) -> int:
     mode = args.mode or icfg.get("mode", "auto")
     cache_dir = args.cache_dir or paths.get("depth_cache_dir")
     backbone_id = args.backbone or icfg.get("backbone",
-                                            "depth-anything/Depth-Anything-V2-Large-hf")
+                                            "depth-anything/Depth-Anything-V2-Base-hf")
     input_path = Path(args.input)
     out_dir = Path(args.out) if args.out else \
         Path(paths.get("outputs_dir", "outputs")) / "infer" / input_path.stem
