@@ -1,0 +1,94 @@
+# GAMUS experiment configs (Exp 1-3 replicated on GAMUS, then Exp 4).
+#
+# This file is a TEMPLATE family: copy it and set affine_json / out-tag per
+# experiment. GAMUS-specific facts baked in here (VERIFIED):
+#   * source: raw HDF5, official splits verbatim (5004/859/2861)
+#   * heights = nDSM/AGL semantics, units UNDOCUMENTED (assumed metres —
+#     flagged in every sample's meta, never silently claimed)
+#   * NO CRS anywhere (relative-DSM mode, like DFC Track-1), GSD 0.33 m
+#   * one-hot semantics over the 6 project classes via the VERIFIED
+#     RSI-MMSegmentation legend (0=others -> 'other', NOT ignore)
+#
+# ------------------------------------------------------------------
+# Exp 1 (GAMUS affine baseline):
+#   python model.py fit-baseline --config configs/gamus.yaml --dataset gamus
+#   # -> outputs/baseline/global_affine_gamus.json  (NEVER overwrites the
+#   #    DFC baseline file)
+#   python model.py eval-baseline --config configs/phase1.yaml \
+#       --baseline-json outputs/baseline/global_affine_gamus.json   # DFC eval
+#   # (GAMUS-side affine eval happens through stats + evaluate adapter path)
+#
+# Exp 2 (GAMUS dn-only calibration net) — point affine_json at the GAMUS fit:
+#   cp configs/gamus.yaml configs/gamus_exp2.yaml
+#   # edit gamus_exp2.yaml: affine_json: outputs/baseline/global_affine_gamus.json
+#   python model.py train --config configs/gamus_exp2.yaml --out-tag gamus_dn
+#   python model.py evaluate --config configs/gamus_exp2.yaml --dataset gamus \
+#       --checkpoint outputs/calib_net/gamus_dn/best.pt --splits val test
+#
+# Exp 3 (GAMUS + RGB):
+#   python model.py train --config configs/gamus_exp2.yaml --use-rgb \
+#       --out-tag gamus_rgb
+#   python model.py evaluate --config configs/gamus_exp2.yaml --dataset gamus \
+#       --checkpoint outputs/calib_net/gamus_rgb/best.pt
+#
+# Exp 4 (GAMUS + RGB + semantics):
+#   python model.py train --config configs/gamus_exp2.yaml --use-rgb \
+#       --use-sem --out-tag gamus_rgb_sem
+#   python model.py evaluate --config configs/gamus_exp2.yaml --dataset gamus \
+#       --checkpoint outputs/calib_net/gamus_rgb_sem/best.pt
+#
+# Cross-dataset probes (DFC-trained flagship ON GAMUS, and vice versa):
+#   python model.py evaluate --config configs/gamus.yaml --dataset gamus \
+#       --checkpoint outputs/calib_net/rgb_cos/best.pt --splits val
+#   # (DFC-side: train a gamus ckpt, then evaluate --config configs/phase2.yaml
+#   #  --checkpoint outputs/calib_net/gamus_rgb/best.pt  — DFC frozen path)
+#
+# MIXED training — GATED (binding user constraint: do not mix GAMUS and
+# DFC2019 until per-dataset statistics and normalization are verified):
+#   python model.py stats --config configs/gamus.yaml \
+#       --datasets dfc2019 gamus --out outputs/stats/dataset_stats.json
+#   # human reviews the artifact, then:
+#   python model.py stats ... --mark-verified
+#   # only then a dataset: name: mixed config with verified_stats can build.
+# ------------------------------------------------------------------
+
+paths:
+  depth_cache_dir: outputs/depth_cache
+  outputs_dir: outputs
+  affine_json: outputs/baseline/global_affine_gamus.json
+  splits_json: outputs/splits/gamus_splits.json
+  rgb_dir: rgb_data/Train-Track1-RGB/Track1-RGB        # for stats --datasets dfc2019
+  truth_dir: rgb_data_truth/Train-Track1-Truth/Track1-Truth
+  reference_json: outputs/reference/reference_card.json
+
+dataset:
+  name: gamus
+  source: hf                     # raw HDF5 + lazy per-file download (PRIMARY)
+  backend: hdf5                  # dataset4eo = optional, NOT implemented (documented)
+  repo_id: earthflow/GAMUS
+  manifest: outputs/splits/gamus_splits.json
+  # local_root: /path/to/gamus_raw   # offline alternative (source: local)
+  limit: 0
+  load_semantics: true
+
+model:
+  use_rgb: false
+  widths: [16, 32, 64]
+  clamp_min: 0.0
+
+train:
+  crop_size: 512
+  batch_size: 4
+  epochs: 40
+  lr: 0.001
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1
+  huber_delta: 5.0
+  workers: 2
+  val_subset: 48
+  patience: 8
+  seed: 42
+  w_grad: 0.0
+  w_smooth: 0.0
+  w_sem: 0.0

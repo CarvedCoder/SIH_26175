@@ -14,8 +14,14 @@ Recipe (frozen — must match the ``depth`` command exactly):
               depthwizard.normalize.minmax_normalize at consume time)
 
 Offline honesty: the first call downloads weights from HuggingFace
-(ViT-Large ~1.3 GB, ViT-Base ~390 MB). If the host is offline and no cache
+(ViT-Base ~390 MB, ViT-Large ~1.3 GB). If the host is offline and no cache
 exists, predict() raises — we never fabricate a depth substitute.
+
+Default alignment (Phase 0.2): the module default is
+``depth-anything/Depth-Anything-V2-Base-hf`` (ViT-B) — the SAME variant the
+``depth`` command used to build the training cache. The pre-GAMUS default was
+V2-Large-hf, which silently mismatched cached vs live Dn distributions
+(risk R9 in the integration plan). Callers can still override per-config.
 """
 
 from __future__ import annotations
@@ -35,7 +41,7 @@ _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 class DepthAnythingBackbone:
     """Lazy-loading singleton-style wrapper around the HF depth model."""
 
-    def __init__(self, model_id: str = "depth-anything/Depth-Anything-V2-Large-hf",
+    def __init__(self, model_id: str = "depth-anything/Depth-Anything-V2-Base-hf",
                  device: str = "cpu", fp16: bool = False):
         self.model_id = model_id
         self.device = device
@@ -98,7 +104,7 @@ class DepthAnythingBackbone:
 _DEFAULT: Optional[DepthAnythingBackbone] = None
 
 
-def get_backbone(model_id: str = "depth-anything/Depth-Anything-V2-Large-hf",
+def get_backbone(model_id: str = "depth-anything/Depth-Anything-V2-Base-hf",
                  device: str = "cpu") -> DepthAnythingBackbone:
     """Process-wide shared backbone instance (loads on first raw_depth call)."""
     global _DEFAULT

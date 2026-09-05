@@ -8,7 +8,7 @@ of the certified `evaluate` command —
 hand-picked scenes, so its numbers are diagnostics, never leaderboard rows.
 
 Usage:
-  python main.py eval-scene --pred outputs/infer/JAX_004_014/dsm.tif \
+  python model.py eval-scene --pred outputs/infer/JAX_004_014/dsm.tif \
       --truth rgb_data_truth/Train-Track1-Truth/Track1-Truth/JAX_004_014_AGL.tif
 """
 

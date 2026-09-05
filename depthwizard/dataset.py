@@ -109,17 +109,22 @@ class DFC2019Dataset(Dataset):
     def _load_depth(self, stem: str, h: int, w: int) -> Optional[np.ndarray]:
         if not self.cfg.load_depth or self.cfg.depth_cache_dir is None:
             return None
-        f = self.cfg.depth_cache_dir / f"{stem}.npy"
-        if not f.exists():
+        # Phase 1 (GAMUS integration): namespaced layout first
+        # (<model_tag>/dfc2019/{stem}.npy), legacy flat layout
+        # (<model_tag>/{stem}.npy) second — existing caches keep working.
+        from .geo import depth_npy_candidates as _cand
+        candidates = _cand(self.cfg.depth_cache_dir, "dfc2019", stem)
+        f = next((p for p in candidates if p.exists()), None)
+        if f is None:
             raise FileNotFoundError(
-                f"Depth cache miss for '{stem}': {f} not found. Run "
-                "scripts/03_precompute_depth.py first, or set load_depth=False.")
+                f"Depth cache miss for '{stem}': none of {candidates}. Run "
+                "`python model.py depth` first, or set load_depth=False.")
         raw = np.load(f)
         if raw.shape != (h, w):
             raise ValueError(
                 f"Depth cache for '{stem}' has shape {raw.shape}, tile grid is "
                 f"{(h, w)} — cache and rasters are out of sync. Delete the "
-                "stale .npy and re-run 03_precompute_depth.py.")
+                "stale .npy and re-run the depth command.")
         return minmax_normalize(raw)
 
     # ------------------------------------------------------------------
@@ -183,33 +188,23 @@ class DFC2019Dataset(Dataset):
 
     # ------------------------------------------------------------------
     def _joint_crop(self, layers: Dict[str, np.ndarray], rng: random.Random):
-        """One shared window for every layer, or identity when crop is None."""
-        c = self.cfg.crop_size
-        ref = layers["rgb"]
-        h, w = ref.shape[:2]
-        if c is None or (h <= c and w <= c):
-            for name in layers:
-                layers[name] = layers[name][:c or h, :c or w] if c else layers[name]
-            return 0, 0
-        y0 = rng.randint(0, h - c)
-        x0 = rng.randint(0, w - c)
-        for name in layers:                      # <- single window, all layers
-            layers[name] = layers[name][y0:y0 + c, x0:x0 + c]
-        return y0, x0
+        """One shared window for every layer, or identity when crop is None.
+
+        Delegates to depthwizard.datasets.transforms.joint_crop (single
+        source of truth shared with the new adapters) — behavior identical
+        to the pre-GAMUS implementation (test_dataset.py pins it).
+        """
+        from .datasets.transforms import joint_crop
+        return joint_crop(layers, rng, self.cfg.crop_size)
 
     def _joint_flip_rot(self, layers: Dict[str, np.ndarray], rng: random.Random):
-        """One shared (rot90 k, hflip, vflip) for every layer."""
-        k = rng.randint(0, 3)
-        do_h = rng.random() < 0.5
-        do_v = rng.random() < 0.5
-        for name, arr in layers.items():
-            a = np.rot90(arr, k=k)
-            if do_h:
-                a = np.flip(a, axis=1)
-            if do_v:
-                a = np.flip(a, axis=0)
-            layers[name] = np.ascontiguousarray(a)
-        return k, do_h, do_v
+        """One shared (rot90 k, hflip, vflip) for every layer.
+
+        Delegates to depthwizard.datasets.transforms.joint_flip_rot —
+        behavior identical to the pre-GAMUS implementation.
+        """
+        from .datasets.transforms import joint_flip_rot
+        return joint_flip_rot(layers, rng)
 
     # ------------------------------------------------------------------
     def __getitem__(self, idx: int) -> Dict:
@@ -258,6 +253,8 @@ class DFC2019Dataset(Dataset):
             "stem": tile.stem, "h": agl_t.shape[1], "w": agl_t.shape[2],
             "y0": y0, "x0": x0, "rot90": k, "flip_h": do_h, "flip_v": do_v,
             "dem_tag": dem_tag,
+            # Phase 1 (GAMUS integration): dataset provenance — additive keys.
+            "dataset": "dfc2019", "sample_id": tile.stem,
         }
         return {
             "rgb": rgb_t, "agl": agl_t, "cls": cls_t, "dn": dn_t, "dem": dem_t,
@@ -266,9 +263,15 @@ class DFC2019Dataset(Dataset):
 
 
 # ---------------------------------------------------------------------------
-def discover_and_split(config: DFC2019Config, splits_json: Path | str):
+def discover_and_split(config: DFC2019Config, splits_json: Path | str,
+                       dataset_class=DFC2019Dataset, **adapter_kwargs):
     """Convenience: discover tiles, load frozen splits.json, build the three
-    dataset objects. Used by 04/05 scripts and (later) the training loop."""
+    dataset objects. Used by 04/05 scripts and (later) the training loop.
+
+    ``dataset_class`` (Phase 1, additive): defaults to the frozen
+    DFC2019Dataset; the datasets.dfc2019 adapter passes DFC2019Adapter so
+    existing call sites gain semantics without any duplication.
+    """
     from .geo import discover_tiles, load_json
     tiles, problems = discover_tiles(config.rgb_dir, config.truth_dir)
     if problems:
@@ -295,7 +298,8 @@ def discover_and_split(config: DFC2019Config, splits_json: Path | str):
             synth_dem_gsd_m=config.synth_dem_gsd_m,
             seed=config.seed + hash(split) % 1000,
         )
-        out[split] = DFC2019Dataset([by_stem[s] for s in stems], cfg)
+        out[split] = dataset_class([by_stem[s] for s in stems], cfg,
+                                   **adapter_kwargs)
     return out
 
 

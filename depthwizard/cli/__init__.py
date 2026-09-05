@@ -6,16 +6,16 @@ Each command module exposes exactly:
     add_parser(subparsers)     registers its argparse subparser
     run(args) -> int           executes; 0 = success
 
-Everything fires from the repo-root ``main.py``:
+Everything fires from the repo-root ``model.py``:
 
-    python main.py inspect --rgb-dir ... --truth-dir ...
-    python main.py splits  --rgb-dir ... --truth-dir ...
-    python main.py depth   --rgb-dir ... --device auto
-    python main.py fit-baseline / eval-baseline / dummies / reference
-    python main.py train / evaluate / infer / eval-scene / gt-check / diag
-    python main.py serve  --port 8000          # FastAPI bridge for the webapp
+    python model.py inspect --rgb-dir ... --truth-dir ...
+    python model.py splits  --rgb-dir ... --truth-dir ...
+    python model.py depth   --rgb-dir ... --device auto
+    python model.py fit-baseline / eval-baseline / dummies / reference
+    python model.py train / evaluate / infer / eval-scene / gt-check / diag
+    python model.py serve  --port 8000          # FastAPI bridge for the webapp
 
-Command modules are imported LAZILY (only when invoked), so ``main.py --help``
+Command modules are imported LAZILY (only when invoked), so ``model.py --help``
 stays instant and works even before heavy deps (torch/transformers) are
 installed.
 """

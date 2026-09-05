@@ -5,7 +5,7 @@
 #
 # Your trained flagship checkpoint is read from ./outputs on the host:
 #   outputs/calib_net/rgb_cos/best.pt
-# Train locally first (`python main.py train --use-rgb --cosine --out-tag rgb_cos`).
+# Train locally first (`python model.py train --use-rgb --cosine --out-tag rgb_cos`).
 
 services:
   backend:

@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY depthwizard/ ./depthwizard/
 COPY service/ ./service/
 COPY configs/ ./configs/
-COPY main.py ./
+COPY model.py ./
 
 # Outputs (per-request DSM products) live here; mount a volume to keep them.
 # Your trained checkpoint is expected at

@@ -1,6 +1,6 @@
 """DepthWizard — single-view RGB -> DSM estimation (SIH26175).
 
-Package layout (v2, modular — everything fires from the repo-root ``main.py``):
+Package layout (v2, modular — everything fires from the repo-root ``model.py``):
 
     depthwizard/                 CORE LIBRARY (frozen contracts — import, never rewrite)
       normalize.py                 Dn min-max + AGL cleaning  [SINGLE SOURCE OF TRUTH]
