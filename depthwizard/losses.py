@@ -46,10 +46,11 @@ class LossConfig:
     w_sem: float = 0.0
     # w_conf: reserved (optional confidence weighting) — not implemented
 
-    def from_train_cfg(tcfg: dict) -> "LossConfig":
+    @classmethod
+    def from_train_cfg(cls, tcfg: dict) -> "LossConfig":
         """Build from the `train:` YAML section + CLI overrides handled by
         the caller (train command passes explicit values after merging)."""
-        return LossConfig(
+        return cls(
             main=tcfg.get("loss", "l1"),
             huber_delta=float(tcfg.get("huber_delta", 5.0)),
             w_grad=float(tcfg.get("w_grad", 0.0)),
@@ -131,7 +132,7 @@ class DepthLoss:
     """Composite loss; ``__call__`` returns the TOTAL tensor (backprop-able),
     and ``.last_parts`` carries the per-term breakdown for logging."""
 
-    def __init__(self, cfg: LossConfig = None):
+    def __init__(self, cfg: Optional[LossConfig] = None):
         self.cfg = cfg or LossConfig()
         self.last_parts: Dict[str, float] = {}
 
@@ -164,5 +165,5 @@ class DepthLoss:
         return total
 
 
-def build_loss(cfg: LossConfig = None) -> DepthLoss:
+def build_loss(cfg: Optional[LossConfig] = None) -> DepthLoss:
     return DepthLoss(cfg)

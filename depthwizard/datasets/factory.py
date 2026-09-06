@@ -38,7 +38,7 @@ passed through — the factory only owns DATASET identity and sources.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Mapping, Optional
 
 from .base import AdapterConfig
 
@@ -46,7 +46,7 @@ from .base import AdapterConfig
 def build_dfc2019(dataset_cfg: dict, paths: dict, *, crop_size=None,
                   augment: bool = False, load_depth: bool = True,
                   depth_cache_dir=None, clamp_agl_min: float = 0.0,
-                  seed: int = 42) -> Dict[str, "object"]:
+                  seed: int = 42) -> Mapping[str, "object"]:
     """{train,val,test} DFC2019Adapter datasets (frozen split logic reused)."""
     from ..dataset import DFC2019Config
     from .dfc2019 import DFC2019Adapter, discover_and_split_adapter
@@ -71,7 +71,7 @@ def build_dfc2019(dataset_cfg: dict, paths: dict, *, crop_size=None,
 def build_gamus(dataset_cfg: dict, *, crop_size=None, augment: bool = False,
                 load_depth: bool = True, depth_cache_dir=None,
                 clamp_agl_min: float = 0.0, seed: int = 42
-                ) -> Dict[str, "object"]:
+                ) -> Mapping[str, "object"]:
     """{split: GAMUSDataset} — official splits, verbatim."""
     from .gamus import GAMUSConfig, build_gamus_datasets
 
@@ -99,7 +99,7 @@ def build_gamus(dataset_cfg: dict, *, crop_size=None, augment: bool = False,
 def build_datasets(cfg: dict, *, crop_size=None, augment: bool = False,
                    load_depth: bool = True, depth_cache_dir=None,
                    clamp_agl_min: float = 0.0,
-                   seed: int = 42) -> Dict[str, "object"]:
+                   seed: int = 42) -> Mapping[str, "object"]:
     """Build {train,val,test} datasets from a full YAML config dict.
 
     Supports:

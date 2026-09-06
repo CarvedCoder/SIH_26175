@@ -35,6 +35,8 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Sequence, Sized
+from typing import cast
 
 import numpy as np
 
@@ -49,7 +51,7 @@ HELP = ("per-dataset AGL/Dn statistics + normalization verification "
         "(REQUIRED gate before mixed training)")
 
 
-def _pooled_stats(chunks: list) -> dict:
+def _pooled_stats(chunks: list) -> dict | None:
     """Streaming pooled stats from a list of 1-D pixel arrays."""
     if not chunks:
         return None
@@ -94,9 +96,11 @@ def _collect_dataset(name: str, cfg: dict, cache_dir, limit: int,
     sem_counts = np.zeros(NUM_PROJECT_CLASSES, dtype=np.int64)
     ignore_count = 0
     per_tile = []
-    idxs = range(len(ds))
+    ds_seq = cast(Sequence, ds)
+    ds_sized = cast(Sized, ds_seq)
+    idxs = range(len(ds_sized))
     for i in idxs:
-        s = ds[i]
+        s = ds_seq[i]
         agl = s["agl"][0].numpy()
         valid = np.isfinite(agl)
         agl_chunks.append(agl[valid][::stride].astype(np.float64, copy=False))
@@ -119,7 +123,7 @@ def _collect_dataset(name: str, cfg: dict, cache_dir, limit: int,
         "dataset": name,
         "split": split,
         "n_tiles_measured": len(per_tile),
-        "n_tiles_total": len(ds),
+        "n_tiles_total": len(ds_sized),
         "agl": _pooled_stats(agl_chunks),
         "dn": _pooled_stats(dn_chunks),
         "dn_source": ("per-tile min-max normalize (depthwizard.normalize."

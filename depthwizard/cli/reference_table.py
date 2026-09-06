@@ -32,7 +32,7 @@ DOC_HINTS = {
 }
 
 
-def _finite(x: float) -> float:
+def _finite(x: float) -> float | None:
     """Map NaN -> None for strict-JSON output (NaN is not valid JSON)."""
     return None if (isinstance(x, float) and math.isnan(x)) else x
 
