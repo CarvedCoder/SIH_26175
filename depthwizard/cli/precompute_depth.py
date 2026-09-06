@@ -49,7 +49,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, cast
 
 import numpy as np
 
@@ -134,15 +134,6 @@ def _gamus_entries(args) -> List[Tuple[str, object]]:
     return entries
 
 
-def _gamus_cfg_for(args):
-    from depthwizard.datasets.gamus import GAMUSConfig
-    return GAMUSConfig(
-        source=args.gamus_source,
-        local_root=args.gamus_local_root,
-        manifest=args.gamus_manifest,
-        save_manifest=args.gamus_save_manifest,
-        hf_cache_dir=args.gamus_hf_cache,
-        splits=tuple(args.gamus_splits))
 
 
 def run(args) -> int:
@@ -189,11 +180,12 @@ def run(args) -> int:
 
     def _rgb_of(sample_id: str, entry: object) -> np.ndarray:
         if args.dataset == "dfc2019":
-            rgb, _prof = read_raster(entry)
+            rgb_path = cast(Path, entry)
+            rgb, _prof = read_raster(rgb_path)
             return rgb[:3].transpose(1, 2, 0)          # [H,W,3] uint8
         from depthwizard.datasets.gamus import (GAMUSSample, read_gamus_h5,
                                                 _resolve_sample_files)
-        s: GAMUSSample = entry
+        s = cast(GAMUSSample, entry)
         # resolve the rgb .h5 through the sample's own source config
         return read_gamus_h5(_resolve_sample_files(_gamus_cfg_for(args),
                                                    s)["rgb"])

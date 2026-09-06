@@ -179,7 +179,8 @@ def _run_gamus(args, cfg, fit_kind, stride) -> int:
     sub_cfg = {"paths": paths, "dataset": dcfg}
     ds = build_dataset(sub_cfg, split="train", crop_size=None, augment=False,
                        load_depth=True, depth_cache_dir=cache_dir)
-    print(f"[i] GAMUS train tiles: {len(ds)} "
+    n_tiles = int(len(getattr(ds, "tiles", [])))
+    print(f"[i] GAMUS train tiles: {n_tiles} "
           f"(units: nDSM, ASSUMED metres — flagged per sample in meta)")
 
     x, y = collect_pixels_adapter(ds, stride, args.max_tiles)
@@ -187,7 +188,7 @@ def _run_gamus(args, cfg, fit_kind, stride) -> int:
 
     out_dir = Path(paths["outputs_dir"]) / "baseline"
     # NEVER overwrite the DFC baseline json — dataset-suffixed filename.
-    return _fit_and_write(x, y, fit_kind, stride, len(ds),
+    return _fit_and_write(x, y, fit_kind, stride, n_tiles,
                           out_dir / "global_affine_gamus.json",
                           dataset="gamus",
                           extra={"height_semantics":

@@ -16,7 +16,7 @@ stitched full-scene DSM.
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Sequence
 
 import numpy as np
 
@@ -67,7 +67,7 @@ def height_metrics(pred: np.ndarray,
 
 def pooled_metrics(pixels_pred: Iterable[np.ndarray],
                    pixels_target: Iterable[np.ndarray],
-                   pixels_mask: Optional[Iterable[np.ndarray]] = None) -> Dict[str, float]:
+                   pixels_mask: Optional[Sequence[np.ndarray]] = None) -> Dict[str, float]:
     """Pooled metrics over an iterable of per-tile arrays (memory-light:
     accumulates sums, never stores everything)."""
     s_abs = s_sq = s_d = 0.0

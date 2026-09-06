@@ -63,7 +63,7 @@ class AdapterConfig:
     load_depth: bool = True                  # False -> dn None (pre-cache runs)
     load_semantics: bool = True              # False -> no sem layers
     seed: int = 42
-    _rng: random.Random = field(default=None, repr=False, compare=False)
+    _rng: Optional[random.Random] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         self._rng = random.Random(self.seed)
@@ -173,6 +173,8 @@ class BaseDepthDataset(Dataset):
         y0 = x0 = 0
         k_, do_h, do_v = 0, False, False
         rng = self.cfg._rng
+        if rng is None:
+            rng = random.Random(self.cfg.seed)
         if self.cfg.crop_size is not None:
             y0, x0 = joint_crop(layers, rng, self.cfg.crop_size)
         if self.cfg.augment:
