@@ -22,6 +22,7 @@ import argparse
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 matplotlib.use("Agg")
@@ -307,8 +308,9 @@ def _run_gamus(args, cfg, ckpt, net, device, cache_dir, ckpt_dataset) -> int:
         ds_test = build_dataset(sub_cfg, split="test", crop_size=None,
                                 augment=False, load_depth=True,
                                 depth_cache_dir=cache_dir)
-        for i in range(min(args.error_maps, len(ds_test))):
-            s = ds_test[i]
+        ds_test_any: Any = ds_test
+        for i in range(min(args.error_maps, len(ds_test_any))):
+            s = ds_test_any[i]
             dn_np = s["dn"][0].numpy()
             dn = s["dn"].to(device)
             rgb = s["rgb"].to(device) if model.use_rgb else None

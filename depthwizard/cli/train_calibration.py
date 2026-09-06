@@ -228,14 +228,27 @@ def run(args) -> int:
             dcfg["synth_dem_sigma_m"] = args.synth_dem_sigma_m
             dcfg["synth_dem_gsd_m"] = args.synth_dem_gsd_m
         clamp_min_ds = float(dcfg.get("clamp_agl_min", 0.0))
-        common = dict(load_depth=True, depth_cache_dir=cache_dir,
-                      clamp_agl_min=clamp_min_ds,
-                      seed=tcfg.get("seed", 42))
+        seed = int(tcfg.get("seed", 42))
         train_cfg_full = {"paths": paths, "dataset": dcfg}
-        ds_all = build_datasets(train_cfg_full, crop_size=tcfg["crop_size"],
-                                augment=True, **common)
-        ds_val = build_dataset(train_cfg_full, "val", crop_size=None,
-                               augment=False, **common)
+        ds_all = build_datasets(
+            train_cfg_full,
+            crop_size=tcfg["crop_size"],
+            augment=True,
+            load_depth=True,
+            depth_cache_dir=cache_dir,
+            clamp_agl_min=clamp_min_ds,
+            seed=seed,
+        )
+        ds_val = build_dataset(
+            train_cfg_full,
+            "val",
+            crop_size=None,
+            augment=False,
+            load_depth=True,
+            depth_cache_dir=cache_dir,
+            clamp_agl_min=clamp_min_ds,
+            seed=seed,
+        )
         ds = {"train": ds_all["train"], "val": ds_val,
               "test": ds_all.get("test")}
         print(f"[i] dataset (factory): {dataset_name}  "
@@ -283,9 +296,9 @@ def run(args) -> int:
         tr = ds["train"]
         n = args.max_train_tiles
         if hasattr(tr, "tiles"):                       # DFC legacy
-            tr.tiles = tr.tiles[:n]
+            setattr(tr, "tiles", getattr(tr, "tiles")[:n])
         elif hasattr(tr, "samples"):                   # adapters
-            tr.samples = tr.samples[:n]
+            setattr(tr, "samples", getattr(tr, "samples")[:n])
         else:                                           # mixed: Subset view
             from torch.utils.data import Subset
             ds["train"] = Subset(tr, range(min(n, len(tr))))

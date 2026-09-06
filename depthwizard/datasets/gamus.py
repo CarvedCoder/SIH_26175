@@ -49,11 +49,13 @@ caps each split's list after sorting (reproducible budgets).
 
 from __future__ import annotations
 
+import random
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 import numpy as np
 
@@ -144,24 +146,151 @@ def read_gamus_h5(path: Path) -> np.ndarray:
     """Read one GAMUS .h5 file (key 'image'), h5py imported lazily."""
     import h5py
     with h5py.File(path, "r") as f:
-        if _H5_KEY not in f:
+        dataset_obj = f.get(_H5_KEY)
+        if dataset_obj is None:
             raise KeyError(f"{path}: expected HDF5 key '{_H5_KEY}' "
                            "(official GAMUS layout) — got keys "
                            f"{list(f.keys())}")
-        return f[_H5_KEY][()]
+        if not isinstance(dataset_obj, h5py.Dataset):
+            raise TypeError(f"{path}: HDF5 key '{_H5_KEY}' is not a dataset "
+                            f"(got {type(dataset_obj).__name__})")
+        return np.asarray(dataset_obj[()])
+
+
+_HF_DOWNLOAD_MAX_RETRIES = 6          # transient-network retries per file
+_HF_DOWNLOAD_BACKOFF_BASE_S = 1.5     # exponential backoff base (seconds)
+_HF_DOWNLOAD_BACKOFF_CAP_S = 30.0     # never sleep longer than this
+
+
+def _is_transient_network_error(exc: BaseException) -> bool:
+    """True for connection-level hiccups worth retrying (not 404s / auth /
+    validation errors, which retrying can never fix)."""
+    # Import lazily and tolerate either dependency being absent/mismatched —
+    # this function must never itself raise ImportError mid-retry-loop.
+    # NOTE: deliberately NOT the bare `OSError` — that also matches
+    # FileNotFoundError/PermissionError/IsADirectoryError, which are real
+    # problems retrying can never fix. ConnectionError already covers
+    # ConnectionReset/Aborted/Refused/BrokenPipe as subclasses.
+    transient_types: tuple = (ConnectionError, TimeoutError)
+    try:
+        import httpx
+        transient_types += (httpx.ReadError, httpx.ConnectError,
+                            httpx.ConnectTimeout, httpx.ReadTimeout,
+                            httpx.RemoteProtocolError, httpx.NetworkError)
+    except ImportError:
+        pass
+    try:
+        import httpcore
+        transient_types += (httpcore.ReadError, httpcore.ConnectError,
+                            httpcore.ConnectTimeout, httpcore.ReadTimeout,
+                            httpcore.RemoteProtocolError)
+    except ImportError:
+        pass
+    try:
+        import requests  # type: ignore[import-not-found]
+        transient_types += (requests.exceptions.ConnectionError,
+                            requests.exceptions.Timeout,
+                            requests.exceptions.ChunkedEncodingError)
+    except ImportError:
+        pass
+    if isinstance(exc, transient_types):
+        return True
+    # HfHubHTTPError wraps a requests/httpx response; treat 5xx and 429
+    # (rate limit) as transient, everything else (401/403/404) as fatal.
+    try:
+        from huggingface_hub.errors import HfHubHTTPError
+        if isinstance(exc, HfHubHTTPError):
+            status = getattr(getattr(exc, "response", None),
+                             "status_code", None)
+            return status is not None and (status == 429 or status >= 500)
+    except ImportError:
+        pass
+    return False
 
 
 def _hf_download(cfg: GAMUSConfig, rel_path: str) -> Path:
-    """Lazy per-file download from the GAMUS repo into a local cache."""
+    """Fetch one GAMUS file from the Hub into the local cache, robustly.
+
+    Two-stage strategy, both aimed at the failure mode seen in production
+    (repeated ``ReadError: Connection reset by peer`` plus an "unauthenticated
+    requests" rate-limit warning on EVERY __getitem__ call, even for tiles
+    already on disk):
+
+      1. **Cache-first, zero network.** ``local_files_only=True`` returns
+         instantly with NO HTTP call at all if the file is already cached.
+         Every non-first-epoch call for a small (e.g. 40-tile) split should
+         hit this path — the previous code always did a live HEAD/etag
+         check even for fully-cached files, which is what saturated the
+         unauthenticated rate limit epoch after epoch.
+      2. **Real download, retried.** Only on an actual cache miss do we hit
+         the network, and we wrap that in our own exponential-backoff retry
+         loop: huggingface_hub's internal backoff already tried and gave up
+         once (see the traceback this replaces), so a single extra attempt
+         is not enough for a flaky link — we retry
+         ``_HF_DOWNLOAD_MAX_RETRIES`` times before giving up for real.
+
+    Set the ``HF_TOKEN`` env var (or pass a token via `huggingface-cli
+    login`) to raise the unauthenticated rate limit substantially; this
+    function reduces how often that limit gets hit, but does not remove it.
+    """
     from huggingface_hub import hf_hub_download
-    return Path(hf_hub_download(
-        repo_id=cfg.repo_id, filename=rel_path, repo_type="dataset",
-        cache_dir=str(cfg.hf_cache_dir) if cfg.hf_cache_dir else None))
+
+    # Ensure required values are plain str (hf_hub_download type checks expect str)
+    if cfg.repo_id is None:
+        raise RuntimeError("GAMUS: cfg.repo_id must be set to a repository id string")
+    if rel_path is None:
+        raise RuntimeError("GAMUS: rel_path must be a filename string")
+
+    # Stage 1: already-cached fast path, no network call whatsoever.
+    try:
+        return Path(hf_hub_download(
+            repo_id=str(cfg.repo_id),
+            filename=str(rel_path),
+            repo_type="dataset",
+            cache_dir=str(cfg.hf_cache_dir) if cfg.hf_cache_dir is not None else None,
+            local_files_only=True,
+        ))
+    except Exception:
+        pass  # not cached (or cache lookup itself failed) -> fall through
+
+    # Stage 2: real download, retried on transient connection errors only.
+    last_exc: Optional[BaseException] = None
+    for attempt in range(1, _HF_DOWNLOAD_MAX_RETRIES + 1):
+        try:
+            return Path(hf_hub_download(
+                repo_id=str(cfg.repo_id),
+                filename=str(rel_path),
+                repo_type="dataset",
+                cache_dir=str(cfg.hf_cache_dir) if cfg.hf_cache_dir is not None else None,
+            ))
+        except Exception as exc:                      # noqa: BLE001
+            last_exc = exc
+            if (attempt == _HF_DOWNLOAD_MAX_RETRIES
+                    or not _is_transient_network_error(exc)):
+                raise RuntimeError(
+                    f"GAMUS: failed to download {rel_path!r} from "
+                    f"{cfg.repo_id!r} after {attempt} attempt(s): "
+                    f"{exc!r}. If this is a rate-limit/connection-reset "
+                    "issue, set the HF_TOKEN env var to raise your "
+                    "unauthenticated request limit, or pre-populate "
+                    "hf_cache_dir offline and pass source='local'."
+                ) from exc
+            sleep_s = min(_HF_DOWNLOAD_BACKOFF_CAP_S,
+                         _HF_DOWNLOAD_BACKOFF_BASE_S * (2 ** (attempt - 1)))
+            sleep_s += random.uniform(0, 1.0)          # jitter
+            print(f"[gamus] transient error downloading {rel_path} "
+                  f"(attempt {attempt}/{_HF_DOWNLOAD_MAX_RETRIES}): "
+                  f"{exc!r} — retrying in {sleep_s:.1f}s")
+            time.sleep(sleep_s)
+    raise RuntimeError(  # pragma: no cover — loop always returns/raises above
+        f"GAMUS: unreachable retry-loop exit for {rel_path!r}") from last_exc
 
 
 def _resolve_sample_files(cfg: GAMUSConfig, s: GAMUSSample) -> Dict[str, Path]:
     """Local paths of the (rgb, agl, cls) triple for one sample."""
     if cfg.source == "local":
+        if cfg.local_root is None:
+            raise ValueError("source='local' requires local_root")
         base = cfg.local_root
         return {"rgb": base / s.rgb_rel, "agl": base / s.agl_rel,
                 "cls": base / s.cls_rel}
@@ -193,6 +322,8 @@ def _check_triples(cfg: GAMUSConfig, per_split: Dict[str, List[str]]
     problems: List[str] = []
     if cfg.source != "local":
         return problems
+    if cfg.local_root is None:
+        return ["GAMUS local mode requires local_root"]
     for split, ids in per_split.items():
         for sid in ids:
             s = GAMUSSample(sid, split)
@@ -225,6 +356,8 @@ def list_gamus_samples(cfg: GAMUSConfig
         return per_split, problems
 
     if cfg.source == "local":
+        if cfg.local_root is None:
+            return {}, ["GAMUS local mode requires local_root"]
         per_split_ids = {}
         for split in cfg.splits:
             ids = _stems_from_dir(cfg.local_root / "images" / split)
@@ -278,9 +411,10 @@ class GAMUSDataset(BaseDepthDataset):
 
     # ------------------------------------------------------------------
     def _load_depth(self, sid: str, h: int, w: int) -> Optional[np.ndarray]:
-        if not self.cfg.load_depth or self.cfg.depth_cache_dir is None:
+        depth_cache_dir = getattr(self.cfg, "depth_cache_dir", None)
+        if not self.cfg.load_depth or depth_cache_dir is None:
             return None
-        candidates = depth_npy_candidates(self.cfg.depth_cache_dir,
+        candidates = depth_npy_candidates(depth_cache_dir,
                                           "gamus", sid)
         f = next((p for p in candidates if p.exists()), None)
         if f is None:
@@ -299,7 +433,7 @@ class GAMUSDataset(BaseDepthDataset):
     # ------------------------------------------------------------------
     def _load_arrays(self, idx: int) -> Dict[str, object]:
         s: GAMUSSample = self.samples[idx]
-        paths = _resolve_sample_files(self.cfg, s)
+        paths = _resolve_sample_files(cast(GAMUSConfig, self.cfg), s)
 
         rgb = read_gamus_h5(paths["rgb"])
         agl = read_gamus_h5(paths["agl"])
@@ -335,7 +469,7 @@ class GAMUSDataset(BaseDepthDataset):
         meta = {
             "sample_id": s.sample_id, "stem": s.sample_id,
             "split": s.split,
-            "source": self.cfg.source,
+            "source": getattr(self.cfg, "source", "hf"),
             "height_semantics": GAMUS_HEIGHT_SEMANTICS,
             "units": GAMUS_UNITS_NOTE,
             "gsd_m": GAMUS_GSD_M,
