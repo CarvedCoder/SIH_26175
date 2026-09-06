@@ -23,11 +23,15 @@ imbalance ~5,004 GAMUS vs ~1,400 DFC tiles).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Protocol, Sized, cast
 
 from torch.utils.data import Dataset
 
 from ..geo import load_json
+
+
+class _NamedDataset(Protocol):
+    dataset_name: str
 
 
 class MixedDataset(Dataset):
@@ -51,7 +55,7 @@ class MixedDataset(Dataset):
         self._offsets = []
         total = 0
         for d in self.datasets:
-            total += len(d)
+            total += len(cast(Sized, d))
             self._offsets.append(total)
         if total == 0:
             raise ValueError("all source datasets are empty")
@@ -69,7 +73,8 @@ class MixedDataset(Dataset):
         i = self.source_index(idx)
         local = idx - (self._offsets[i - 1] if i else 0)
         s = self.datasets[i][local]
-        s["meta"]["mixed_source"] = self.datasets[i].dataset_name
+        ds = cast(_NamedDataset, self.datasets[i])
+        s["meta"]["mixed_source"] = ds.dataset_name
         s["meta"]["mixed_source_weight"] = self.weights[i]
         return s
 
@@ -77,12 +82,12 @@ class MixedDataset(Dataset):
         """One weight per global sample (for WeightedRandomSampler)."""
         out: List[float] = []
         for d, w in zip(self.datasets, self.weights):
-            out.extend([w] * len(d))
+            out.extend([w] * len(cast(Sized, d)))
         return out
 
     @property
     def source_names(self) -> List[str]:
-        return [d.dataset_name for d in self.datasets]
+        return [cast(_NamedDataset, d).dataset_name for d in self.datasets]
 
 
 def _verify_stats_gate(mcfg: dict, source_names: List[str]) -> dict:

@@ -82,8 +82,12 @@ def pooled_stats_from_tiles(pixels_pred: Iterable[np.ndarray],
                             ) -> Dict[str, float]:
     """PooledStats over per-tile [H,W] arrays (masks default: finite target)."""
     stats = PooledStats()
-    for i, (p, t) in enumerate(zip(pixels_pred, pixels_target)):
-        m = (np.asarray(pixels_mask[i], dtype=bool)
-             if pixels_mask is not None else np.isfinite(t))
-        stats.update(np.asarray(p)[m], np.asarray(t)[m])
+    if pixels_mask is None:
+        for p, t in zip(pixels_pred, pixels_target):
+            m = np.isfinite(t)
+            stats.update(np.asarray(p)[m], np.asarray(t)[m])
+    else:
+        for p, t, m in zip(pixels_pred, pixels_target, pixels_mask):
+            m = np.asarray(m, dtype=bool)
+            stats.update(np.asarray(p)[m], np.asarray(t)[m])
     return stats.to_metrics()

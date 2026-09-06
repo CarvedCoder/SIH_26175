@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, cast
 
 import numpy as np
 
@@ -141,7 +141,7 @@ def make_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
 
     from .dataset import IMAGENET_MEAN, IMAGENET_STD
 
-    net = model.net
+    net = cast(Any, model.net)
     net.eval()
 
     @torch.no_grad()
