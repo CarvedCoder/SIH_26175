@@ -346,6 +346,17 @@ def run(args) -> int:
 
     opt = torch.optim.Adam(net.parameters(), lr=args.lr or tcfg["lr"],
                            weight_decay=tcfg.get("weight_decay", 1e-4))
+
+        # CUDA AMP: reduce VRAM usage and improve throughput on NVIDIA GPUs.
+    amp_enabled = (device == "cuda")
+    amp_dtype = torch.float16 if amp_enabled else torch.float32
+
+    scaler = torch.amp.GradScaler(
+        "cuda",
+        enabled=amp_enabled,
+    )
+
+    print(f"[i] AMP enabled={amp_enabled} dtype={amp_dtype}")
     # ---- composite loss (Phase 4): weights default to the EXACT current
     # behavior (all extra terms off). CLI flags override the train config.
     loss_cfg = LossConfig(
@@ -389,27 +400,52 @@ def run(args) -> int:
                    if use_dem and batch.get("dem") is not None else None)
             sem = (batch["sem_onehot"].to(device, non_blocking=True)
                    if use_sem and batch.get("sem_onehot") is not None else None)
-            out = net(dn, rgb, dem, sem)
-            pred = out["pred"]
-            # Composite loss (Phase 4): extra terms contribute ONLY when
-            # their weights are > 0 (defaults = exact pre-Phase-4 behavior).
-            loss = loss_fn(
-                pred, agl,
-                rgb=(batch["rgb"].to(device, non_blocking=True)
-                     if (use_rgb and loss_cfg.w_smooth > 0) else None),
-                sem_logits=out.get("sem_logits"),
-                sem_target=(batch["sem_onehot"].to(device, non_blocking=True)
-                            if (loss_cfg.w_sem > 0
-                                and batch.get("sem_onehot") is not None)
-                            else None),
-                sem_ignore=(batch["sem_ignore"].to(device, non_blocking=True)
-                            if (loss_cfg.w_sem > 0
-                                and batch.get("sem_ignore") is not None)
-                            else None))
             opt.zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(net.parameters(), grad_clip)
-            opt.step()
+
+            # CUDA AMP keeps model activations mostly in FP16 while
+            # preserving optimizer/update stability with GradScaler.
+            with torch.autocast(
+                device_type="cuda" if amp_enabled else "cpu",
+                dtype=torch.float16 if amp_enabled else torch.float32,
+                enabled=amp_enabled,
+            ):
+                out = net(dn, rgb, dem, sem)
+                pred = out["pred"]
+
+                # Composite loss (Phase 4): extra terms contribute ONLY when
+                # their weights are > 0.
+                loss = loss_fn(
+                    pred, agl,
+                    rgb=(batch["rgb"].to(device, non_blocking=True)
+                         if (use_rgb and loss_cfg.w_smooth > 0) else None),
+                    sem_logits=out.get("sem_logits"),
+                    sem_target=(
+                        batch["sem_onehot"].to(device, non_blocking=True)
+                        if (loss_cfg.w_sem > 0
+                            and batch.get("sem_onehot") is not None)
+                        else None
+                    ),
+                    sem_ignore=(
+                        batch["sem_ignore"].to(device, non_blocking=True)
+                        if (loss_cfg.w_sem > 0
+                            and batch.get("sem_ignore") is not None)
+                        else None
+                    ),
+                )
+
+            scaler.scale(loss).backward()
+
+            # Unscale before gradient clipping so grad_clip remains in
+            # the original FP32 gradient scale.
+            scaler.unscale_(opt)
+
+            torch.nn.utils.clip_grad_norm_(
+                net.parameters(),
+                grad_clip,
+            )
+
+            scaler.step(opt)
+            scaler.update()
             run_loss += float(loss.detach())
             nb += 1
         # ONCE per epoch, aligned with val_subset_mae — NOT inside the batch loop
@@ -442,6 +478,8 @@ def run(args) -> int:
                                  "w_smooth": loss_cfg.w_smooth,
                                  "w_sem": loss_cfg.w_sem},
                 "epoch": epoch,
+                "amp_enabled": amp_enabled,
+                "scaler_state": scaler.state_dict(),
                 "val_subset_mae": mae,
                 "splits_json": str(paths["splits_json"]),
                 "dataset": (dataset_name or "dfc2019"),
