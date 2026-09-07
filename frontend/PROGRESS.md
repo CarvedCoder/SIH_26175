@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 complete. Phase 1 complete (1.1 Header, 1.2 Hero, 1.3 UploadZone, 1.4 FileInfo, 1.5 ProcessingPath, 1.6 Health check).
-> **In Progress:** Task 2.1 — PipelineProgress component
-> **Next:** Task 2.2 — ProcessingStatus footer + polling hook
+> **Done:** Phase 0 + 1 + 2 complete.
+> **In Progress:** Task 3.1 — ResultDashboard page
+> **Next:** Task 4.1 — TerrainCanvas OGL renderer
 
 ---
 
@@ -35,12 +35,12 @@
 
 ## Phase 2 — Processing Experience (§6, §49, §50)
 
-- [ ] **2.1** `PipelineProgress` (`src/components/Processing/PipelineProgress.jsx`) — stage checklist with ✓ / ● / ○ icons; maps backend stage names to human labels per §49
-- [ ] **2.2** `ProcessingStatus` (`src/components/Processing/ProcessingStatus.jsx`) — "Processing scene… Tile N / M" footer; no invented ETA
-- [ ] **2.3** `useProcessing` hook (`src/hooks/useProcessing.js`) — starts job, polls every 2.5s, updates state machine; stops on `completed / failed / cancelled`
-- [ ] **2.4** Failure panel — "DSM GENERATION INTERRUPTED" with reason, `[Retry]` and `[Continue with Relative DSM]` buttons
-- [ ] **2.5** Cancel button — confirmation dialog; calls `POST /jobs/{id}/cancel`
-- [ ] **2.6** `Processing` page (`src/pages/Processing.jsx`) — assembles PipelineProgress + ProcessingStatus + cancel; shown in `PROCESSING` state
+- [x] **2.1** `PipelineProgress` (`src/components/Processing/PipelineProgress.jsx`) — stage checklist with ✓ / ● / ○ icons; maps backend stage names to human labels per §49
+- [x] **2.2** `ProcessingStatus` (`src/components/Processing/ProcessingStatus.jsx`) — "Processing scene… Tile N / M" footer; no invented ETA
+- [x] **2.3** `useProcessing` hook (`src/hooks/useProcessing.js`) — starts job, polls every 2.5s, updates state machine; stops on `completed / failed / cancelled`
+- [x] **2.4** Failure panel — "DSM GENERATION INTERRUPTED" with reason, `[Retry]` and `[Continue with Relative DSM]` buttons
+- [x] **2.5** Cancel button — confirmation dialog; calls `POST /jobs/{id}/cancel`
+- [x] **2.6** `Processing` page (`src/pages/Processing.jsx`) — assembles PipelineProgress + ProcessingStatus + cancel; shown in `PROCESSING` state
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-07 — Phase 1 complete; Phase 2 starting*
+*Last updated: 2026-09-07 — Phase 2 complete; Phase 3 starting*

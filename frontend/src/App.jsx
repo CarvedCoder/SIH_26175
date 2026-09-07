@@ -7,11 +7,10 @@
  */
 import { AppProvider, useApp, AppState } from './store/appStore.jsx';
 
-/* Pages — imported lazily as we build them out */
+/* Pages */
 import Home from './pages/Home.jsx';
+import Processing from './pages/Processing.jsx';
 
-/* Stub pages for states we haven't built yet */
-function ProcessingPage()    { return <PageStub label="Processing" />; }
 function ResultDashboard()   { return <PageStub label="Result Dashboard" />; }
 function TerrainWorkspace()  { return <PageStub label="3D Terrain Workspace" />; }
 function FailedPage()        { return <PageStub label="Error" />; }
@@ -34,7 +33,7 @@ function AppRoutes() {
       return <Home />;
 
     case AppState.PROCESSING:
-      return <ProcessingPage />;
+      return <Processing />;
 
     case AppState.RESULTS_READY:
       return <ResultDashboard />;
