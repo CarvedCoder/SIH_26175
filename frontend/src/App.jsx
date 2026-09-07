@@ -1,59 +1,70 @@
-import { useState } from 'react';
-import Navbar from './components/Navbar';
-import LandingHero from './components/LandingHero';
-import AuthPage from './components/AuthPage';
-import UploadProcessingView from './components/UploadProcessingView';
+/**
+ * DepthWizard — Root app shell
+ *
+ * Routing is driven entirely by the state machine in appStore.
+ * No React Router — pages are determined by `state.status`.
+ * See DECISIONS.md §D02.
+ */
+import { AppProvider, useApp, AppState } from './store/appStore.jsx';
 
-function App() {
-  const [view, setView] = useState('landing'); // 'landing' | 'auth' | 'upload'
-  const [user, setUser] = useState(null);
+/* Pages — imported lazily as we build them out */
+import Home from './pages/Home.jsx';
 
-  const handleOpenAuth = () => {
-    setView('auth');
-  };
+/* Stub pages for states we haven't built yet */
+function ProcessingPage()    { return <PageStub label="Processing" />; }
+function ResultDashboard()   { return <PageStub label="Result Dashboard" />; }
+function TerrainWorkspace()  { return <PageStub label="3D Terrain Workspace" />; }
+function FailedPage()        { return <PageStub label="Error" />; }
 
-  const handleAuthenticate = (profile) => {
-    setUser(profile);
-    setView('upload');
-  };
-
-  const handleSignOut = () => {
-    setUser(null);
-    setView('landing');
-  };
-
+function PageStub({ label }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
-      
-      {/* Minimal Top Navigation */}
-      {view !== 'auth' && (
-        <Navbar
-          user={user}
-          onOpenAuth={handleOpenAuth}
-          onSignOut={handleSignOut}
-          onNavigateHome={() => setView('landing')}
-        />
-      )}
-
-      {/* Main View Transition */}
-      <main>
-        {view === 'landing' ? (
-          <LandingHero
-            onOpenAuth={handleOpenAuth}
-          />
-        ) : view === 'auth' ? (
-          <AuthPage 
-            onAuthenticate={handleAuthenticate}
-          />
-        ) : (
-          <UploadProcessingView
-            onBackToHome={() => setView('landing')}
-          />
-        )}
-      </main>
-
+    <div className="flex items-center justify-center h-screen" style={{ color: 'var(--dw-fg-muted)', fontFamily: 'var(--dw-font-ui)' }}>
+      <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 13 }}>{label} — coming soon</span>
     </div>
   );
 }
 
-export default App;
+function AppRoutes() {
+  const { state } = useApp();
+
+  switch (state.status) {
+    case AppState.NO_SCENE:
+    case AppState.UPLOADING:
+    case AppState.SCENE_READY:
+      return <Home />;
+
+    case AppState.PROCESSING:
+      return <ProcessingPage />;
+
+    case AppState.RESULTS_READY:
+      return <ResultDashboard />;
+
+    case AppState.TERRAIN_LOADING:
+    case AppState.TERRAIN_READY:
+    case AppState.ANALYSIS:
+      return <TerrainWorkspace />;
+
+    case AppState.FAILED:
+      return <FailedPage />;
+
+    default:
+      return <Home />;
+  }
+}
+
+export default function App() {
+  return (
+    <AppProvider>
+      <div
+        style={{
+          minHeight: '100vh',
+          background: 'var(--dw-void)',
+          color: 'var(--dw-fg)',
+          fontFamily: 'var(--dw-font-ui)',
+        }}
+      >
+        <AppRoutes />
+      </div>
+    </AppProvider>
+  );
+}

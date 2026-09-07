@@ -2,23 +2,23 @@
 
 ## Current Status
 
-> **Done:** `impeccable init` complete — PRODUCT.md, DESIGN.md, PROGRESS.md, DECISIONS.md written.  
-> **In Progress:** Task 0.1 — Project foundation: folder structure, design tokens, state machine, API client  
-> **Next:** Task 1.1 — Header component
+> **Done:** Phase 0 complete (0.1–0.9): folder structure, design tokens, API client, state machine, App.jsx rewrite, env files.
+> **In Progress:** Task 1.1 — Header component
+> **Next:** Task 1.2 — Hero section with pipeline diagram
 
 ---
 
 ## Phase 0 — Foundation (no visual output yet; build infra)
 
-- [ ] **0.1** Folder structure: create `src/api/`, `src/hooks/`, `src/store/`, `src/types/`, `src/pages/`, `src/components/{common,Upload,Processing,TerrainViewer,Analysis,Validation,Export}/`
-- [ ] **0.2** Design tokens: inject DESIGN.md palette + type scale as CSS custom properties into `index.css`
-- [ ] **0.3** API client: `src/api/client.js` — one `apiFetch()` wrapper with base URL from `VITE_API_BASE_URL`, normalised error shape `{ error: { code, message, recoverable } }`
-- [ ] **0.4** API modules: `upload.js`, `processing.js`, `results.js`, `terrain.js`, `validation.js`, `export.js`
-- [ ] **0.5** Type definitions: `src/types/api.js` — JSDoc schemas for all backend response shapes (Scene, Job, Results, Terrain, Validation, Error)
-- [ ] **0.6** App state machine: `src/store/appStore.jsx` — React Context + useReducer; states: `NO_SCENE / UPLOADING / SCENE_READY / PROCESSING / RESULTS_READY / TERRAIN_LOADING / TERRAIN_READY / ANALYSIS / FAILED`
-- [ ] **0.7** Rewrite `App.jsx` — remove auth flow; drive routing entirely from state machine
-- [ ] **0.8** `.env.example` with `VITE_API_BASE_URL=http://localhost:8000/api/v1`
-- [ ] **0.9** Verify `npm run dev` starts with zero errors
+- [x] **0.1** Folder structure: create `src/api/`, `src/hooks/`, `src/store/`, `src/types/`, `src/pages/`, `src/components/{common,Upload,Processing,TerrainViewer,Analysis,Validation,Export}/`
+- [x] **0.2** Design tokens: inject DESIGN.md palette + type scale as CSS custom properties into `index.css`
+- [x] **0.3** API client: `src/api/client.js` — one `apiFetch()` wrapper with base URL from `VITE_API_BASE_URL`, normalised error shape `{ error: { code, message, recoverable } }`
+- [x] **0.4** API modules: `upload.js`, `processing.js`, `results.js`, `terrain.js`, `validation.js`, `export.js`
+- [x] **0.5** Type definitions: `src/types/api.js` — JSDoc schemas for all backend response shapes (Scene, Job, Results, Terrain, Validation, Error)
+- [x] **0.6** App state machine: `src/store/appStore.jsx` — React Context + useReducer; states: `NO_SCENE / UPLOADING / SCENE_READY / PROCESSING / RESULTS_READY / TERRAIN_LOADING / TERRAIN_READY / ANALYSIS / FAILED`
+- [x] **0.7** Rewrite `App.jsx` — remove auth flow; drive routing entirely from state machine
+- [x] **0.8** `.env.example` with `VITE_API_BASE_URL=http://localhost:8000/api/v1`
+- [x] **0.9** Verify `npm run dev` starts with zero errors
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-07 — impeccable init complete; Phase 0 starting*
+*Last updated: 2026-09-07 — Phase 0 complete; Phase 1 starting*
