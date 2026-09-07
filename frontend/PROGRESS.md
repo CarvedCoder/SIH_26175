@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 complete (0.1–0.9): folder structure, design tokens, API client, state machine, App.jsx rewrite, env files.
-> **In Progress:** Task 1.1 — Header component
-> **Next:** Task 1.2 — Hero section with pipeline diagram
+> **Done:** Phase 0 complete. Phase 1 complete (1.1 Header, 1.2 Hero, 1.3 UploadZone, 1.4 FileInfo, 1.5 ProcessingPath, 1.6 Health check).
+> **In Progress:** Task 2.1 — PipelineProgress component
+> **Next:** Task 2.2 — ProcessingStatus footer + polling hook
 
 ---
 
@@ -24,12 +24,12 @@
 
 ## Phase 1 — Landing Page & Upload (§4, §5, §1.1–1.6)
 
-- [ ] **1.1** `Header` component (`src/components/common/Header.jsx`) — wordmark, nav links, backend status dot (polls `/health` on mount)
-- [ ] **1.2** Hero section with pipeline diagram — headline, subline, "Upload Image" + "View Demo" CTAs, `RGB→Depth→DSM→3D Terrain→Analysis` visual flow
-- [ ] **1.3** `UploadZone` (`src/components/Upload/UploadZone.jsx`) — drag-and-drop + browse; accepts PNG/JPG/GeoTIFF; calls `POST /scenes` on drop; transitions state to `UPLOADING → SCENE_READY`
-- [ ] **1.4** `FileInfo` (`src/components/Upload/FileInfo.jsx`) — shows filename, dimensions, format, CRS, georeferenced YES/NO, processing path label
-- [ ] **1.5** `ProcessingPath` (`src/components/Upload/ProcessingPath.jsx`) — explains Absolute vs Relative DSM pipeline based on `processing_path` from upload response
-- [ ] **1.6** `Home` page (`src/pages/Home.jsx`) — assembles Hero + UploadZone + FileInfo; shown in `NO_SCENE` + `SCENE_READY` states
+- [x] **1.1** `Header` component (`src/components/common/Header.jsx`) — wordmark, nav links, backend status dot (polls `/health` on mount)
+- [x] **1.2** Hero section with pipeline diagram — headline, subline, "Upload Image" + "View Demo" CTAs, `RGB→Depth→DSM→3D Terrain→Analysis` visual flow
+- [x] **1.3** `UploadZone` (`src/components/Upload/UploadZone.jsx`) — drag-and-drop + browse; accepts PNG/JPG/GeoTIFF; calls `POST /scenes` on drop; transitions state to `UPLOADING → SCENE_READY`
+- [x] **1.4** `FileInfo` (`src/components/Upload/FileInfo.jsx`) — shows filename, dimensions, format, CRS, georeferenced YES/NO, processing path label
+- [x] **1.5** `ProcessingPath` (`src/components/Upload/ProcessingPath.jsx`) — explains Absolute vs Relative DSM pipeline based on `processing_path` from upload response
+- [x] **1.6** `Home` page (`src/pages/Home.jsx`) — assembles Hero + UploadZone + FileInfo; shown in `NO_SCENE` + `SCENE_READY` states
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-07 — Phase 0 complete; Phase 1 starting*
+*Last updated: 2026-09-07 — Phase 1 complete; Phase 2 starting*
