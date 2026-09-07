@@ -119,13 +119,19 @@ def _gamus_entries(args) -> List[Tuple[str, object]]:
         limit=args.limit,                    # deterministic per-split cap
         splits=tuple(args.gamus_splits))
     per_split, problems = list_gamus_samples(cfg)
+    entries: List[Tuple[str, object]] = []
     if problems:
         print("[gamus] discovery problems:")
         for pr in problems:
             print("  -", pr)
-    entries: List[Tuple[str, object]] = []
+
     for split in cfg.splits:
-        for s in per_split.get(split, []):
+        samples = per_split.get(split, [])
+
+        if args.limit > 0:
+            samples = samples[:args.limit]
+
+        for s in samples:
             entries.append((s.sample_id, s))
     if not entries:
         raise SystemExit(
@@ -145,8 +151,6 @@ def run(args) -> int:
         entries = _dfc2019_entries(args)
     else:
         entries = _gamus_entries(args)
-    if args.limit:
-        entries = entries[: args.limit]
     print(f"[i] dataset={args.dataset}  {len(entries)} tiles | "
           f"model={args.model} | device={device}")
 
