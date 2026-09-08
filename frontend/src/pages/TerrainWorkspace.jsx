@@ -20,6 +20,7 @@ import Header from '../components/common/Header.jsx';
 import TerrainCanvas from '../components/TerrainViewer/TerrainCanvas.jsx';
 import TerrainControls from '../components/TerrainViewer/TerrainControls.jsx';
 import Minimap from '../components/TerrainViewer/Minimap.jsx';
+import CameraHUD from '../components/TerrainViewer/CameraHUD.jsx';
 import { useCameraController } from '../hooks/useCameraController.js';
 import { getMinimap } from '../api/terrain.js';
 import { useApp, AppState } from '../store/appStore.jsx';
@@ -104,6 +105,15 @@ export default function TerrainWorkspace() {
             cameraMode={cameraMode}
             minimapMeta={minimapMeta}
             selectedPoint={selectedPoint}
+          />
+        )}
+
+        {/* Navigation HUD — bottom-right, first-person mode only (Phase 7) */}
+        {!isLoading && (
+          <CameraHUD
+            terrainRef={terrainRef}
+            cameraMode={cameraMode}
+            elevationMode={state.results?.elevation_mode ?? 'relative'}
           />
         )}
 

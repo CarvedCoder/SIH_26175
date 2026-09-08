@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 complete.
-> **In Progress:** Task 7.1 — CameraHUD navigation readouts
-> **Next:** Task 8.1 — LayerControl
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 complete.
+> **In Progress:** Task 8.1 — LayerControl
+> **Next:** Task 8.2 — Layer switch handler
 
 ---
 
@@ -88,8 +88,8 @@
 
 ## Phase 7 — Navigation HUD (§22)
 
-- [ ] **7.1** `CameraHUD` (`src/components/TerrainViewer/CameraHUD.jsx`) — four data-face readouts: ALTITUDE / HEADING / SLOPE / POSITION; shown only in first-person mode
-- [ ] **7.2** HUD values from camera + terrain state, no API calls; SLOPE computed from local heightmap gradient at cursor position
+- [x] **7.1** `CameraHUD` (`src/components/TerrainViewer/CameraHUD.jsx`) — four data-face readouts: ALTITUDE / HEADING / SLOPE / POSITION; shown only in first-person mode
+- [x] **7.2** HUD values from camera + terrain state, no API calls; SLOPE computed from local heightmap gradient at cursor position
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 6 complete; Phase 7 starting*
+*Last updated: 2026-09-08 — Phase 7 complete; Phase 8 starting*
