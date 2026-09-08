@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 complete.
-> **In Progress:** Task 15.1 — ExportPanel (`src/components/Export/ExportPanel.jsx`)
-> **Next:** Task 15.2 — Capability-driven export buttons (DSM, Depth, Snapshot, Validation Report, 3D Scene)
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 complete.
+> **In Progress:** Task 16.1 — RecentProjects (`src/components/common/RecentProjects.jsx`)
+> **Next:** Task 16.2 — Resume session (click restores scene state and navigates to correct page)
 
 ---
 
@@ -156,9 +156,9 @@
 
 ## Phase 15 — Export (§27, §66)
 
-- [ ] **15.1** `ExportPanel` (`src/components/Export/ExportPanel.jsx`) — buttons for DSM / Depth / Snapshot / Validation Report / 3D Scene
-- [ ] **15.2** Capability-driven — only enable buttons for `outputs` that exist in scene summary
-- [ ] **15.3** Download trigger — stream or redirect to backend URL
+- [x] **15.1** `ExportPanel` (`src/components/Export/ExportPanel.jsx`) — buttons for DSM / Depth / Snapshot / Validation Report / 3D Scene
+- [x] **15.2** Capability-driven — only enable buttons for `outputs` that exist in scene summary
+- [x] **15.3** Download trigger — stream or redirect to backend URL
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 11 complete; Phase 12 starting*
+*Last updated: 2026-09-08 — Phase 15 complete; Phase 16 starting*

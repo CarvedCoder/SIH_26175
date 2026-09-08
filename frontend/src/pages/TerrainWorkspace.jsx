@@ -220,6 +220,22 @@ export default function TerrainWorkspace() {
     }
   };
 
+  /** Capture client-side viewport snapshot from OGL canvas (task 15.1, 15.3) */
+  const handleCaptureSnapshot = () => {
+    try {
+      const dataUrl = terrainRef.current?.captureSnapshot?.() ??
+        terrainRef.current?.getCanvas?.()?.current?.toDataURL('image/png');
+      if (!dataUrl) return;
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      const sceneName = state.scene?.filename?.replace(/\.[^/.]+$/, '') ?? 'terrain';
+      a.download = `${sceneName}-snapshot.png`;
+      a.click();
+    } catch (err) {
+      console.error('[TerrainWorkspace] Snapshot capture failed', err);
+    }
+  };
+
   return (
     <div style={{
       height: '100vh',
@@ -506,6 +522,7 @@ export default function TerrainWorkspace() {
           setAnalysisPanelOpen(true);
           setAnalysisPanelTab('validation');
         }}
+        onCaptureSnapshot={handleCaptureSnapshot}
       />
     </div>
   );

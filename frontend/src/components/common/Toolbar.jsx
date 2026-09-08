@@ -40,7 +40,9 @@ import {
   ShieldCheck,
   Building2,
   Sparkles,
+  Download,
 } from 'lucide-react';
+import ExportPanel from '../Export/ExportPanel.jsx';
 
 /**
  * @param {{
@@ -53,6 +55,7 @@ import {
  *   onSelectTool: (toolId: string) => void,
  *   disabled?: boolean,
  *   onOpenValidation?: () => void,
+ *   onCaptureSnapshot?: () => void,
  * }} props
  */
 export default function Toolbar({
@@ -65,6 +68,7 @@ export default function Toolbar({
   onSelectTool,
   disabled = false,
   onOpenValidation,
+  onCaptureSnapshot,
 }) {
   const { state } = useApp();
   const [openMenu, setOpenMenu] = useState(null); // 'layers' | 'measure' | 'compare' | 'terrain' | 'camera' | null
@@ -213,7 +217,17 @@ export default function Toolbar({
       {/* ── Spacer ── */}
       <div style={{ flex: 1 }} />
 
-      {/* ── 6. Reset Button (§26) ── */}
+      {/* ── 6. Export Menu (§27) ── */}
+      <ToolbarItem
+        id="export"
+        label="Export"
+        icon={Download}
+        isOpen={openMenu === 'export'}
+        isActive={openMenu === 'export'}
+        onToggle={() => toggleMenu('export')}
+      />
+
+      {/* ── 7. Reset Button (§26) ── */}
       <button
         onClick={handleReset}
         aria-label="Reset camera and terrain settings to default"
@@ -482,6 +496,17 @@ export default function Toolbar({
           </div>
         </PopoverPanel>
       )}
+
+      {/* Popover 6: Export (§27, §66) */}
+      {openMenu === 'export' && (
+        <PopoverPanel title="EXPORT" onClose={() => setOpenMenu(null)} width={300} alignRight={true}>
+          <ExportPanel
+            onCaptureSnapshot={onCaptureSnapshot}
+            onClose={() => setOpenMenu(null)}
+            compact={true}
+          />
+        </PopoverPanel>
+      )}
     </footer>
   );
 }
@@ -531,7 +556,7 @@ function ToolbarItem({ id, label, icon: Icon, isOpen, isActive, onToggle }) {
 }
 
 /** Floating docked popover container */
-function PopoverPanel({ title, children, onClose }) {
+function PopoverPanel({ title, children, onClose, width = 240, alignRight = false }) {
   return (
     <div
       role="dialog"
@@ -539,13 +564,14 @@ function PopoverPanel({ title, children, onClose }) {
       style={{
         position: 'absolute',
         bottom: 'calc(100% + 8px)',
-        left: 12,
+        left: alignRight ? 'auto' : 12,
+        right: alignRight ? 12 : 'auto',
         background: 'var(--dw-panel)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
         padding: 12,
-        minWidth: 200,
-        maxWidth: 260,
+        minWidth: width,
+        maxWidth: Math.max(width, 320),
         zIndex: 30,
         display: 'flex',
         flexDirection: 'column',

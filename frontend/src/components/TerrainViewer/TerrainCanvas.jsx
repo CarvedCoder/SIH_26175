@@ -436,6 +436,24 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     /** Expose canvas ref for pointer-lock in first-person mode */
     getCanvas() { return canvasRef; },
     /**
+     * Capture a snapshot of current WebGL scene as PNG data URL
+     * @returns {string|null}
+     */
+    captureSnapshot() {
+      const g = glRef.current;
+      if (g.renderer && g.scene && g.camera) {
+        g.renderer.render({ scene: g.scene, camera: g.camera });
+      }
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      try {
+        return canvas.toDataURL('image/png');
+      } catch (err) {
+        console.error('[TerrainCanvas] captureSnapshot error', err);
+        return null;
+      }
+    },
+    /**
      * Swap the terrain texture to a new image URL (layer switch, task 8.2).
      * Camera and minimap state are preserved — only the texture changes.
      * @param {string} url - new texture URL
@@ -572,6 +590,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       height: h,
       dpr: Math.min(window.devicePixelRatio, 2),
       antialias: true,
+      preserveDrawingBuffer: true,
       alpha: false,
     });
     const gl = renderer.gl;
