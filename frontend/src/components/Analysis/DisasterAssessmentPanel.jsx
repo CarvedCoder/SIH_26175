@@ -57,19 +57,19 @@ export default function DisasterAssessmentPanel({
     >
       {/* Disclaimer Badge (§23) */}
       <div style={{
-        padding: '8px 10px',
+        padding: '10px 12px',
         background: 'rgba(245, 158, 11, 0.08)',
         border: '1px solid rgba(245, 158, 11, 0.25)',
         borderRadius: 'var(--dw-radius-sm)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 2,
+        gap: 4,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <AlertTriangle size={13} strokeWidth={1.5} color="var(--dw-live)" aria-hidden="true" />
+          <AlertTriangle size={15} strokeWidth={1.5} color="var(--dw-live)" aria-hidden="true" />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 10,
+            fontSize: 11.5,
             fontWeight: 600,
             textTransform: 'uppercase',
             letterSpacing: '0.06em',
@@ -80,9 +80,9 @@ export default function DisasterAssessmentPanel({
         </div>
         <span style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 10,
+          fontSize: 12,
           color: 'var(--dw-fg-muted)',
-          lineHeight: 1.4,
+          lineHeight: 1.45,
         }}>
           Terrain intelligence / preliminary terrain assessment support.
         </span>
@@ -94,11 +94,12 @@ export default function DisasterAssessmentPanel({
           id="relief-profile-heading"
           style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 10,
-            letterSpacing: '0.07em',
+            fontSize: 11.5,
+            fontWeight: 600,
+            letterSpacing: '0.08em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
-            margin: '0 0 8px 0',
+            margin: '0 0 10px 0',
           }}
         >
           TOPOGRAPHIC RELIEF PROFILE
@@ -106,7 +107,7 @@ export default function DisasterAssessmentPanel({
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gap: 6,
+          gap: 8,
         }}>
           <ReliefItem label="Lowest Elevation" value={`${minElev.toFixed(1)} ${unitLabel}`} />
           <ReliefItem label="Highest Crest" value={`${maxElev.toFixed(1)} ${unitLabel}`} />
@@ -127,11 +128,12 @@ export default function DisasterAssessmentPanel({
             id="location-hazard-heading"
             style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 10,
-              letterSpacing: '0.07em',
+              fontSize: 11.5,
+              fontWeight: 600,
+              letterSpacing: '0.08em',
               textTransform: 'uppercase',
               color: 'var(--dw-fg-ghost)',
-              margin: '0 0 8px 0',
+              margin: '0 0 10px 0',
             }}
           >
             TARGET LOCATION PROFILE
@@ -139,21 +141,21 @@ export default function DisasterAssessmentPanel({
           <div style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: 6,
-            padding: '8px 10px',
+            gap: 8,
+            padding: '10px 12px',
             background: 'var(--dw-surface)',
             border: '1px solid var(--dw-rim)',
             borderRadius: 'var(--dw-radius-sm)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>Elevation</span>
-              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 12, color: 'var(--dw-fg)', fontWeight: 500 }}>
+              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>Elevation</span>
+              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 14, color: 'var(--dw-fg)', fontWeight: 500 }}>
                 {selectedLocation.elevation?.toFixed(2)} {unitLabel}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>Gradient (Slope)</span>
-              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 12, color: isSteep ? 'var(--dw-live)' : 'var(--dw-fg)', fontWeight: 500 }}>
+              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>Gradient (Slope)</span>
+              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 14, color: isSteep ? 'var(--dw-live)' : 'var(--dw-fg)', fontWeight: 500 }}>
                 {locSlope != null ? `${locSlope.toFixed(1)}°` : '—'}
               </span>
             </div>
@@ -162,13 +164,14 @@ export default function DisasterAssessmentPanel({
             {locSlope != null && (
               <div style={{
                 marginTop: 4,
-                padding: '4px 6px',
+                padding: '6px 8px',
                 background: isSteep ? 'rgba(245, 158, 11, 0.1)' : isLowBasin ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
                 border: '1px solid ' + (isSteep ? 'rgba(245, 158, 11, 0.25)' : isLowBasin ? 'rgba(59, 130, 246, 0.25)' : 'var(--dw-rim)'),
-                borderRadius: 2,
-                fontSize: 10,
+                borderRadius: 'var(--dw-radius-sm)',
+                fontSize: 12,
                 fontFamily: 'var(--dw-font-ui)',
                 color: isSteep ? 'var(--dw-live)' : isLowBasin ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+                lineHeight: 1.4,
               }}>
                 {isSteep
                   ? 'Steep Incline (>30°): Rapid runoff zone / potential slope instability.'
@@ -188,11 +191,12 @@ export default function DisasterAssessmentPanel({
             id="structure-relief-heading"
             style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 10,
-              letterSpacing: '0.07em',
+              fontSize: 11.5,
+              fontWeight: 600,
+              letterSpacing: '0.08em',
               textTransform: 'uppercase',
               color: 'var(--dw-fg-ghost)',
-              margin: '0 0 8px 0',
+              margin: '0 0 10px 0',
             }}
           >
             INSPECTED STRUCTURE
@@ -200,19 +204,19 @@ export default function DisasterAssessmentPanel({
           <div style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: 6,
-            padding: '8px 10px',
+            gap: 8,
+            padding: '10px 12px',
             background: 'var(--dw-surface)',
             border: '1px solid var(--dw-rim)',
             borderRadius: 'var(--dw-radius-sm)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>Structure ID</span>
-              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 11, color: 'var(--dw-fg)' }}>{selectedStructure.id}</span>
+              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>Structure ID</span>
+              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 13, color: 'var(--dw-fg)' }}>{selectedStructure.id}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>Vertical Clearance</span>
-              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 12, color: 'var(--dw-accent)', fontWeight: 600 }}>
+              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>Vertical Clearance</span>
+              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 14, color: 'var(--dw-accent)', fontWeight: 600 }}>
                 {selectedStructure.height?.toFixed(1)} {unitLabel}
               </span>
             </div>
@@ -226,29 +230,30 @@ export default function DisasterAssessmentPanel({
           id="tactical-actions-heading"
           style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 10,
-            letterSpacing: '0.07em',
+            fontSize: 11.5,
+            fontWeight: 600,
+            letterSpacing: '0.08em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
-            margin: '0 0 8px 0',
+            margin: '0 0 10px 0',
           }}
         >
           TACTICAL TERRAIN ACTIONS
         </h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button
             onClick={() => onSelectLayer?.('slope')}
             style={{
-              height: 30,
+              height: 36,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '0 10px',
+              padding: '0 12px',
               background: 'var(--dw-surface)',
               border: '1px solid var(--dw-rim)',
               borderRadius: 'var(--dw-radius-sm)',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
+              fontSize: 13,
               color: 'var(--dw-fg)',
               cursor: 'pointer',
               outline: 'none',
@@ -259,27 +264,27 @@ export default function DisasterAssessmentPanel({
             }}
             onBlur={e => { e.currentTarget.style.outline = 'none'; }}
           >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <TrendingUp size={12} strokeWidth={1.5} color="var(--dw-accent)" />
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <TrendingUp size={15} strokeWidth={1.5} color="var(--dw-accent)" />
               Inspect Slope Gradient Map
             </span>
-            <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 9, color: 'var(--dw-fg-muted)' }}>Viridis</span>
+            <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>Viridis</span>
           </button>
 
           {onOpenValidation && (
             <button
               onClick={onOpenValidation}
               style={{
-                height: 30,
+                height: 36,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                padding: '0 10px',
+                padding: '0 12px',
                 background: 'var(--dw-surface)',
                 border: '1px solid var(--dw-rim)',
                 borderRadius: 'var(--dw-radius-sm)',
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 11,
+                fontSize: 13,
                 color: 'var(--dw-fg)',
                 cursor: 'pointer',
                 outline: 'none',
@@ -290,11 +295,11 @@ export default function DisasterAssessmentPanel({
               }}
               onBlur={e => { e.currentTarget.style.outline = 'none'; }}
             >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ShieldCheck size={12} strokeWidth={1.5} color="var(--dw-confirm)" />
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ShieldCheck size={15} strokeWidth={1.5} color="var(--dw-confirm)" />
                 Cross-Check Reference Elevation
               </span>
-              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 9, color: 'var(--dw-fg-muted)' }}>SRTM</span>
+              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>SRTM</span>
             </button>
           )}
         </div>
@@ -306,20 +311,20 @@ export default function DisasterAssessmentPanel({
 function ReliefItem({ label, value, highlight = false }) {
   return (
     <div style={{
-      padding: '6px 8px',
+      padding: '8px 10px',
       background: 'var(--dw-surface)',
       border: '1px solid var(--dw-rim)',
       borderRadius: 'var(--dw-radius-sm)',
       display: 'flex',
       flexDirection: 'column',
-      gap: 2,
+      gap: 3,
     }}>
-      <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 9, textTransform: 'uppercase', color: 'var(--dw-fg-muted)' }}>
+      <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, textTransform: 'uppercase', color: 'var(--dw-fg-muted)' }}>
         {label}
       </span>
       <span style={{
         fontFamily: 'var(--dw-font-data)',
-        fontSize: 12,
+        fontSize: 14.5,
         fontWeight: highlight ? 600 : 400,
         color: highlight ? 'var(--dw-accent)' : 'var(--dw-fg)',
       }}>

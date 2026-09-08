@@ -118,13 +118,13 @@ export default function ResultDashboard() {
 
         {/* Page header — compact identifier, no decoration */}
         <section aria-labelledby="dashboard-heading">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <h1
               id="dashboard-heading"
               style={{
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 15,
-                fontWeight: 500,
+                fontSize: 22,
+                fontWeight: 600,
                 color: 'var(--dw-fg)',
                 margin: 0,
               }}
@@ -133,7 +133,7 @@ export default function ResultDashboard() {
             </h1>
             <p style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 13,
+              fontSize: 15,
               color: 'var(--dw-fg-muted)',
               margin: 0,
             }}>
@@ -149,10 +149,10 @@ export default function ResultDashboard() {
               background: 'var(--dw-panel)',
               border: '1px solid var(--dw-rim)',
               borderRadius: 'var(--dw-radius)',
-              padding: '12px 16px',
+              padding: '14px 20px',
               display: 'flex',
               flexWrap: 'wrap',
-              gap: '12px 32px',
+              gap: '16px 36px',
               alignItems: 'center',
             }}>
               {meta.map(({ label, value }) => (
@@ -179,12 +179,12 @@ export default function ResultDashboard() {
             id="layers-heading"
             style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
-              fontWeight: 500,
+              fontSize: 13,
+              fontWeight: 600,
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
               color: 'var(--dw-fg-muted)',
-              margin: '0 0 12px 0',
+              margin: '0 0 14px 0',
             }}
           >
             Output Layers
@@ -251,11 +251,12 @@ export default function ResultDashboard() {
               id="validation-accuracy-heading"
               style={{
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 10,
+                fontSize: 12,
+                fontWeight: 600,
                 letterSpacing: '0.07em',
                 textTransform: 'uppercase',
-                color: 'var(--dw-fg-ghost)',
-                margin: '0 0 10px 0',
+                color: 'var(--dw-fg-muted)',
+                margin: '0 0 12px 0',
               }}
             >
               ACCURACY EVALUATION
@@ -264,8 +265,8 @@ export default function ResultDashboard() {
               background: 'var(--dw-panel)',
               border: '1px solid var(--dw-rim)',
               borderRadius: 'var(--dw-radius-md)',
-              padding: '16px',
-              maxWidth: 720,
+              padding: '20px',
+              maxWidth: 760,
             }}>
               <MetricsPanel
                 available={validation?.available === true && !!validation?.metrics}
@@ -308,25 +309,25 @@ export default function ResultDashboard() {
           <div style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: 8,
-            maxWidth: 400,
+            gap: 10,
+            maxWidth: 480,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <button
                 onClick={() => actions.startTerrainLoad()}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 8,
-                  height: 40,
-                  padding: '0 20px',
+                  gap: 10,
+                  height: 44,
+                  padding: '0 24px',
                   background: 'var(--dw-accent)',
                   border: '1px solid var(--dw-accent)',
                   borderRadius: 'var(--dw-radius-sm)',
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 13,
-                  fontWeight: 500,
+                  fontSize: 15,
+                  fontWeight: 600,
                   color: '#fff',
                   cursor: 'pointer',
                   letterSpacing: '0.01em',
@@ -347,7 +348,7 @@ export default function ResultDashboard() {
                 }}
                 onBlur={e => { e.currentTarget.style.outline = 'none'; }}
               >
-                <Mountain size={15} strokeWidth={1.5} aria-hidden="true" />
+                <Mountain size={18} strokeWidth={1.5} aria-hidden="true" />
                 Enter 3D Terrain
               </button>
 
@@ -359,13 +360,13 @@ export default function ResultDashboard() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 8,
-                  height: 40,
-                  padding: '0 16px',
+                  height: 44,
+                  padding: '0 20px',
                   background: showExport ? 'var(--dw-surface)' : 'var(--dw-panel)',
                   border: showExport ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
                   borderRadius: 'var(--dw-radius-sm)',
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 13,
+                  fontSize: 14.5,
                   fontWeight: 500,
                   color: showExport ? 'var(--dw-accent)' : 'var(--dw-fg)',
                   cursor: 'pointer',
@@ -379,15 +380,15 @@ export default function ResultDashboard() {
                 }}
                 onBlur={e => { e.currentTarget.style.outline = 'none'; }}
               >
-                <Download size={15} strokeWidth={1.5} aria-hidden="true" />
+                <Download size={18} strokeWidth={1.5} aria-hidden="true" />
                 Export Outputs
               </button>
             </div>
 
             <p style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
-              color: 'var(--dw-fg-ghost)',
+              fontSize: 13.5,
+              color: 'var(--dw-fg-muted)',
               margin: 0,
               lineHeight: 1.5,
             }}>
@@ -401,8 +402,8 @@ export default function ResultDashboard() {
                 background: 'var(--dw-panel)',
                 border: '1px solid var(--dw-rim)',
                 borderRadius: 'var(--dw-radius-md)',
-                padding: 16,
-                maxWidth: 540,
+                padding: 18,
+                maxWidth: 560,
               }}>
                 <ExportPanel
                   sceneId={scene?.scene_id}
@@ -422,24 +423,26 @@ export default function ResultDashboard() {
 /** Compact labelled field for the metadata strip */
 function MetaField({ label, value }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
       <span style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 9,
+        fontSize: 11,
         letterSpacing: '0.07em',
         textTransform: 'uppercase',
-        color: 'var(--dw-fg-ghost)',
+        color: 'var(--dw-fg-muted)',
+        fontWeight: 600,
       }}>
         {label}
       </span>
       <span style={{
         fontFamily: 'var(--dw-font-data)',
-        fontSize: 12,
+        fontSize: 14,
+        fontWeight: 500,
         color: 'var(--dw-fg)',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
-        maxWidth: 240,
+        maxWidth: 260,
       }}>
         {value}
       </span>

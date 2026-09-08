@@ -273,16 +273,17 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
           top: 12,
           left: 12,
           zIndex: 12,
-          background: 'rgba(13,17,23,0.88)',
+          background: 'rgba(13,17,23,0.92)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-sm)',
-          height: 28,
-          padding: '0 8px',
+          height: 34,
+          padding: '0 12px',
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
+          gap: 7,
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 11,
+          fontSize: 13,
+          fontWeight: 500,
           color: 'var(--dw-fg)',
           cursor: 'pointer',
           outline: 'none',
@@ -290,7 +291,7 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
         onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; }}
         onBlur={e => { e.currentTarget.style.outline = 'none'; }}
       >
-        <Map size={13} strokeWidth={1.5} color="var(--dw-accent)" />
+        <Map size={16} strokeWidth={1.5} color="var(--dw-accent)" />
         <span>Minimap</span>
       </button>
     );
@@ -303,10 +304,10 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
         position: 'absolute',
         top: 12,
         left: 12,
-        width: 'min(200px, 45vw)',
-        height: 'min(200px, 45vw)',
-        maxWidth: SIZE,
-        maxHeight: SIZE,
+        width: 'min(var(--dw-minimap-sz, 220px), 45vw)',
+        height: 'min(var(--dw-minimap-sz, 220px), 45vw)',
+        maxWidth: 220,
+        maxHeight: 220,
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
         overflow: 'hidden',
@@ -326,14 +327,14 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
         title="Collapse minimap"
         style={{
           position: 'absolute',
-          top: 4,
-          right: 4,
+          top: 5,
+          right: 5,
           zIndex: 12,
-          background: 'rgba(7,9,14,0.75)',
+          background: 'rgba(7,9,14,0.85)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 3,
-          width: 20,
-          height: 20,
+          width: 24,
+          height: 24,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -345,7 +346,7 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
         onMouseEnter={e => { e.currentTarget.style.color = 'var(--dw-fg)'; }}
         onMouseLeave={e => { e.currentTarget.style.color = 'var(--dw-fg-muted)'; }}
       >
-        <Minus size={11} strokeWidth={2} />
+        <Minus size={14} strokeWidth={2} />
       </button>
     </div>
   );

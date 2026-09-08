@@ -133,7 +133,7 @@ export default function AnalysisPanel({
         top: 0,
         right: 0,
         bottom: 0,
-        width: 'min(280px, 100vw)',
+        width: 'min(var(--dw-panel-w, 320px), 100vw)',
         maxWidth: '100vw',
         background: 'var(--dw-panel)',
         borderLeft: '1px solid var(--dw-rim)',
@@ -147,33 +147,33 @@ export default function AnalysisPanel({
     >
       {/* Panel Header */}
       <div style={{
-        height: 44,
-        padding: '0 12px',
+        height: 48,
+        padding: '0 14px',
         borderBottom: '1px solid var(--dw-rim)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {isStructure ? (
-            <Building2 size={14} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
+            <Building2 size={16} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           ) : isLocation ? (
-            <MapPin size={14} strokeWidth={1.5} color="var(--dw-probe)" aria-hidden="true" />
+            <MapPin size={16} strokeWidth={1.5} color="var(--dw-probe)" aria-hidden="true" />
           ) : isRefine ? (
-            <Sparkles size={14} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
+            <Sparkles size={16} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           ) : currentTab === 'validation' ? (
-            <ShieldCheck size={14} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
+            <ShieldCheck size={16} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           ) : (
-            <Info size={14} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
+            <Info size={16} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           )}
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
-            letterSpacing: '0.06em',
+            fontSize: 13.5,
+            letterSpacing: '0.05em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg)',
-            fontWeight: 500,
+            fontWeight: 600,
           }}>
             {isStructure
               ? 'Selected Structure'
@@ -187,7 +187,7 @@ export default function AnalysisPanel({
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {(isStructure || isLocation || (isRefine && refineBbox)) && (
             <button
               onClick={() => {
@@ -197,16 +197,16 @@ export default function AnalysisPanel({
               aria-label="Back to overview"
               title="Reset"
               style={{
-                height: 24,
-                padding: '0 6px',
+                height: 28,
+                padding: '0 8px',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 4,
+                gap: 5,
                 background: 'none',
                 border: '1px solid var(--dw-rim)',
                 borderRadius: 'var(--dw-radius-sm)',
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 10,
+                fontSize: 12,
                 color: 'var(--dw-fg-muted)',
                 cursor: 'pointer',
                 outline: 'none',
@@ -217,7 +217,7 @@ export default function AnalysisPanel({
               }}
               onBlur={e => { e.currentTarget.style.outline = 'none'; }}
             >
-              <X size={10} strokeWidth={1.5} aria-hidden="true" />
+              <X size={12} strokeWidth={1.5} aria-hidden="true" />
               Reset
             </button>
           )}
@@ -228,8 +228,8 @@ export default function AnalysisPanel({
               aria-label={open ? 'Collapse analysis panel' : 'Expand analysis panel'}
               title={open ? 'Collapse' : 'Expand'}
               style={{
-                width: 24,
-                height: 24,
+                width: 28,
+                height: 28,
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -246,7 +246,7 @@ export default function AnalysisPanel({
               }}
               onBlur={e => { e.currentTarget.style.outline = 'none'; }}
             >
-              <ChevronRight size={14} strokeWidth={1.5} aria-hidden="true" />
+              <ChevronRight size={16} strokeWidth={1.5} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -269,7 +269,7 @@ export default function AnalysisPanel({
             aria-selected={currentTab === 'overview'}
             onClick={() => setTab('overview')}
             style={{
-              height: 32,
+              height: 38,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -277,7 +277,7 @@ export default function AnalysisPanel({
               border: 'none',
               borderBottom: currentTab === 'overview' ? '2px solid var(--dw-accent)' : '2px solid transparent',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 10,
+              fontSize: 12.5,
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
               fontWeight: currentTab === 'overview' ? 600 : 400,
@@ -300,7 +300,7 @@ export default function AnalysisPanel({
             aria-selected={currentTab === 'validation'}
             onClick={() => setTab('validation')}
             style={{
-              height: 32,
+              height: 38,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -308,7 +308,7 @@ export default function AnalysisPanel({
               border: 'none',
               borderBottom: currentTab === 'validation' ? '2px solid var(--dw-accent)' : '2px solid transparent',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 10,
+              fontSize: 12.5,
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
               fontWeight: currentTab === 'validation' ? 600 : 400,
@@ -331,11 +331,11 @@ export default function AnalysisPanel({
       {/* Scrollable Content Body */}
       <div style={{
         flex: 1,
-        padding: '14px 12px',
+        padding: '16px 14px',
         overflowY: 'auto',
         display: 'flex',
         flexDirection: 'column',
-        gap: 16,
+        gap: 18,
       }}>
         {/* Context 1: Structure Selected */}
         {isStructure && (
@@ -344,16 +344,17 @@ export default function AnalysisPanel({
               id="selected-structure-heading"
               style={{
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 10,
-                letterSpacing: '0.07em',
+                fontSize: 11.5,
+                fontWeight: 600,
+                letterSpacing: '0.08em',
                 textTransform: 'uppercase',
                 color: 'var(--dw-fg-ghost)',
-                margin: '0 0 8px 0',
+                margin: '0 0 10px 0',
               }}
             >
               SELECTED STRUCTURE
             </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
               <DataRow label="Structure ID" value={selectedStructure.id ?? 'STR-042'} />
               <DataRow
                 label="Estimated Height"
@@ -379,16 +380,17 @@ export default function AnalysisPanel({
               id="selected-location-heading"
               style={{
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 10,
-                letterSpacing: '0.07em',
+                fontSize: 11.5,
+                fontWeight: 600,
+                letterSpacing: '0.08em',
                 textTransform: 'uppercase',
                 color: 'var(--dw-fg-ghost)',
-                margin: '0 0 8px 0',
+                margin: '0 0 10px 0',
               }}
             >
               SELECTED LOCATION
             </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
               <DataRow
                 label="Elevation"
                 value={`${selectedLocation.elevation?.toFixed(2) ?? '—'} ${unitLabel}`}
@@ -460,16 +462,17 @@ export default function AnalysisPanel({
                     id="scene-info-heading"
                     style={{
                       fontFamily: 'var(--dw-font-ui)',
-                      fontSize: 10,
-                      letterSpacing: '0.07em',
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      letterSpacing: '0.08em',
                       textTransform: 'uppercase',
                       color: 'var(--dw-fg-ghost)',
-                      margin: '0 0 8px 0',
+                      margin: '0 0 10px 0',
                     }}
                   >
                     SCENE
                   </h2>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
                     <DataRow
                       label="Image"
                       value={state.scene?.filename ?? state.scene?.image_name ?? 'scene_042.tif'}
@@ -498,7 +501,7 @@ export default function AnalysisPanel({
                   </div>
                 </section>
 
-                <div style={{ height: 1, background: 'var(--dw-rim)', margin: '2px 0' }} />
+                <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
 
                 {/* MODEL Section */}
                 <section aria-labelledby="model-info-heading">
@@ -506,16 +509,17 @@ export default function AnalysisPanel({
                     id="model-info-heading"
                     style={{
                       fontFamily: 'var(--dw-font-ui)',
-                      fontSize: 10,
-                      letterSpacing: '0.07em',
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      letterSpacing: '0.08em',
                       textTransform: 'uppercase',
                       color: 'var(--dw-fg-ghost)',
-                      margin: '0 0 8px 0',
+                      margin: '0 0 10px 0',
                     }}
                   >
                     MODEL
                   </h2>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
                     <DataRow
                       label="Depth Model"
                       value={state.scene?.model ?? 'Depth Anything V2'}
@@ -559,7 +563,7 @@ function DataRow({ label, value, highlight = false, accent = false }) {
     }}>
       <span style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 11,
+        fontSize: 13,
         color: 'var(--dw-fg-muted)',
         flexShrink: 0,
       }}>
@@ -567,7 +571,7 @@ function DataRow({ label, value, highlight = false, accent = false }) {
       </span>
       <span style={{
         fontFamily: 'var(--dw-font-data)',
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: highlight ? 600 : 400,
         color: accent
           ? 'var(--dw-confirm)'

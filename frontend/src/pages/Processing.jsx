@@ -45,9 +45,10 @@ export default function Processing() {
         {scene && (
           <p style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 11,
-            color: 'var(--dw-fg-muted)',
-            letterSpacing: '0.06em',
+            fontSize: 13.5,
+            fontWeight: 500,
+            color: 'var(--dw-fg)',
+            letterSpacing: '0.04em',
             margin: 0,
           }}>
             {scene.filename}
@@ -60,8 +61,8 @@ export default function Processing() {
 
         {/* Cancel */}
         {confirming ? (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12, color: 'var(--dw-fg-muted)' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 14, color: 'var(--dw-fg)' }}>
               Cancel processing?
             </span>
             <button
@@ -70,9 +71,10 @@ export default function Processing() {
                 background: 'none',
                 border: '1px solid var(--dw-fault)',
                 borderRadius: 'var(--dw-radius-sm)',
-                padding: '4px 12px',
+                padding: '6px 14px',
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 12,
+                fontSize: 13,
+                fontWeight: 500,
                 color: 'var(--dw-fault)',
                 cursor: 'pointer',
                 outline: 'none',
@@ -88,9 +90,9 @@ export default function Processing() {
                 background: 'none',
                 border: '1px solid var(--dw-rim)',
                 borderRadius: 'var(--dw-radius-sm)',
-                padding: '4px 12px',
+                padding: '6px 14px',
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 12,
+                fontSize: 13,
                 color: 'var(--dw-fg-muted)',
                 cursor: 'pointer',
                 outline: 'none',
@@ -107,16 +109,16 @@ export default function Processing() {
             style={{
               background: 'none',
               border: 'none',
-              padding: '4px 8px',
+              padding: '6px 12px',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
-              color: 'var(--dw-fg-ghost)',
+              fontSize: 13,
+              color: 'var(--dw-fg-muted)',
               cursor: 'pointer',
               outline: 'none',
-              letterSpacing: '0.02em',
+              letterSpacing: '0.01em',
             }}
             onMouseEnter={e => { e.currentTarget.style.color = 'var(--dw-fault)'; }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'var(--dw-fg-ghost)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--dw-fg-muted)'; }}
             onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; e.currentTarget.style.outlineOffset = '2px'; }}
             onBlur={e => { e.currentTarget.style.outline = 'none'; }}
           >
@@ -140,37 +142,38 @@ function FailurePanel({ error }) {
       role="alert"
       style={{
         width: '100%',
-        maxWidth: 480,
-        padding: '16px 20px',
+        maxWidth: 520,
+        padding: '20px 24px',
         background: 'rgba(239,68,68,0.06)',
-        border: '1px solid rgba(239,68,68,0.2)',
+        border: '1px solid rgba(239,68,68,0.25)',
         borderRadius: 'var(--dw-radius)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: 10,
       }}
     >
-      <p style={{ fontFamily: 'var(--dw-font-data)', fontSize: 11, letterSpacing: '0.06em', color: 'var(--dw-fault)', margin: 0 }}>
+      <p style={{ fontFamily: 'var(--dw-font-data)', fontSize: 12, letterSpacing: '0.06em', color: 'var(--dw-fault)', margin: 0, fontWeight: 600 }}>
         DSM GENERATION INTERRUPTED
       </p>
-      <p style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg)', margin: 0 }}>
+      <p style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 15, fontWeight: 500, color: 'var(--dw-fg)', margin: 0 }}>
         We could not complete this stage.
       </p>
       {error.message && (
-        <p style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12, color: 'var(--dw-fg-muted)', margin: 0 }}>
+        <p style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13.5, color: 'var(--dw-fg-muted)', margin: 0, lineHeight: 1.5 }}>
           {error.message}
         </p>
       )}
-      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+      <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
         <button
           onClick={() => actions.retry()}
           style={{
             background: 'none',
             border: '1px solid var(--dw-rim)',
             borderRadius: 'var(--dw-radius-sm)',
-            padding: '5px 12px',
+            padding: '6px 16px',
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 12,
+            fontSize: 13,
+            fontWeight: 500,
             color: 'var(--dw-fg)',
             cursor: 'pointer',
             outline: 'none',
@@ -187,9 +190,9 @@ function FailurePanel({ error }) {
               background: 'none',
               border: '1px solid var(--dw-rim)',
               borderRadius: 'var(--dw-radius-sm)',
-              padding: '5px 12px',
+              padding: '6px 16px',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 12,
+              fontSize: 13,
               color: 'var(--dw-fg-muted)',
               cursor: 'pointer',
               outline: 'none',

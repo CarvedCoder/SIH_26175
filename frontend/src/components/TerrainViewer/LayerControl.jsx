@@ -58,11 +58,12 @@ export default function LayerControl({ activeLayer, onLayerChange }) {
     >
       <p style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 9,
+        fontSize: 11,
         letterSpacing: '0.07em',
         textTransform: 'uppercase',
         color: 'var(--dw-fg-ghost)',
-        margin: '0 0 8px 0',
+        fontWeight: 600,
+        margin: '0 0 10px 0',
       }}>
         Layers
       </p>
@@ -108,7 +109,7 @@ function LayerItem({ id, label, sub, isActive, isAvailable, colormap, onSelect }
         alignItems: 'center',
         gap: 10,
         width: '100%',
-        padding: '6px 8px',
+        padding: '8px 10px',
         background: isActive ? 'var(--dw-surface)' : 'transparent',
         border: '1px solid ' + (isActive ? 'var(--dw-accent)' : 'transparent'),
         borderRadius: 'var(--dw-radius-sm)',
@@ -127,8 +128,8 @@ function LayerItem({ id, label, sub, isActive, isAvailable, colormap, onSelect }
     >
       {/* Left indicator dot */}
       <div style={{
-        width: 6,
-        height: 6,
+        width: 7,
+        height: 7,
         borderRadius: '50%',
         flexShrink: 0,
         background: isActive ? 'var(--dw-accent)' : isAvailable ? 'var(--dw-fg-ghost)' : 'var(--dw-rim)',
@@ -136,10 +137,11 @@ function LayerItem({ id, label, sub, isActive, isAvailable, colormap, onSelect }
       }} />
 
       {/* Label + sublabel */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 12,
+          fontSize: 13.5,
+          fontWeight: isActive ? 600 : 500,
           color: isActive ? 'var(--dw-fg)' : isAvailable ? 'var(--dw-fg-muted)' : 'var(--dw-fg-ghost)',
           transition: 'color 120ms ease',
         }}>
@@ -147,7 +149,7 @@ function LayerItem({ id, label, sub, isActive, isAvailable, colormap, onSelect }
         </span>
         <span style={{
           fontFamily: 'var(--dw-font-data)',
-          fontSize: 10,
+          fontSize: 11.5,
           color: 'var(--dw-fg-ghost)',
         }}>
           {disabledReason ?? sub}
@@ -175,8 +177,8 @@ function ColormapBadge({ type, visible }) {
     <div
       aria-hidden="true"
       style={{
-        width: 24,
-        height: 6,
+        width: 28,
+        height: 8,
         borderRadius: 2,
         background: gradients[type] ?? gradients.greyscale,
         flexShrink: 0,

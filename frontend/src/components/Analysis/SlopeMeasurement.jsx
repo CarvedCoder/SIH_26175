@@ -88,20 +88,21 @@ const SlopeMeasurement = forwardRef(function SlopeMeasurement(
         background: 'var(--dw-panel)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
-        padding: '12px 14px',
+        padding: '14px 16px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 10,
-        minWidth: 220,
+        gap: 12,
+        minWidth: 260,
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <TrendingUp size={13} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <TrendingUp size={15} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 10,
-            letterSpacing: '0.07em',
+            fontSize: 11.5,
+            fontWeight: 600,
+            letterSpacing: '0.08em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
           }}>
@@ -117,20 +118,20 @@ const SlopeMeasurement = forwardRef(function SlopeMeasurement(
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 4,
-              height: 24,
-              padding: '0 6px',
+              gap: 5,
+              height: 28,
+              padding: '0 8px',
               background: 'none',
               border: '1px solid var(--dw-rim)',
               borderRadius: 'var(--dw-radius-sm)',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 10,
+              fontSize: 12,
               color: 'var(--dw-fg-muted)',
               cursor: 'pointer',
               outline: 'none',
             }}
           >
-            <RotateCcw size={10} strokeWidth={1.5} aria-hidden="true" />
+            <RotateCcw size={12} strokeWidth={1.5} aria-hidden="true" />
             Clear
           </button>
         )}
@@ -139,7 +140,7 @@ const SlopeMeasurement = forwardRef(function SlopeMeasurement(
       {step === 0 && !result && (
         <p style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 11,
+          fontSize: 13.5,
           color: 'var(--dw-fg-muted)',
           margin: 0,
         }}>
@@ -150,7 +151,7 @@ const SlopeMeasurement = forwardRef(function SlopeMeasurement(
       {step === 1 && !result && (
         <p style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 11,
+          fontSize: 13.5,
           color: 'var(--dw-accent)',
           margin: 0,
         }}>
@@ -159,34 +160,34 @@ const SlopeMeasurement = forwardRef(function SlopeMeasurement(
       )}
 
       {result && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>
+            <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
               Elevation Difference
             </span>
-            <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 12, color: 'var(--dw-fg)' }}>
+            <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 14, color: 'var(--dw-fg)' }}>
               {result.elevationDiff.toFixed(1)} {unitLabel}
             </span>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>
+            <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
               Horizontal Distance
             </span>
-            <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 12, color: 'var(--dw-fg)' }}>
+            <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 14, color: 'var(--dw-fg)' }}>
               {result.horizontal.toFixed(1)} {unitLabel}
             </span>
           </div>
 
-          <div style={{ width: '100%', height: 1, background: 'var(--dw-rim)' }} />
+          <div style={{ width: '100%', height: 1, background: 'var(--dw-rim)', margin: '2px 0' }} />
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, fontWeight: 500, color: 'var(--dw-fg)' }}>
+            <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13.5, fontWeight: 600, color: 'var(--dw-fg)' }}>
               Slope
             </span>
             <span style={{
               fontFamily: 'var(--dw-font-data)',
-              fontSize: 14,
+              fontSize: 16,
               fontWeight: 600,
               color: 'var(--dw-accent)',
             }}>

@@ -73,9 +73,9 @@ function StageRow({ stage, currentStage, jobStatus }) {
         aria-hidden="true"
         style={{
           fontFamily: 'var(--dw-font-data)',
-          fontSize: 12,
+          fontSize: 14,
           color: iconColor,
-          width: 14,
+          width: 16,
           flexShrink: 0,
           textAlign: 'center',
           transition: 'color 200ms ease',
@@ -88,9 +88,9 @@ function StageRow({ stage, currentStage, jobStatus }) {
       </span>
       <span style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 13,
+        fontSize: 14.5,
         color: isActive ? 'var(--dw-fg)' : isComplete ? 'var(--dw-fg-muted)' : 'var(--dw-fg-ghost)',
-        fontWeight: isActive ? 500 : 400,
+        fontWeight: isActive ? 600 : 400,
         transition: 'color 200ms ease',
       }}>
         {STAGE_LABELS[stage] ?? stage}
@@ -111,11 +111,11 @@ export default function PipelineProgress() {
       aria-label="Processing pipeline progress"
       style={{
         width: '100%',
-        maxWidth: 480,
+        maxWidth: 520,
         background: 'var(--dw-surface)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius)',
-        padding: '16px 20px',
+        padding: '20px 24px',
         display: 'flex',
         flexDirection: 'column',
         gap: 0,
@@ -124,12 +124,12 @@ export default function PipelineProgress() {
       {/* Section label */}
       <p style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 10,
-        fontWeight: 500,
+        fontSize: 12,
+        fontWeight: 600,
         letterSpacing: '0.08em',
         textTransform: 'uppercase',
         color: 'var(--dw-fg-muted)',
-        margin: '0 0 12px 0',
+        margin: '0 0 14px 0',
       }}>
         PROCESSING
       </p>

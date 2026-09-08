@@ -91,13 +91,13 @@ Timestamp: ${new Date().toISOString()}`;
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 10,
-              paddingBottom: 12,
+              gap: 12,
+              paddingBottom: 14,
               borderBottom: '1px solid var(--dw-rim)',
             }}>
               <div style={{
-                width: 28,
-                height: 28,
+                width: 32,
+                height: 32,
                 borderRadius: 'var(--dw-radius-sm)',
                 background: 'rgba(239,68,68,0.12)',
                 border: '1px solid rgba(239,68,68,0.3)',
@@ -105,13 +105,14 @@ Timestamp: ${new Date().toISOString()}`;
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: 'var(--dw-fault)',
+                flexShrink: 0,
               }}>
-                <AlertTriangle size={16} strokeWidth={1.5} />
+                <AlertTriangle size={18} strokeWidth={1.5} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <span style={{
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 14,
+                  fontSize: 16,
                   fontWeight: 600,
                   color: 'var(--dw-fg)',
                 }}>
@@ -119,9 +120,9 @@ Timestamp: ${new Date().toISOString()}`;
                 </span>
                 <span style={{
                   fontFamily: 'var(--dw-font-data)',
-                  fontSize: 10,
+                  fontSize: 11,
                   color: 'var(--dw-fg-ghost)',
-                  letterSpacing: '0.04em',
+                  letterSpacing: '0.05em',
                 }}>
                   RECOVERY SYSTEM (§31 RULE 6)
                 </span>
@@ -132,21 +133,21 @@ Timestamp: ${new Date().toISOString()}`;
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: 12,
+              gap: 14,
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 13,
-              lineHeight: 1.5,
+              fontSize: 14.5,
+              lineHeight: 1.55,
             }}>
               <div>
                 <span style={{
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 10,
-                  fontWeight: 500,
-                  letterSpacing: '0.06em',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  letterSpacing: '0.07em',
                   textTransform: 'uppercase',
                   color: 'var(--dw-fg-ghost)',
                   display: 'block',
-                  marginBottom: 2,
+                  marginBottom: 3,
                 }}>
                   What happened
                 </span>
@@ -158,23 +159,23 @@ Timestamp: ${new Date().toISOString()}`;
               <div>
                 <span style={{
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 10,
-                  fontWeight: 500,
-                  letterSpacing: '0.06em',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  letterSpacing: '0.07em',
                   textTransform: 'uppercase',
                   color: 'var(--dw-fg-ghost)',
                   display: 'block',
-                  marginBottom: 2,
+                  marginBottom: 3,
                 }}>
                   Why it happened
                 </span>
                 <span style={{
                   fontFamily: 'var(--dw-font-data)',
-                  fontSize: 12,
+                  fontSize: 13.5,
                   color: 'var(--dw-fault)',
                   display: 'block',
                   background: 'var(--dw-surface)',
-                  padding: '6px 10px',
+                  padding: '8px 12px',
                   borderRadius: 'var(--dw-radius-sm)',
                   border: '1px solid var(--dw-rim)',
                   wordBreak: 'break-all',
@@ -186,13 +187,13 @@ Timestamp: ${new Date().toISOString()}`;
               <div>
                 <span style={{
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 10,
-                  fontWeight: 500,
-                  letterSpacing: '0.06em',
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  letterSpacing: '0.07em',
                   textTransform: 'uppercase',
                   color: 'var(--dw-fg-ghost)',
                   display: 'block',
-                  marginBottom: 2,
+                  marginBottom: 3,
                 }}>
                   What can I do next?
                 </span>
@@ -207,7 +208,7 @@ Timestamp: ${new Date().toISOString()}`;
               display: 'flex',
               alignItems: 'center',
               gap: 10,
-              paddingTop: 12,
+              paddingTop: 14,
               borderTop: '1px solid var(--dw-rim)',
               flexWrap: 'wrap',
             }}>
@@ -217,20 +218,20 @@ Timestamp: ${new Date().toISOString()}`;
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6,
-                  height: 32,
-                  padding: '0 12px',
+                  height: 36,
+                  padding: '0 14px',
                   background: 'var(--dw-accent)',
                   border: 'none',
                   borderRadius: 'var(--dw-radius-sm)',
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 12,
-                  fontWeight: 500,
+                  fontSize: 13,
+                  fontWeight: 600,
                   color: '#fff',
                   cursor: 'pointer',
                   outline: 'none',
                 }}
               >
-                <RotateCcw size={13} strokeWidth={1.5} />
+                <RotateCcw size={15} strokeWidth={1.5} />
                 Reload Page
               </button>
 
@@ -240,19 +241,19 @@ Timestamp: ${new Date().toISOString()}`;
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6,
-                  height: 32,
-                  padding: '0 12px',
+                  height: 36,
+                  padding: '0 14px',
                   background: 'var(--dw-surface)',
                   border: '1px solid var(--dw-rim)',
                   borderRadius: 'var(--dw-radius-sm)',
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 12,
+                  fontSize: 13,
                   color: 'var(--dw-fg)',
                   cursor: 'pointer',
                   outline: 'none',
                 }}
               >
-                <Home size={13} strokeWidth={1.5} />
+                <Home size={15} strokeWidth={1.5} />
                 Return to Landing
               </button>
 
@@ -262,13 +263,13 @@ Timestamp: ${new Date().toISOString()}`;
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6,
-                  height: 32,
-                  padding: '0 12px',
+                  height: 36,
+                  padding: '0 14px',
                   background: 'none',
                   border: '1px solid var(--dw-rim)',
                   borderRadius: 'var(--dw-radius-sm)',
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 12,
+                  fontSize: 13,
                   color: this.state.copied ? 'var(--dw-confirm)' : 'var(--dw-fg-muted)',
                   cursor: 'pointer',
                   marginLeft: 'auto',
@@ -277,12 +278,12 @@ Timestamp: ${new Date().toISOString()}`;
               >
                 {this.state.copied ? (
                   <>
-                    <Check size={13} strokeWidth={2} />
+                    <Check size={15} strokeWidth={2} />
                     <span>Copied</span>
                   </>
                 ) : (
                   <>
-                    <Copy size={13} strokeWidth={1.5} />
+                    <Copy size={15} strokeWidth={1.5} />
                     <span>Copy Diagnostics</span>
                   </>
                 )}

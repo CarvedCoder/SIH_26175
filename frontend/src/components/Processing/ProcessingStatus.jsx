@@ -20,20 +20,21 @@ export default function ProcessingStatus() {
       aria-atomic="true"
       style={{
         fontFamily: 'var(--dw-font-data)',
-        fontSize: 11,
-        color: 'var(--dw-fg-muted)',
+        fontSize: 14,
+        fontWeight: 500,
+        color: 'var(--dw-fg)',
         margin: 0,
         letterSpacing: '0.03em',
       }}
     >
       {stageName}
       {hasTiles && (
-        <span style={{ color: 'var(--dw-fg-ghost)' }}>
+        <span style={{ color: 'var(--dw-fg-muted)' }}>
           {' '}— Tile {job.current_tile} / {job.total_tiles}
         </span>
       )}
       {job.progress != null && (
-        <span style={{ color: 'var(--dw-fg-ghost)' }}>
+        <span style={{ color: 'var(--dw-accent)' }}>
           {' '}({job.progress}%)
         </span>
       )}

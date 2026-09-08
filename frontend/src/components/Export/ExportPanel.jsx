@@ -150,18 +150,18 @@ export default function ExportPanel({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingBottom: 6,
+        paddingBottom: 8,
         borderBottom: '1px solid var(--dw-rim)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Download size={13} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <Download size={15} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 10,
+            fontSize: 11.5,
             letterSpacing: '0.07em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
-            fontWeight: 500,
+            fontWeight: 600,
           }}>
             Export Outputs (§27, §66)
           </span>
@@ -176,7 +176,7 @@ export default function ExportPanel({
               border: 'none',
               cursor: 'pointer',
               color: 'var(--dw-fg-muted)',
-              padding: 2,
+              padding: 4,
               display: 'flex',
               alignItems: 'center',
               outline: 'none',
@@ -187,7 +187,7 @@ export default function ExportPanel({
             }}
             onBlur={e => { e.currentTarget.style.outline = 'none'; }}
           >
-            <X size={12} strokeWidth={1.5} />
+            <X size={15} strokeWidth={1.5} />
           </button>
         )}
       </div>
@@ -196,7 +196,7 @@ export default function ExportPanel({
       <div style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: 6,
+        gap: 8,
       }}>
         {EXPORT_ITEMS.map(item => {
           const Icon = item.icon;
@@ -211,22 +211,22 @@ export default function ExportPanel({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                padding: '8px 10px',
+                padding: '10px 12px',
                 background: 'var(--dw-surface)',
                 border: '1px solid var(--dw-rim)',
                 borderRadius: 'var(--dw-radius-sm)',
-                gap: 8,
+                gap: 10,
               }}
             >
               <div style={{
                 display: 'flex',
                 alignItems: 'flex-start',
-                gap: 8,
+                gap: 10,
                 flex: 1,
                 minWidth: 0,
               }}>
                 <Icon
-                  size={15}
+                  size={18}
                   strokeWidth={1.5}
                   color={isEnabled ? 'var(--dw-accent)' : 'var(--dw-fg-ghost)'}
                   style={{ marginTop: 2, flexShrink: 0 }}
@@ -236,7 +236,7 @@ export default function ExportPanel({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{
                       fontFamily: 'var(--dw-font-ui)',
-                      fontSize: 11,
+                      fontSize: 13.5,
                       fontWeight: 500,
                       color: isEnabled ? 'var(--dw-fg)' : 'var(--dw-fg-muted)',
                       overflow: 'hidden',
@@ -248,7 +248,7 @@ export default function ExportPanel({
                   </div>
                   <span style={{
                     fontFamily: 'var(--dw-font-data)',
-                    fontSize: 9,
+                    fontSize: 11.5,
                     color: isEnabled ? 'var(--dw-fg-muted)' : 'var(--dw-fg-ghost)',
                   }}>
                     {item.format}
@@ -263,16 +263,16 @@ export default function ExportPanel({
                 aria-label={`Export ${item.title}`}
                 title={isEnabled ? `Download ${item.title}` : item.disabledReason}
                 style={{
-                  height: 26,
-                  padding: '0 8px',
+                  height: 32,
+                  padding: '0 10px',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 4,
+                  gap: 5,
                   background: isEnabled ? 'var(--dw-panel)' : 'transparent',
                   border: '1px solid ' + (isEnabled ? 'var(--dw-rim)' : 'transparent'),
                   borderRadius: 'var(--dw-radius-sm)',
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 10,
+                  fontSize: 12.5,
                   color: isDone
                     ? 'var(--dw-confirm)'
                     : isEnabled
@@ -305,14 +305,14 @@ export default function ExportPanel({
               >
                 {isDone ? (
                   <>
-                    <Check size={11} strokeWidth={2} />
+                    <Check size={13} strokeWidth={2} />
                     <span>Saved</span>
                   </>
                 ) : isBusy ? (
                   <span>Streaming…</span>
                 ) : (
                   <>
-                    <Download size={11} strokeWidth={1.5} />
+                    <Download size={13} strokeWidth={1.5} />
                     <span>Export</span>
                   </>
                 )}

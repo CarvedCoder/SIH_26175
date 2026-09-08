@@ -295,7 +295,7 @@ export default function TerrainWorkspace() {
             top: 56,
             right: 12,
             maxWidth: 'calc(100vw - 24px)',
-            transform: `translateX(-${analysisPanelOpen ? 'min(280px, calc(100vw - 40px))' : (layerPanelOpen ? 'min(220px, calc(100vw - 40px))' : '0px')})`,
+            transform: `translateX(-${analysisPanelOpen ? 'min(320px, calc(100vw - 40px))' : (layerPanelOpen ? 'min(240px, calc(100vw - 40px))' : '0px')})`,
             zIndex: 12,
             transition: 'transform 200ms ease-out',
           }}>
@@ -343,7 +343,7 @@ export default function TerrainWorkspace() {
             top: 0,
             right: 0,
             bottom: 0,
-            width: 'min(240px, 100vw)',
+            width: 'min(260px, 100vw)',
             transform: layerPanelOpen ? 'translateX(0)' : 'translateX(100%)',
             transition: 'transform 200ms ease-out',
             zIndex: 14,
@@ -354,11 +354,11 @@ export default function TerrainWorkspace() {
               height: '100%',
               background: 'var(--dw-panel)',
               borderLeft: '1px solid var(--dw-rim)',
-              padding: 12,
+              padding: 14,
               overflowY: 'auto',
               display: 'flex',
               flexDirection: 'column',
-              gap: 8,
+              gap: 10,
             }}>
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button
@@ -369,12 +369,12 @@ export default function TerrainWorkspace() {
                     border: 'none',
                     color: 'var(--dw-fg-muted)',
                     cursor: 'pointer',
-                    padding: 4,
+                    padding: 6,
                     display: 'flex',
                     alignItems: 'center',
                   }}
                 >
-                  <X size={14} strokeWidth={1.5} />
+                  <X size={16} strokeWidth={1.5} />
                 </button>
               </div>
               <LayerControl
@@ -385,7 +385,7 @@ export default function TerrainWorkspace() {
           </div>
         )}
 
-        {/* Side Analysis Panel — collapsible 280px right drawer (Phase 10 & 12, §25, §16) */}
+        {/* Side Analysis Panel — collapsible 320px right drawer (Phase 10 & 12, §25, §16) */}
         {!isLoading && (
           <AnalysisPanel
             open={analysisPanelOpen}
@@ -421,12 +421,12 @@ export default function TerrainWorkspace() {
           <div
             style={{
               position: 'absolute',
-              top: 12,
-              right: 12,
-              transform: `translateX(-${analysisPanelOpen ? 280 : (layerPanelOpen ? 220 : 0)}px)`,
+              top: 14,
+              right: 14,
+              transform: `translateX(-${analysisPanelOpen ? 320 : (layerPanelOpen ? 260 : 0)}px)`,
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: 8,
               zIndex: 16,
               transition: 'transform 200ms ease-out',
             }}
@@ -444,17 +444,18 @@ export default function TerrainWorkspace() {
               aria-label="Toggle layer panel"
               title={layerPanelOpen ? 'Close layers' : 'Open layers'}
               style={{
-                height: 32,
-                padding: '0 10px',
+                height: 36,
+                padding: '0 12px',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
-                background: layerPanelOpen ? 'var(--dw-surface)' : 'rgba(13,17,23,0.88)',
+                gap: 7,
+                background: layerPanelOpen ? 'var(--dw-surface)' : 'rgba(13,17,23,0.92)',
                 border: layerPanelOpen ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
                 borderRadius: 'var(--dw-radius-sm)',
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 12,
-                color: layerPanelOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+                fontSize: 13.5,
+                fontWeight: 500,
+                color: layerPanelOpen ? 'var(--dw-accent)' : 'var(--dw-fg)',
                 cursor: 'pointer',
                 outline: 'none',
                 transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
@@ -465,7 +466,7 @@ export default function TerrainWorkspace() {
               }}
               onBlur={e => { e.currentTarget.style.outline = 'none'; }}
             >
-              <Layers size={13} strokeWidth={1.5} aria-hidden="true" />
+              <Layers size={16} strokeWidth={1.5} aria-hidden="true" />
               Layers
             </button>
 
@@ -482,17 +483,18 @@ export default function TerrainWorkspace() {
               aria-label="Toggle analysis panel"
               title={analysisPanelOpen ? 'Close analysis' : 'Open analysis'}
               style={{
-                height: 32,
-                padding: '0 10px',
+                height: 36,
+                padding: '0 12px',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
-                background: analysisPanelOpen ? 'var(--dw-surface)' : 'rgba(13,17,23,0.88)',
+                gap: 7,
+                background: analysisPanelOpen ? 'var(--dw-surface)' : 'rgba(13,17,23,0.92)',
                 border: analysisPanelOpen ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
                 borderRadius: 'var(--dw-radius-sm)',
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 12,
-                color: analysisPanelOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+                fontSize: 13.5,
+                fontWeight: 500,
+                color: analysisPanelOpen ? 'var(--dw-accent)' : 'var(--dw-fg)',
                 cursor: 'pointer',
                 outline: 'none',
                 transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
@@ -503,7 +505,7 @@ export default function TerrainWorkspace() {
               }}
               onBlur={e => { e.currentTarget.style.outline = 'none'; }}
             >
-              <PanelRight size={13} strokeWidth={1.5} aria-hidden="true" />
+              <PanelRight size={16} strokeWidth={1.5} aria-hidden="true" />
               Analysis
             </button>
           </div>
@@ -530,7 +532,7 @@ export default function TerrainWorkspace() {
         )}
       </div>
 
-      {/* 48px unified bottom toolbar (Phase 11, §26) */}
+      {/* 56px unified bottom toolbar (Phase 11, §26) */}
       <Toolbar
         terrainRef={terrainRef}
         cameraMode={cameraMode}
@@ -557,11 +559,11 @@ export default function TerrainWorkspace() {
  */
 function TerrainLoadingIndicator() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
       {/* Terrain profile glyph — animated */}
       <svg
-        width="40"
-        height="20"
+        width="48"
+        height="24"
         viewBox="0 0 40 20"
         fill="none"
         aria-hidden="true"
@@ -592,8 +594,9 @@ function TerrainLoadingIndicator() {
       </svg>
       <span style={{
         fontFamily: 'var(--dw-font-data)',
-        fontSize: 11,
-        color: 'var(--dw-fg-muted)',
+        fontSize: 13,
+        fontWeight: 500,
+        color: 'var(--dw-fg)',
         letterSpacing: '0.06em',
       }}>
         BUILDING TERRAIN

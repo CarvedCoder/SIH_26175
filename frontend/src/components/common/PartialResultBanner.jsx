@@ -89,11 +89,11 @@ export default function PartialResultBanner({
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 9,
+          fontSize: 11.5,
           letterSpacing: '0.07em',
           textTransform: 'uppercase',
-          color: 'var(--dw-fg-ghost)',
-          fontWeight: 500,
+          color: 'var(--dw-fg-muted)',
+          fontWeight: 600,
         }}>
           {categoryLabel}
         </span>
@@ -102,7 +102,7 @@ export default function PartialResultBanner({
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 12,
+        gap: 14,
         flexWrap: 'wrap',
       }}>
         {items.map((item, idx) => (
@@ -111,9 +111,10 @@ export default function PartialResultBanner({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 5,
+              gap: 6,
               fontFamily: 'var(--dw-font-data)',
-              fontSize: 11,
+              fontSize: 12.5,
+              fontWeight: 500,
               color: item.status === 'pass'
                 ? 'var(--dw-fg)'
                 : item.status === 'warn'
@@ -122,11 +123,11 @@ export default function PartialResultBanner({
             }}
           >
             {item.status === 'pass' ? (
-              <CheckCircle2 size={12} strokeWidth={2} color="var(--dw-confirm)" aria-hidden="true" />
+              <CheckCircle2 size={14} strokeWidth={2} color="var(--dw-confirm)" aria-hidden="true" />
             ) : item.status === 'warn' ? (
-              <AlertCircle size={12} strokeWidth={2} color="var(--dw-live)" aria-hidden="true" />
+              <AlertCircle size={14} strokeWidth={2} color="var(--dw-live)" aria-hidden="true" />
             ) : (
-              <Info size={12} strokeWidth={1.5} color="var(--dw-fg-ghost)" aria-hidden="true" />
+              <Info size={14} strokeWidth={1.5} color="var(--dw-fg-ghost)" aria-hidden="true" />
             )}
             <span>{item.text}</span>
           </div>

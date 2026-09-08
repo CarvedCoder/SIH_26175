@@ -87,15 +87,15 @@ export default function ComparisonView({
         alignItems: 'center',
         justifyContent: 'space-between',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <ArrowLeftRight size={13} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <ArrowLeftRight size={15} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 10,
+            fontSize: 11.5,
             letterSpacing: '0.07em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
-            fontWeight: 500,
+            fontWeight: 600,
           }}>
             Comparison Mode (§16, §17)
           </span>
@@ -109,7 +109,7 @@ export default function ComparisonView({
             background: 'none',
             border: 'none',
             cursor: 'pointer',
-            padding: 2,
+            padding: 3,
             display: 'flex',
             alignItems: 'center',
             color: showHelp ? 'var(--dw-accent)' : 'var(--dw-fg-ghost)',
@@ -121,21 +121,21 @@ export default function ComparisonView({
           }}
           onBlur={e => { e.currentTarget.style.outline = 'none'; }}
         >
-          <HelpCircle size={13} strokeWidth={1.5} />
+          <HelpCircle size={15} strokeWidth={1.5} />
         </button>
       </div>
 
       {/* Helpful explanation when toggled */}
       {showHelp && (
         <div style={{
-          padding: '8px 10px',
+          padding: '10px 12px',
           background: 'var(--dw-surface)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-sm)',
-          fontSize: 11,
+          fontSize: 13,
           fontFamily: 'var(--dw-font-ui)',
           color: 'var(--dw-fg-muted)',
-          lineHeight: 1.45,
+          lineHeight: 1.5,
         }}>
           Compare reconstructed surface against known ground-truth. Difference Map computes{' '}
           <code style={{ fontFamily: 'var(--dw-font-data)', color: 'var(--dw-fg)' }}>Δz = z_model - z_ref</code>.{' '}
@@ -177,9 +177,9 @@ export default function ComparisonView({
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 2,
-                padding: '6px 4px',
-                height: 42,
+                gap: 3,
+                padding: '8px 6px',
+                height: 48,
                 background: isSelected ? 'var(--dw-panel)' : 'transparent',
                 border: isSelected ? '1px solid var(--dw-accent)' : '1px solid transparent',
                 borderRadius: 'var(--dw-radius-sm)',
@@ -208,8 +208,8 @@ export default function ComparisonView({
             >
               <span style={{
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 11,
-                fontWeight: isSelected ? 500 : 400,
+                fontSize: 13,
+                fontWeight: isSelected ? 600 : 400,
                 color: isSelected ? 'var(--dw-accent)' : 'var(--dw-fg)',
                 whiteSpace: 'nowrap',
               }}>
@@ -217,7 +217,7 @@ export default function ComparisonView({
               </span>
               <span style={{
                 fontFamily: 'var(--dw-font-data)',
-                fontSize: 9,
+                fontSize: 11,
                 color: 'var(--dw-fg-muted)',
               }}>
                 {layer.id === 'dsm' ? 'Est.' : layer.id === 'reference_dem' ? 'Ref.' : 'Δz'}
@@ -232,8 +232,8 @@ export default function ComparisonView({
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: 6,
-          padding: '10px',
+          gap: 8,
+          padding: '12px',
           background: 'var(--dw-surface)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-sm)',
@@ -241,7 +241,8 @@ export default function ComparisonView({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 10,
+              fontSize: 11.5,
+              fontWeight: 600,
               letterSpacing: '0.05em',
               textTransform: 'uppercase',
               color: 'var(--dw-fg-ghost)',
@@ -250,7 +251,7 @@ export default function ComparisonView({
             </span>
             <span style={{
               fontFamily: 'var(--dw-font-data)',
-              fontSize: 10,
+              fontSize: 11,
               color: 'var(--dw-fg-muted)',
             }}>
               Diverging
@@ -262,7 +263,7 @@ export default function ComparisonView({
             role="img"
             aria-label={`Error scale from ${minErr} to ${maxErr} ${errUnits}`}
             style={{
-              height: 10,
+              height: 12,
               width: '100%',
               borderRadius: 2,
               border: '1px solid var(--dw-rim)',
@@ -276,7 +277,7 @@ export default function ComparisonView({
             justifyContent: 'space-between',
             alignItems: 'center',
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 10,
+            fontSize: 12,
             color: 'var(--dw-fg-muted)',
           }}>
             <span style={{ color: '#60a5fa' }}>{minErr > 0 ? `+${minErr}` : minErr} {errUnits}</span>
@@ -287,7 +288,7 @@ export default function ComparisonView({
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
-            fontSize: 9,
+            fontSize: 11,
             fontFamily: 'var(--dw-font-ui)',
             color: 'var(--dw-fg-ghost)',
           }}>
@@ -301,7 +302,7 @@ export default function ComparisonView({
       {/* Reference DEM Information Banner */}
       {activeLayer === 'reference_dem' && isRefAvailable && (
         <div style={{
-          padding: '8px 10px',
+          padding: '10px 12px',
           background: 'var(--dw-surface)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-sm)',
@@ -309,10 +310,10 @@ export default function ComparisonView({
           justifyContent: 'space-between',
           alignItems: 'center',
         }}>
-          <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>
+          <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
             Reference Source
           </span>
-          <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 11, color: 'var(--dw-accent)' }}>
+          <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 13, color: 'var(--dw-accent)' }}>
             {referenceMeta?.source ?? 'SRTM'} ({referenceMeta?.resolution ?? '30m'})
           </span>
         </div>
@@ -323,13 +324,14 @@ export default function ComparisonView({
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: 4,
+          gap: 6,
           paddingTop: 4,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 10,
+              fontSize: 11.5,
+              fontWeight: 600,
               textTransform: 'uppercase',
               letterSpacing: '0.05em',
               color: 'var(--dw-fg-ghost)',
@@ -338,7 +340,7 @@ export default function ComparisonView({
             </span>
             <span style={{
               fontFamily: 'var(--dw-font-data)',
-              fontSize: 10,
+              fontSize: 12.5,
               color: 'var(--dw-fg)',
             }}>
               {Math.round(blendOpacity * 100)}%
