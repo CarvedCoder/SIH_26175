@@ -27,6 +27,7 @@ import DistanceMeasurement from '../components/Analysis/DistanceMeasurement.jsx'
 import SlopeMeasurement from '../components/Analysis/SlopeMeasurement.jsx';
 import StructureInspector from '../components/Analysis/StructureInspector.jsx';
 import ToolGuard from '../components/Analysis/ToolGuard.jsx';
+import AnalysisPanel from '../components/common/AnalysisPanel.jsx';
 import { useCameraController } from '../hooks/useCameraController.js';
 import { getMinimap } from '../api/terrain.js';
 import { getResults, getDepth, getDsm } from '../api/results.js';
@@ -39,6 +40,7 @@ import {
   Ruler,
   TrendingUp,
   Building2,
+  PanelRight,
 } from 'lucide-react';
 
 export default function TerrainWorkspace() {
@@ -148,12 +150,17 @@ export default function TerrainWorkspace() {
     }
   }
 
-  // ── Analysis tools state (Phase 9) ──
+  // ── Analysis tools state (Phase 9 & 10) ──
   const [activeTool, setActiveTool] = useState('none');
   const heightToolRef = useRef(null);
   const distToolRef   = useRef(null);
   const slopeToolRef  = useRef(null);
   const structToolRef = useRef(null);
+
+  // ── Side Analysis Panel state (Phase 10, §25) ──
+  const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [selectedStructure, setSelectedStructure] = useState(null);
 
   /** Handle clicks on the terrain canvas to feed active measurement tool */
   const handleTerrainClick = (e) => {
@@ -163,6 +170,13 @@ export default function TerrainWorkspace() {
 
     setSelectedPoint({ x: pt.x, z: pt.z, elevation: pt.elevation });
 
+    // Update selectedLocation for context switching (§25)
+    setSelectedLocation({
+      x: pt.x,
+      z: pt.z,
+      elevation: pt.elevation,
+    });
+
     if (activeTool === 'height') {
       heightToolRef.current?.handleTerrainClick(pt);
     } else if (activeTool === 'distance') {
@@ -171,6 +185,13 @@ export default function TerrainWorkspace() {
       slopeToolRef.current?.handleSelectPoint(pt);
     } else if (activeTool === 'structure') {
       structToolRef.current?.inspectPoint(pt);
+      const idNum = Math.abs(Math.round(pt.x * 100 + pt.z * 100)) % 999;
+      setSelectedStructure({
+        id: `STR-${String(idNum).padStart(3, '0')}`,
+        ground: pt.elevation,
+        top: pt.elevation * 1.15,
+        height: pt.elevation * 0.15,
+      });
     }
   };
 
@@ -231,7 +252,7 @@ export default function TerrainWorkspace() {
             position: 'absolute',
             top: 56,
             right: 12,
-            transform: layerPanelOpen ? 'translateX(-220px)' : 'translateX(0)',
+            transform: `translateX(-${analysisPanelOpen ? 280 : (layerPanelOpen ? 220 : 0)}px)`,
             zIndex: 12,
             transition: 'transform 200ms ease-out',
           }}>
@@ -268,7 +289,7 @@ export default function TerrainWorkspace() {
             width: 220,
             transform: layerPanelOpen ? 'translateX(0)' : 'translateX(100%)',
             transition: 'transform 200ms ease-out',
-            zIndex: 11,
+            zIndex: 14,
             pointerEvents: layerPanelOpen ? 'auto' : 'none',
           }}>
             <div style={{
@@ -287,43 +308,112 @@ export default function TerrainWorkspace() {
           </div>
         )}
 
-        {/* Layer toggle button — shown on right edge, always accessible */}
+        {/* Side Analysis Panel — collapsible 280px right drawer (Phase 10, §25) */}
         {!isLoading && (
-          <button
-            onClick={() => setLayerPanelOpen(v => !v)}
-            aria-expanded={layerPanelOpen}
-            aria-label="Toggle layer panel"
-            title={layerPanelOpen ? 'Close layers' : 'Open layers'}
+          <AnalysisPanel
+            open={analysisPanelOpen}
+            onToggle={() => setAnalysisPanelOpen(v => !v)}
+            selectedLocation={selectedLocation}
+            selectedStructure={selectedStructure}
+            onClearSelection={() => {
+              setSelectedLocation(null);
+              setSelectedStructure(null);
+              setSelectedPoint(null);
+            }}
+          />
+        )}
+
+        {/* Right side panel buttons (Layers & Analysis) — always accessible */}
+        {!isLoading && (
+          <div
             style={{
               position: 'absolute',
               top: 12,
               right: 12,
-              transform: layerPanelOpen ? 'translateX(-220px)' : 'translateX(0)',
-              height: 32,
-              padding: '0 10px',
-              display: 'inline-flex',
+              transform: `translateX(-${analysisPanelOpen ? 280 : (layerPanelOpen ? 220 : 0)}px)`,
+              display: 'flex',
               alignItems: 'center',
               gap: 6,
-              background: layerPanelOpen ? 'var(--dw-surface)' : 'rgba(13,17,23,0.88)',
-              border: layerPanelOpen ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
-              borderRadius: 'var(--dw-radius-sm)',
-              fontFamily: 'var(--dw-font-ui)',
-              fontSize: 12,
-              color: layerPanelOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
-              cursor: 'pointer',
-              outline: 'none',
-              zIndex: 12,
-              transition: 'transform 200ms ease-out, border-color 120ms ease, color 120ms ease',
+              zIndex: 16,
+              transition: 'transform 200ms ease-out',
             }}
-            onFocus={e => {
-              e.currentTarget.style.outline = '2px solid var(--dw-accent)';
-              e.currentTarget.style.outlineOffset = '2px';
-            }}
-            onBlur={e => { e.currentTarget.style.outline = 'none'; }}
           >
-            <Layers size={13} strokeWidth={1.5} aria-hidden="true" />
-            Layers
-          </button>
+            {/* Layers toggle */}
+            <button
+              onClick={() => {
+                setLayerPanelOpen(v => {
+                  const next = !v;
+                  if (next) setAnalysisPanelOpen(false);
+                  return next;
+                });
+              }}
+              aria-expanded={layerPanelOpen}
+              aria-label="Toggle layer panel"
+              title={layerPanelOpen ? 'Close layers' : 'Open layers'}
+              style={{
+                height: 32,
+                padding: '0 10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: layerPanelOpen ? 'var(--dw-surface)' : 'rgba(13,17,23,0.88)',
+                border: layerPanelOpen ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
+                borderRadius: 'var(--dw-radius-sm)',
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 12,
+                color: layerPanelOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+                cursor: 'pointer',
+                outline: 'none',
+                transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
+              }}
+              onFocus={e => {
+                e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+                e.currentTarget.style.outlineOffset = '2px';
+              }}
+              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+            >
+              <Layers size={13} strokeWidth={1.5} aria-hidden="true" />
+              Layers
+            </button>
+
+            {/* Analysis Panel toggle */}
+            <button
+              onClick={() => {
+                setAnalysisPanelOpen(v => {
+                  const next = !v;
+                  if (next) setLayerPanelOpen(false);
+                  return next;
+                });
+              }}
+              aria-expanded={analysisPanelOpen}
+              aria-label="Toggle analysis panel"
+              title={analysisPanelOpen ? 'Close analysis' : 'Open analysis'}
+              style={{
+                height: 32,
+                padding: '0 10px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: analysisPanelOpen ? 'var(--dw-surface)' : 'rgba(13,17,23,0.88)',
+                border: analysisPanelOpen ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
+                borderRadius: 'var(--dw-radius-sm)',
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 12,
+                color: analysisPanelOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+                cursor: 'pointer',
+                outline: 'none',
+                transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
+              }}
+              onFocus={e => {
+                e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+                e.currentTarget.style.outlineOffset = '2px';
+              }}
+              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+            >
+              <PanelRight size={13} strokeWidth={1.5} aria-hidden="true" />
+              Analysis
+            </button>
+          </div>
         )}
 
         {/* Loading overlay — while TERRAIN_LOADING */}

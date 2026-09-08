@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 complete.
-> **In Progress:** Task 10.1 — AnalysisPanel (`src/components/common/AnalysisPanel.jsx`)
-> **Next:** Task 10.2 — Context switching
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 complete.
+> **In Progress:** Task 11.1 — Toolbar (`src/components/common/Toolbar.jsx`)
+> **Next:** Task 11.2 — Toolbar popover submenus
 
 ---
 
@@ -115,9 +115,9 @@
 
 ## Phase 10 — Side Analysis Panel (§25)
 
-- [ ] **10.1** `AnalysisPanel` (`src/components/common/AnalysisPanel.jsx`) — collapsible right panel; default: Scene info + Model info
-- [ ] **10.2** Context switching — point selected → "Selected Location" (elevation, slope); area clicked → "Selected Structure"
-- [ ] **10.3** Collapse/expand with 200ms height transition
+- [x] **10.1** `AnalysisPanel` (`src/components/common/AnalysisPanel.jsx`) — collapsible right panel; default: Scene info + Model info
+- [x] **10.2** Context switching — point selected → "Selected Location" (elevation, slope); area clicked → "Selected Structure"
+- [x] **10.3** Collapse/expand with 200ms height transition
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 9 complete; Phase 10 starting*
+*Last updated: 2026-09-08 — Phase 10 complete; Phase 11 starting*
