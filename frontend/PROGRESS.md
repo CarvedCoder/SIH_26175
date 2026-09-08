@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 complete.
-> **In Progress:** Task 5.1 — Orbit camera controller
-> **Next:** Task 5.2 — First-person camera controller
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 complete.
+> **In Progress:** Task 6.1 — Minimap component
+> **Next:** Task 6.2 — Camera position marker
 
 ---
 
@@ -66,11 +66,11 @@
 
 ## Phase 5 — Camera System (§9)
 
-- [ ] **5.1** Orbit camera controller — mouse drag rotates, scroll zooms, right-drag pans
-- [ ] **5.2** First-person camera controller — WASD movement, mouse look; terrain-collision height clamp
-- [ ] **5.3** Top-view camera — orthographic overhead; syncs with minimap view
-- [ ] **5.4** Camera mode switcher UI — `[ First Person ] [ Orbit ] [ Top View ]` button group in toolbar
-- [ ] **5.5** Camera reset — returns to default orbit position/target
+- [x] **5.1** Orbit camera controller — mouse drag rotates, scroll zooms, right-drag pans
+- [x] **5.2** First-person camera controller — WASD movement, mouse look; terrain-collision height clamp
+- [x] **5.3** Top-view camera — orthographic overhead; syncs with minimap view
+- [x] **5.4** Camera mode switcher UI — `[ First Person ] [ Orbit ] [ Top View ]` button group in toolbar
+- [x] **5.5** Camera reset — returns to default orbit position/target
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 4 complete; Phase 5 starting*
+*Last updated: 2026-09-08 — Phase 5 complete; Phase 6 starting*
