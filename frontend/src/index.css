@@ -1,5 +1,40 @@
-/* Google Fonts — load Outfit before Tailwind applies font-family */
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+/* DepthWizard design tokens — instrument-panel / geospatial world */
+/* See DESIGN.md for the full visual system rationale */
+:root {
+  /* Palette */
+  --dw-void:    #07090e; /* canvas / page background */
+  --dw-panel:   #0d1117; /* header, side panels, bottom toolbar */
+  --dw-surface: #131923; /* cards, input fields, popovers */
+  --dw-rim:     #1c2636; /* 1px borders, dividers */
+
+  /* Foreground — high-clarity contrast for mission-control readability */
+  --dw-fg:       #f3f6fb; /* primary text — crisp and luminous */
+  --dw-fg-muted: #94a3b8; /* secondary labels, metadata — clearly legible */
+  --dw-fg-ghost: #64748b; /* tertiary, placeholders, units — readable */
+
+  /* Status / accent */
+  --dw-accent:  #3b82f6; /* active state, selection, progress — instrument blue */
+  --dw-confirm: #22c55e; /* completed, valid */
+  --dw-live:    #f59e0b; /* active processing, warnings */
+  --dw-fault:   #ef4444; /* errors, failures */
+
+  /* Terrain-specific */
+  --dw-probe:  #60a5fa;           /* elevation probe marker */
+  --dw-fov:    rgba(59,130,246,0.22); /* minimap FOV cone fill */
+  --dw-marker: #f59e0b;           /* minimap camera position dot */
+
+  /* Typography */
+  --dw-font-ui:   'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --dw-font-data: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Layout — generous mission-control sizing */
+  --dw-header-h:  56px;
+  --dw-toolbar-h: 56px;
+  --dw-panel-w:   320px;
+  --dw-minimap-sz: 220px;
+  --dw-radius-sm: 4px;
+  --dw-radius:    6px;
+}
 
 @import "tailwindcss";
 
@@ -12,8 +47,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'Outfit', sans-serif;
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Geist Variable', sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, monospace;
 }
 
 @layer base {
@@ -32,24 +68,24 @@
   }
 
   body {
-    font-family: var(--font-sans);
-    background-color: #07090e;
-    color: #e2e8f0;
+    font-family: var(--dw-font-ui);
+    font-size: 15px;
+    line-height: 1.5;
+    background-color: var(--dw-void);
+    color: var(--dw-fg);
     overflow-x: hidden;
-    /* Firefox text rendering */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    @apply bg-background text-foreground;
   }
 
-  /* Selection — cross-browser */
+  /* Text selection */
   ::selection {
-    background-color: #1e293b;
-    color: #f1f5f9;
+    background-color: #1e3a5f;
+    color: var(--dw-fg);
   }
   ::-moz-selection {
-    background-color: #1e293b;
-    color: #f1f5f9;
+    background-color: #1e3a5f;
+    color: var(--dw-fg);
   }
   * {
     @apply border-border outline-ring/50;
@@ -208,4 +244,47 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+}
+
+/* DepthWizard Responsive Utilities (Phase 17, §29) */
+@media (max-width: 640px) {
+  .dw-desktop-only {
+    display: none !important;
+  }
+  .dw-mobile-only {
+    display: flex !important;
+  }
+}
+@media (min-width: 641px) {
+  .dw-mobile-only {
+    display: none !important;
+  }
+}
+
+/* Accessible keyboard focus visible across all interactive elements (Task 19.6, §32) */
+:focus-visible {
+  outline: 2px solid var(--dw-accent) !important;
+  outline-offset: 2px !important;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--dw-accent) !important;
+  outline-offset: 2px !important;
+}
+
+/* Prefers-reduced-motion: collapse all transitions and animations to instant (Task 19.5, §32) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

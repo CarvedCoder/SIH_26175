@@ -1,7 +1,15 @@
 import { ArrowRight } from 'lucide-react';
 import HalftoneReveal from './HalftoneReveal';
 
-export default function LandingHero({ onOpenAuth }) {
+export default function LandingHero({ onOpenAuth, onOpenApp, user }) {
+  const handleAction = () => {
+    if (user && onOpenApp) {
+      onOpenApp();
+    } else {
+      onOpenAuth?.();
+    }
+  };
+
   return (
     <section className="relative w-full h-screen min-h-[640px] overflow-hidden flex flex-col justify-center items-center select-none bg-slate-950">
 
@@ -46,10 +54,10 @@ export default function LandingHero({ onOpenAuth }) {
         {/* Minimal CTA Button */}
         <div className="mt-10 pointer-events-auto">
           <button
-            onClick={onOpenAuth}
+            onClick={handleAction}
             className="group px-7 py-3.5 rounded-full bg-slate-100 hover:bg-white text-slate-950 font-medium text-sm transition-all duration-300 shadow-lg hover:shadow-xl flex items-center gap-2.5 cursor-pointer focus:outline-none"
           >
-            <span>Try Prototype</span>
+            <span>{user ? 'Open Workspace' : 'Try Prototype'}</span>
             <ArrowRight className="w-4 h-4 text-slate-700 group-hover:text-slate-950 transition-transform duration-300 group-hover:translate-x-0.5" />
           </button>
         </div>
