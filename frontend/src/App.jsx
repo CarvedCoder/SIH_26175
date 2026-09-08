@@ -11,7 +11,7 @@ import { AppProvider, useApp, AppState } from './store/appStore.jsx';
 import Home from './pages/Home.jsx';
 import Processing from './pages/Processing.jsx';
 import ResultDashboard from './pages/ResultDashboard.jsx';
-function TerrainWorkspace()  { return <PageStub label="3D Terrain Workspace" />; }
+import TerrainWorkspace from './pages/TerrainWorkspace.jsx';
 function FailedPage()        { return <PageStub label="Error" />; }
 
 function PageStub({ label }) {

@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 complete.
-> **In Progress:** Task 4.1 — TerrainCanvas OGL renderer
-> **Next:** Task 4.2 — Heightmap mesh
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 complete.
+> **In Progress:** Task 5.1 — Orbit camera controller
+> **Next:** Task 5.2 — First-person camera controller
 
 ---
 
@@ -54,13 +54,13 @@
 
 ## Phase 4 — 3D Terrain Core (§7, §20, §32, §75)
 
-- [ ] **4.1** `TerrainCanvas` (`src/components/TerrainViewer/TerrainCanvas.jsx`) — OGL renderer; full-bleed canvas; initialises Renderer, Camera, Scene, GL context
-- [ ] **4.2** Heightmap mesh — fetch `/terrain/heightmap` PNG; decode via `OffscreenCanvas`; build `PlaneGeometry` with vertex Y displacement; transitions to `TERRAIN_READY`
-- [ ] **4.3** RGB texture projection — fetch `/terrain/texture`; apply as diffuse map on terrain mesh
-- [ ] **4.4** Lighting — directional (sun) + ambient; no bloom, no neon; professional geospatial look (§20)
-- [ ] **4.5** Terrain exaggeration slider — 1×–5× range; changes `uniform float uExaggeration` in vertex shader only; label: "Visual exaggeration — measured elevation values remain unchanged"
-- [ ] **4.6** Wireframe toggle — flips `mesh.wireframe`
-- [ ] **4.7** Progressive rendering — render low-resolution mesh immediately, swap to full-res when loaded
+- [x] **4.1** `TerrainCanvas` (`src/components/TerrainViewer/TerrainCanvas.jsx`) — OGL renderer; full-bleed canvas; initialises Renderer, Camera, Scene, GL context
+- [x] **4.2** Heightmap mesh — fetch `/terrain/heightmap` PNG; decode via `OffscreenCanvas`; build `PlaneGeometry` with vertex Y displacement; transitions to `TERRAIN_READY`
+- [x] **4.3** RGB texture projection — fetch `/terrain/texture`; apply as diffuse map on terrain mesh
+- [x] **4.4** Lighting — directional (sun) + ambient; no bloom, no neon; professional geospatial look (§20)
+- [x] **4.5** Terrain exaggeration slider — 1×–5× range; changes `uniform float uExaggeration` in vertex shader only; label: "Visual exaggeration — measured elevation values remain unchanged"
+- [x] **4.6** Wireframe toggle — flips `mesh.mode`
+- [x] **4.7** Progressive rendering — render low-resolution mesh immediately, swap to full-res when loaded
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 3 complete; Phase 4 starting*
+*Last updated: 2026-09-08 — Phase 4 complete; Phase 5 starting*
