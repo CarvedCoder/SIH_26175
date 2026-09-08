@@ -180,11 +180,12 @@ export default function TerrainWorkspace() {
     });
   };
 
-  // ── Side Analysis Panel state (Phase 10 & 12) ──
+  // ── Side Analysis Panel state (Phase 10, 12, 14) ──
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false);
   const [analysisPanelTab, setAnalysisPanelTab]   = useState('overview');
   const [selectedLocation, setSelectedLocation]   = useState(null);
   const [selectedStructure, setSelectedStructure] = useState(null);
+  const [scenario, setScenario]                   = useState('exploration');
 
   /** Handle clicks on the terrain canvas to feed active measurement tool */
   const handleTerrainClick = (e) => {
@@ -372,6 +373,8 @@ export default function TerrainWorkspace() {
               layerCache.current = {};
               handleLayerChange(activeLayer);
             }}
+            scenario={scenario}
+            onSelectScenario={setScenario}
           />
         )}
 
