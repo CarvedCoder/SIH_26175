@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 complete.
-> **In Progress:** Task 13.1 — DetailMode UI (`src/components/Analysis/DetailMode.jsx`)
-> **Next:** Task 13.2 — Region selection (bounding box selection over terrain/minimap)
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 complete.
+> **In Progress:** Task 14.1 — Scenario switcher (`[ Terrain Exploration ] [ Disaster Assessment ]`)
+> **Next:** Task 14.2 — Disaster Assessment preset (panel re-ordering, assessment labels)
 
 ---
 
@@ -140,10 +140,10 @@
 
 ## Phase 13 — Detail Refinement (§18, §65)
 
-- [ ] **13.1** `DetailMode` UI — Standard↔High Resolution slider + "Refine Area" button
-- [ ] **13.2** Region selection — rubber-band bounding box drawn over terrain/minimap
-- [ ] **13.3** Submit refinement job — `POST /scenes/{id}/refine`; shows "Refining selected area…" progress
-- [ ] **13.4** Local tile update — reload only the refined region when refinement job completes
+- [x] **13.1** `DetailMode` UI — Standard↔High Resolution slider + "Refine Area" button
+- [x] **13.2** Region selection — rubber-band bounding box drawn over terrain/minimap
+- [x] **13.3** Submit refinement job — `POST /scenes/{id}/refine`; shows "Refining selected area…" progress
+- [x] **13.4** Local tile update — reload only the refined region when refinement job completes
 
 ---
 

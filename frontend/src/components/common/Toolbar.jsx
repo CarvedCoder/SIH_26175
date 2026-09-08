@@ -38,6 +38,8 @@ import {
   ArrowUpDown,
   TrendingUp,
   ShieldCheck,
+  Building2,
+  Sparkles,
 } from 'lucide-react';
 
 /**
@@ -282,6 +284,8 @@ export default function Toolbar({
               { id: 'height',    label: 'Height Measurement',   icon: ArrowUpDown },
               { id: 'distance',  label: 'Distance Measurement', icon: Ruler },
               { id: 'slope',     label: 'Slope Analysis',       icon: TrendingUp },
+              { id: 'structure', label: 'Structure Inspector',  icon: Building2 },
+              { id: 'refine',    label: 'Detail Mode (Refine)', icon: Sparkles },
             ].map(m => (
               <PopoverButton
                 key={m.id}

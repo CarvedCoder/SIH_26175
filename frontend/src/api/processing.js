@@ -40,3 +40,22 @@ export async function getJobStatus(jobId) {
 export async function cancelJob(jobId) {
   return apiFetch(`/jobs/${jobId}/cancel`, { method: 'POST' });
 }
+
+/**
+ * Submit a local tile refinement job for a selected bounding box.
+ * POST /scenes/{id}/refine
+ * @param {string} sceneId
+ * @param {{ bbox: { x_min: number, y_min: number, x_max: number, y_max: number }, resolution?: 'standard'|'high' }} opts
+ * @returns {Promise<{ job_id: string, status: string }>}
+ */
+export async function refineScene(sceneId, opts) {
+  return apiFetch(`/scenes/${sceneId}/refine`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      bbox: opts.bbox,
+      resolution: opts.resolution ?? 'high',
+    }),
+  });
+}
+

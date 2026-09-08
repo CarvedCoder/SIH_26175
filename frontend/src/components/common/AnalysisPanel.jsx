@@ -40,6 +40,7 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../../store/appStore.jsx';
 import ReferenceComparison from '../Validation/ReferenceComparison.jsx';
+import DetailMode from '../Analysis/DetailMode.jsx';
 import {
   ChevronRight,
   Info,
@@ -47,6 +48,7 @@ import {
   Building2,
   X,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 
 /**
@@ -60,6 +62,12 @@ import {
  *   onSelectLayer?: (layerId: string) => void,
  *   panelTab?: 'overview' | 'validation',
  *   onSelectTab?: (tab: 'overview' | 'validation') => void,
+ *   activeTool?: string,
+ *   refineBbox?: { x_min: number, y_min: number, x_max: number, y_max: number } | null,
+ *   onStartRegionSelect?: () => void,
+ *   onClearRefineBbox?: () => void,
+ *   isSelectingRegion?: boolean,
+ *   onRefineComplete?: (res: any) => void,
  * }} props
  */
 export default function AnalysisPanel({
@@ -72,6 +80,12 @@ export default function AnalysisPanel({
   onSelectLayer,
   panelTab,
   onSelectTab,
+  activeTool = 'none',
+  refineBbox = null,
+  onStartRegionSelect,
+  onClearRefineBbox,
+  isSelectingRegion = false,
+  onRefineComplete,
 }) {
   const { state } = useApp();
 
@@ -97,6 +111,7 @@ export default function AnalysisPanel({
   // Determine current context view
   const isStructure = !!selectedStructure;
   const isLocation  = !isStructure && !!selectedLocation;
+  const isRefine    = !isStructure && !isLocation && (activeTool === 'refine' || !!refineBbox);
 
   return (
     <aside
@@ -133,6 +148,8 @@ export default function AnalysisPanel({
             <Building2 size={14} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           ) : isLocation ? (
             <MapPin size={14} strokeWidth={1.5} color="var(--dw-probe)" aria-hidden="true" />
+          ) : isRefine ? (
+            <Sparkles size={14} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           ) : currentTab === 'validation' ? (
             <ShieldCheck size={14} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           ) : (
@@ -150,6 +167,8 @@ export default function AnalysisPanel({
               ? 'Selected Structure'
               : isLocation
               ? 'Selected Location'
+              : isRefine
+              ? 'Detail Refinement'
               : currentTab === 'validation'
               ? 'Validation & Accuracy'
               : 'Scene Analysis'}
@@ -157,11 +176,14 @@ export default function AnalysisPanel({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {(isStructure || isLocation) && (
+          {(isStructure || isLocation || (isRefine && refineBbox)) && (
             <button
-              onClick={onClearSelection}
+              onClick={() => {
+                if (isStructure || isLocation) onClearSelection?.();
+                if (isRefine) onClearRefineBbox?.();
+              }}
               aria-label="Back to overview"
-              title="Overview"
+              title="Reset"
               style={{
                 height: 24,
                 padding: '0 6px',
@@ -218,8 +240,8 @@ export default function AnalysisPanel({
         </div>
       </div>
 
-      {/* Overview / Validation Tab Switcher (when not inspecting specific point/structure) */}
-      {!isStructure && !isLocation && (
+      {/* Overview / Validation Tab Switcher (when not inspecting specific point/structure/refine) */}
+      {!isStructure && !isLocation && !isRefine && (
         <div
           role="tablist"
           aria-label="Analysis sections"
@@ -372,8 +394,21 @@ export default function AnalysisPanel({
           </section>
         )}
 
-        {/* Context 3: Default — Validation Tab */}
-        {!isStructure && !isLocation && currentTab === 'validation' && (
+        {/* Context 3: Detail Refinement Mode (§18, §65) */}
+        {isRefine && (
+          <DetailMode
+            sceneId={state.scene?.scene_id}
+            selectedBbox={refineBbox}
+            onStartSelection={onStartRegionSelect}
+            onClearBbox={onClearRefineBbox}
+            isSelecting={isSelectingRegion}
+            onRefineComplete={onRefineComplete}
+            compact={true}
+          />
+        )}
+
+        {/* Context 4: Default — Validation Tab */}
+        {!isStructure && !isLocation && !isRefine && currentTab === 'validation' && (
           <ReferenceComparison
             sceneId={state.scene?.scene_id}
             isGeoreferenced={isAbsolute}
@@ -383,8 +418,8 @@ export default function AnalysisPanel({
           />
         )}
 
-        {/* Context 3: Default — Overview Tab (Scene & Model Info) */}
-        {!isStructure && !isLocation && currentTab === 'overview' && (
+        {/* Context 5: Default — Overview Tab (Scene & Model Info) */}
+        {!isStructure && !isLocation && !isRefine && currentTab === 'overview' && (
           <>
             {/* SCENE Section */}
             <section aria-labelledby="scene-info-heading">

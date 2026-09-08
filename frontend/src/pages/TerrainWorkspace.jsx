@@ -27,6 +27,7 @@ import DistanceMeasurement from '../components/Analysis/DistanceMeasurement.jsx'
 import SlopeMeasurement from '../components/Analysis/SlopeMeasurement.jsx';
 import StructureInspector from '../components/Analysis/StructureInspector.jsx';
 import ToolGuard from '../components/Analysis/ToolGuard.jsx';
+import RegionSelector from '../components/Analysis/RegionSelector.jsx';
 import AnalysisPanel from '../components/common/AnalysisPanel.jsx';
 import { useCameraController } from '../hooks/useCameraController.js';
 import { getMinimap } from '../api/terrain.js';
@@ -157,12 +158,27 @@ export default function TerrainWorkspace() {
     }
   }
 
-  // ── Analysis tools state (Phase 9 & 10) ──
+  // ── Analysis tools state (Phase 9, 10 & 13) ──
   const [activeTool, setActiveTool] = useState('none');
   const heightToolRef = useRef(null);
   const distToolRef   = useRef(null);
   const slopeToolRef  = useRef(null);
   const structToolRef = useRef(null);
+
+  // ── Detail Mode Refinement state (Phase 13, §18, §65) ──
+  const [refineBbox, setRefineBbox]               = useState(null);
+  const [isSelectingRegion, setIsSelectingRegion] = useState(false);
+
+  const handleSelectTool = (tool) => {
+    setActiveTool(curr => {
+      const next = curr === tool ? 'none' : tool;
+      if (next === 'refine') {
+        setIsSelectingRegion(true);
+        setAnalysisPanelOpen(true);
+      }
+      return next;
+    });
+  };
 
   // ── Side Analysis Panel state (Phase 10 & 12) ──
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false);
@@ -287,6 +303,20 @@ export default function TerrainWorkspace() {
           </div>
         )}
 
+        {/* Rubber-band region selector for small-structure detail refinement (§18, §65) */}
+        {!isLoading && (
+          <RegionSelector
+            active={isSelectingRegion || activeTool === 'refine'}
+            selectedBbox={refineBbox}
+            onBboxChange={(bbox) => {
+              setRefineBbox(bbox);
+              setIsSelectingRegion(false);
+              setAnalysisPanelOpen(true);
+            }}
+            onCompleteSelection={() => setIsSelectingRegion(false)}
+          />
+        )}
+
         {/* Layer panel — collapsible right overlay (Phase 8) */}
         {!isLoading && (
           <div style={{
@@ -327,11 +357,21 @@ export default function TerrainWorkspace() {
               setSelectedLocation(null);
               setSelectedStructure(null);
               setSelectedPoint(null);
+              setRefineBbox(null);
             }}
             activeLayer={activeLayer}
             onSelectLayer={handleLayerChange}
             panelTab={analysisPanelTab}
             onSelectTab={setAnalysisPanelTab}
+            activeTool={activeTool}
+            refineBbox={refineBbox}
+            onStartRegionSelect={() => setIsSelectingRegion(true)}
+            onClearRefineBbox={() => setRefineBbox(null)}
+            isSelectingRegion={isSelectingRegion}
+            onRefineComplete={() => {
+              layerCache.current = {};
+              handleLayerChange(activeLayer);
+            }}
           />
         )}
 
@@ -457,7 +497,7 @@ export default function TerrainWorkspace() {
         activeLayer={activeLayer}
         onSelectLayer={handleLayerChange}
         activeTool={activeTool}
-        onSelectTool={setActiveTool}
+        onSelectTool={handleSelectTool}
         disabled={isLoading}
         onOpenValidation={() => {
           setAnalysisPanelOpen(true);
