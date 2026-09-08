@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 complete.
-> **In Progress:** Task 12.1 — ReferenceComparison (`src/components/Validation/ReferenceComparison.jsx`)
-> **Next:** Task 12.2 — MetricsPanel (`src/components/Validation/MetricsPanel.jsx`)
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 complete.
+> **In Progress:** Task 13.1 — DetailMode UI (`src/components/Analysis/DetailMode.jsx`)
+> **Next:** Task 13.2 — Region selection (bounding box selection over terrain/minimap)
 
 ---
 
@@ -131,10 +131,10 @@
 
 ## Phase 12 — Reference Comparison & Validation (§16, §17, §63, §64)
 
-- [ ] **12.1** `ReferenceComparison` (`src/components/Validation/ReferenceComparison.jsx`) — Estimated DSM / Reference DEM / Difference; fetches `/reference`; disabled if `available: false`
-- [ ] **12.2** `MetricsPanel` (`src/components/Validation/MetricsPanel.jsx`) — RMSE / MAE / Correlation from `/validation`; shown only when `available: true`; values must be actual computed results
-- [ ] **12.3** Error map layer — fetches `/validation/error-map`; diverging colormap; integrated with layer system
-- [ ] **12.4** `ComparisonView` (`src/components/Validation/ComparisonView.jsx`) — slider or toggle between Estimated / Reference / Error overlays
+- [x] **12.1** `ReferenceComparison` (`src/components/Validation/ReferenceComparison.jsx`) — Estimated DSM / Reference DEM / Difference; fetches `/reference`; disabled if `available: false`
+- [x] **12.2** `MetricsPanel` (`src/components/Validation/MetricsPanel.jsx`) — RMSE / MAE / Correlation from `/validation`; shown only when `available: true`; values must be actual computed results
+- [x] **12.3** Error map layer — fetches `/validation/error-map`; diverging colormap; integrated with layer system
+- [x] **12.4** `ComparisonView` (`src/components/Validation/ComparisonView.jsx`) — slider or toggle between Estimated / Reference / Error overlays
 
 ---
 

@@ -40,7 +40,11 @@ const LAYER_META = {
  */
 export default function LayerControl({ activeLayer, onLayerChange }) {
   const { state } = useApp();
-  const availableLayers = state.results?.available_layers ?? ['rgb'];
+  const isAbsolute = state.results?.elevation_mode === 'absolute' || state.scene?.is_georeferenced;
+  const defaultAvailable = isAbsolute
+    ? ['rgb', 'depth', 'dsm', 'reference_dem', 'error', 'slope']
+    : ['rgb', 'depth', 'dsm', 'slope'];
+  const availableLayers = state.results?.available_layers ?? defaultAvailable;
 
   return (
     <div

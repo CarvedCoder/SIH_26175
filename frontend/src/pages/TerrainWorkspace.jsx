@@ -30,7 +30,8 @@ import ToolGuard from '../components/Analysis/ToolGuard.jsx';
 import AnalysisPanel from '../components/common/AnalysisPanel.jsx';
 import { useCameraController } from '../hooks/useCameraController.js';
 import { getMinimap } from '../api/terrain.js';
-import { getResults, getDepth, getDsm } from '../api/results.js';
+import { getResults, getDepth, getDsm, getReference } from '../api/results.js';
+import { getErrorMap } from '../api/validation.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 import {
   RotateCcw,
@@ -134,6 +135,12 @@ export default function TerrainWorkspace() {
       } else if (layerId === 'dsm') {
         const dsm = await getDsm(sceneId);
         url = dsm?.download_url ?? null;
+      } else if (layerId === 'error') {
+        const errMap = await getErrorMap(sceneId);
+        url = errMap?.url ?? null;
+      } else if (layerId === 'reference_dem') {
+        const refDem = await getReference(sceneId);
+        url = refDem?.visualization_url ?? refDem?.download_url ?? null;
       } else {
         // Other layers: try results endpoint for URL
         const results = await getResults(sceneId);
@@ -157,9 +164,10 @@ export default function TerrainWorkspace() {
   const slopeToolRef  = useRef(null);
   const structToolRef = useRef(null);
 
-  // ── Side Analysis Panel state (Phase 10, §25) ──
+  // ── Side Analysis Panel state (Phase 10 & 12) ──
   const [analysisPanelOpen, setAnalysisPanelOpen] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [analysisPanelTab, setAnalysisPanelTab]   = useState('overview');
+  const [selectedLocation, setSelectedLocation]   = useState(null);
   const [selectedStructure, setSelectedStructure] = useState(null);
 
   /** Handle clicks on the terrain canvas to feed active measurement tool */
@@ -308,7 +316,7 @@ export default function TerrainWorkspace() {
           </div>
         )}
 
-        {/* Side Analysis Panel — collapsible 280px right drawer (Phase 10, §25) */}
+        {/* Side Analysis Panel — collapsible 280px right drawer (Phase 10 & 12, §25, §16) */}
         {!isLoading && (
           <AnalysisPanel
             open={analysisPanelOpen}
@@ -320,6 +328,10 @@ export default function TerrainWorkspace() {
               setSelectedStructure(null);
               setSelectedPoint(null);
             }}
+            activeLayer={activeLayer}
+            onSelectLayer={handleLayerChange}
+            panelTab={analysisPanelTab}
+            onSelectTab={setAnalysisPanelTab}
           />
         )}
 
@@ -447,6 +459,10 @@ export default function TerrainWorkspace() {
         activeTool={activeTool}
         onSelectTool={setActiveTool}
         disabled={isLoading}
+        onOpenValidation={() => {
+          setAnalysisPanelOpen(true);
+          setAnalysisPanelTab('validation');
+        }}
       />
     </div>
   );

@@ -37,6 +37,7 @@ import {
   Crosshair,
   ArrowUpDown,
   TrendingUp,
+  ShieldCheck,
 } from 'lucide-react';
 
 /**
@@ -49,6 +50,7 @@ import {
  *   activeTool: string,
  *   onSelectTool: (toolId: string) => void,
  *   disabled?: boolean,
+ *   onOpenValidation?: () => void,
  * }} props
  */
 export default function Toolbar({
@@ -60,6 +62,7 @@ export default function Toolbar({
   activeTool = 'none',
   onSelectTool,
   disabled = false,
+  onOpenValidation,
 }) {
   const { state } = useApp();
   const [openMenu, setOpenMenu] = useState(null); // 'layers' | 'measure' | 'compare' | 'terrain' | 'camera' | null
@@ -325,6 +328,19 @@ export default function Toolbar({
                 setOpenMenu(null);
               }}
             />
+            {onOpenValidation && (
+              <>
+                <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
+                <PopoverButton
+                  label="Validation Accuracy Metrics"
+                  icon={ShieldCheck}
+                  onClick={() => {
+                    onOpenValidation();
+                    setOpenMenu(null);
+                  }}
+                />
+              </>
+            )}
           </div>
         </PopoverPanel>
       )}
