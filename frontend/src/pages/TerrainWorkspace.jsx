@@ -15,14 +15,16 @@
  * DESIGN.md: Terrain primary — 70–80% usable screen; panels narrow + dark.
  */
 import { useRef, useEffect, useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, Layers } from 'lucide-react';
 import Header from '../components/common/Header.jsx';
 import TerrainCanvas from '../components/TerrainViewer/TerrainCanvas.jsx';
 import TerrainControls from '../components/TerrainViewer/TerrainControls.jsx';
 import Minimap from '../components/TerrainViewer/Minimap.jsx';
 import CameraHUD from '../components/TerrainViewer/CameraHUD.jsx';
+import LayerControl, { LAYER_META } from '../components/TerrainViewer/LayerControl.jsx';
 import { useCameraController } from '../hooks/useCameraController.js';
 import { getMinimap } from '../api/terrain.js';
+import { getResults, getDepth, getDsm } from '../api/results.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 
 export default function TerrainWorkspace() {
@@ -78,6 +80,60 @@ export default function TerrainWorkspace() {
     return () => { cancelled = true; };
   }, [state.scene?.scene_id, isLoading]);
 
+  // ── Layer system (Phase 8) ──
+  const [activeLayer, setActiveLayer] = useState('rgb');
+  const [layerPanelOpen, setLayerPanelOpen] = useState(false);
+  // Cache of layer URL → { url, colormapMode } to avoid re-fetching
+  const layerCache = useRef({});
+
+  // Colormap mode per layer (matches fragment shader uniforms)
+  const COLORMAP_MODE = { rgb: 0, depth: 1, dsm: 2, reference_dem: 2, error: 3, slope: 2 };
+
+  /** Fetch the texture URL for a layer and swap the terrain texture (task 8.2) */
+  async function handleLayerChange(layerId) {
+    if (layerId === activeLayer) return;
+    setActiveLayer(layerId);
+
+    const sceneId = state.scene?.scene_id;
+    if (!sceneId) return;
+
+    // Check cache first
+    if (layerCache.current[layerId]) {
+      const { url, colormapMode } = layerCache.current[layerId];
+      terrainRef.current?.setLayerTexture(url, colormapMode);
+      return;
+    }
+
+    try {
+      let url = null;
+      const colormapMode = COLORMAP_MODE[layerId] ?? 0;
+
+      if (layerId === 'rgb') {
+        // RGB uses the terrain texture (already loaded)
+        const meta = state.terrain;
+        url = meta?.texture_url ?? null;
+      } else if (layerId === 'depth') {
+        const depth = await getDepth(sceneId);
+        url = depth?.url ?? null;
+      } else if (layerId === 'dsm') {
+        const dsm = await getDsm(sceneId);
+        url = dsm?.download_url ?? null;
+      } else {
+        // Other layers: try results endpoint for URL
+        const results = await getResults(sceneId);
+        url = results?.[layerId + '_url'] ?? results?.layers?.[layerId] ?? null;
+      }
+
+      if (url) {
+        layerCache.current[layerId] = { url, colormapMode };
+        terrainRef.current?.setLayerTexture(url, colormapMode);
+      }
+    } catch {
+      // Layer fetch failed — keep current layer
+      setActiveLayer(activeLayer);
+    }
+  }
+
   return (
     <div style={{
       height: '100vh',
@@ -115,6 +171,74 @@ export default function TerrainWorkspace() {
             cameraMode={cameraMode}
             elevationMode={state.results?.elevation_mode ?? 'relative'}
           />
+        )}
+
+        {/* Layer panel — collapsible right overlay (Phase 8) */}
+        {!isLoading && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: layerPanelOpen ? 220 : 0,
+            overflow: 'hidden',
+            transition: 'width 200ms ease-out',
+            zIndex: 11,
+            display: 'flex',
+          }}>
+            <div style={{
+              width: 220,
+              height: '100%',
+              background: 'var(--dw-panel)',
+              borderLeft: '1px solid var(--dw-rim)',
+              padding: 12,
+              overflowY: 'auto',
+              flexShrink: 0,
+            }}>
+              <LayerControl
+                activeLayer={activeLayer}
+                onLayerChange={handleLayerChange}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Layer toggle button — shown on right edge, always accessible */}
+        {!isLoading && (
+          <button
+            onClick={() => setLayerPanelOpen(v => !v)}
+            aria-expanded={layerPanelOpen}
+            aria-label="Toggle layer panel"
+            title={layerPanelOpen ? 'Close layers' : 'Open layers'}
+            style={{
+              position: 'absolute',
+              top: 12,
+              right: layerPanelOpen ? 232 : 12,
+              height: 32,
+              padding: '0 10px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              background: layerPanelOpen ? 'var(--dw-surface)' : 'rgba(13,17,23,0.88)',
+              border: layerPanelOpen ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
+              borderRadius: 'var(--dw-radius-sm)',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 12,
+              color: layerPanelOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+              cursor: 'pointer',
+              outline: 'none',
+              zIndex: 12,
+              transition: 'right 200ms ease-out, border-color 120ms ease, color 120ms ease',
+            }}
+            onFocus={e => {
+              e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+              e.currentTarget.style.outlineOffset = '2px';
+            }}
+            onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+          >
+            <Layers size={13} strokeWidth={1.5} aria-hidden="true" />
+            Layers
+          </button>
         )}
 
         {/* Loading overlay — while TERRAIN_LOADING */}

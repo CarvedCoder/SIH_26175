@@ -76,6 +76,11 @@ const VERT = /* glsl */ `
  * Fragment shader:
  * - Diffuse texture (RGB/Depth/DSM) as base colour
  * - Simple directional (sun) + ambient lighting
+ * - Colormap blending via uColormapMode:
+ *     0 = RGB (texture as-is)
+ *     1 = Greyscale (depth)
+ *     2 = Viridis (DSM, slope)
+ *     3 = Diverging red-blue (error map)
  * - No neon, no bloom (DESIGN.md anti-patterns)
  */
 const FRAG = /* glsl */ `
@@ -86,10 +91,33 @@ const FRAG = /* glsl */ `
   uniform vec3 uSunColor;
   uniform float uAmbient;
   uniform float uTextureReady;   // 0 before texture loaded, 1 after
+  uniform float uColormapMode;   // 0=rgb, 1=greyscale, 2=viridis, 3=diverging
 
   varying vec2 vUv;
   varying vec3 vNormal;
   varying float vHeight;
+
+  // Viridis colormap polynomial approximation
+  vec3 viridis(float t) {
+    t = clamp(t, 0.0, 1.0);
+    vec3 c0 = vec3(0.274, 0.004, 0.329);
+    vec3 c1 = vec3(0.263, 0.388, 0.683);
+    vec3 c2 = vec3(-0.196, 0.490, 0.098);
+    vec3 c3 = vec3(-0.094, -0.550, 0.447);
+    vec3 c4 = vec3(0.006, 0.276, -0.588);
+    vec3 c5 = vec3(0.010, 0.052, 0.244);
+    return c0 + t*(c1 + t*(c2 + t*(c3 + t*(c4 + t*c5))));
+  }
+
+  // Diverging red-blue (error map): blue=negative, white=zero, red=positive
+  vec3 diverging(float t) {
+    // t in [0,1]; centre=0.5
+    if (t < 0.5) {
+      return mix(vec3(0.145, 0.396, 0.933), vec3(0.87, 0.89, 0.93), t * 2.0);
+    } else {
+      return mix(vec3(0.87, 0.89, 0.93), vec3(0.933, 0.145, 0.145), (t - 0.5) * 2.0);
+    }
+  }
 
   void main() {
     // Height-based fallback colour (greyscale elevation tint) until texture loads
@@ -99,8 +127,29 @@ const FRAG = /* glsl */ `
       vHeight
     );
 
-    vec3 texColor = texture2D(uTexture, vUv).rgb;
-    vec3 baseColor = mix(heightColor, texColor, uTextureReady);
+    vec4 texSample = texture2D(uTexture, vUv);
+    vec3 texColor  = texSample.rgb;
+
+    // Apply colormap
+    vec3 baseColor;
+    int mode = int(uColormapMode + 0.5);
+    if (mode == 1) {
+      // Greyscale: use red channel (luminance from depth PNG)
+      float lum = texSample.r;
+      baseColor = vec3(lum);
+    } else if (mode == 2) {
+      // Viridis: red channel as normalised value
+      baseColor = viridis(texSample.r);
+    } else if (mode == 3) {
+      // Diverging: red channel as position [0,1]
+      baseColor = diverging(texSample.r);
+    } else {
+      // RGB (default)
+      baseColor = texColor;
+    }
+
+    // Blend: fallback → mapped colour based on texture readiness
+    baseColor = mix(heightColor, baseColor, uTextureReady);
 
     // Diffuse lighting
     float diff = max(dot(vNormal, uSunDir), 0.0);
@@ -359,6 +408,58 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     getRef() { return glRef; },
     /** Expose canvas ref for pointer-lock in first-person mode */
     getCanvas() { return canvasRef; },
+    /**
+     * Swap the terrain texture to a new image URL (layer switch, task 8.2).
+     * Camera and minimap state are preserved — only the texture changes.
+     * @param {string} url - new texture URL
+     * @param {number} colormapMode - 0=rgb, 1=greyscale, 2=viridis, 3=diverging
+     */
+    setLayerTexture(url, colormapMode = 0) {
+      const g = glRef.current;
+      if (!g.renderer || !g.program) return;
+      const gl = g.renderer.gl;
+      // Reset texture-ready flag for cross-fade
+      if (g.program.uniforms.uTextureReady) {
+        g.program.uniforms.uTextureReady.value = 0.0;
+        g.textureReady = 0;
+      }
+      if (g.program.uniforms.uColormapMode) {
+        g.program.uniforms.uColormapMode.value = colormapMode;
+      }
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        if (g.disposed) return;
+        const tex = new Texture(gl, {
+          image: img,
+          minFilter: gl.LINEAR_MIPMAP_LINEAR,
+          magFilter: gl.LINEAR,
+          wrapS: gl.CLAMP_TO_EDGE,
+          wrapT: gl.CLAMP_TO_EDGE,
+          generateMipmaps: true,
+          flipY: true,
+        });
+        tex.needsUpdate = true;
+        if (g.program.uniforms.uTexture) {
+          g.program.uniforms.uTexture.value = tex;
+        }
+        // Animate cross-fade: ramp textureReady from 0→1 over 250ms
+        const start = performance.now();
+        function fadeIn() {
+          if (g.disposed) return;
+          const t = Math.min((performance.now() - start) / 250, 1);
+          if (g.program.uniforms.uTextureReady) {
+            g.program.uniforms.uTextureReady.value = t;
+          }
+          if (t < 1) requestAnimationFrame(fadeIn);
+          else {
+            g.textureReady = 1;
+          }
+        }
+        requestAnimationFrame(fadeIn);
+      };
+      img.src = url;
+    },
   }));
 
   /* ── Resize handler ── */
@@ -457,6 +558,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         uSunColor:     { value: [1.0, 0.95, 0.85] },
         uAmbient:      { value: 0.32 },
         uTextureReady: { value: 0.0 },
+        uColormapMode: { value: 0.0 },  // 0=rgb, 1=greyscale, 2=viridis, 3=diverging
       },
       transparent: false,
       depthTest: true,
