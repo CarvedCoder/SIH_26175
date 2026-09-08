@@ -10,8 +10,7 @@ import { AppProvider, useApp, AppState } from './store/appStore.jsx';
 /* Pages */
 import Home from './pages/Home.jsx';
 import Processing from './pages/Processing.jsx';
-
-function ResultDashboard()   { return <PageStub label="Result Dashboard" />; }
+import ResultDashboard from './pages/ResultDashboard.jsx';
 function TerrainWorkspace()  { return <PageStub label="3D Terrain Workspace" />; }
 function FailedPage()        { return <PageStub label="Error" />; }
 
