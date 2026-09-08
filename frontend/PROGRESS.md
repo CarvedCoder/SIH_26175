@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 complete; Tasks 8.1–8.3 complete.
-> **In Progress:** Task 8.4 — Contour lines toggle + interval input
-> **Next:** Phase 9 — Analysis Tools
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 complete.
+> **In Progress:** Task 9.1 — ElevationProbe (`src/components/Analysis/ElevationProbe.jsx`)
+> **Next:** Task 9.2 — HeightMeasurement (`src/components/Analysis/HeightMeasurement.jsx`)
 
 ---
 
@@ -98,7 +98,7 @@
 - [x] **8.1** `LayerControl` (`src/components/TerrainViewer/LayerControl.jsx`) — radio list; pulls `available_layers` from `/results`; disables unavailable layers with tooltip explaining why
 - [x] **8.2** Layer switch handler — swaps active texture/colormap on terrain mesh; camera and minimap state preserved (§31 Rule 5)
 - [x] **8.3** Colormap rendering — greyscale for depth, viridis for DSM, diverging red-blue for error map, applied as fragment shader uniform
-- [ ] **8.4** Contour lines toggle + interval input — metric when `elevation_mode: absolute`, scene-units otherwise (§21)
+- [x] **8.4** Contour lines toggle + interval input — metric when `elevation_mode: absolute`, scene-units otherwise (§21)
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Tasks 8.1–8.3 complete; Task 8.4 in progress*
+*Last updated: 2026-09-08 — Phase 8 complete; Phase 9 starting*

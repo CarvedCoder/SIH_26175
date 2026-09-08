@@ -92,6 +92,10 @@ const FRAG = /* glsl */ `
   uniform float uAmbient;
   uniform float uTextureReady;   // 0 before texture loaded, 1 after
   uniform float uColormapMode;   // 0=rgb, 1=greyscale, 2=viridis, 3=diverging
+  uniform float uContoursEnabled; // 0=off, 1=on
+  uniform float uContourInterval;
+  uniform float uElevationSpan;
+  uniform float uMinElevation;
 
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -157,6 +161,24 @@ const FRAG = /* glsl */ `
 
     // Slight tonal grading toward cool shadow — geospatial look
     vec3 shadow = mix(vec3(0.04, 0.07, 0.12), lit, clamp(diff + uAmbient, 0.0, 1.0));
+
+    // Optional contour lines (§21)
+    if (uContoursEnabled > 0.5 && uContourInterval > 0.001) {
+      float elev = vHeight * uElevationSpan + uMinElevation;
+      float lineDist = abs(fract(elev / uContourInterval - 0.5) - 0.5) * uContourInterval;
+      float fw = max(fwidth(elev), 0.0001);
+      float contour = 1.0 - smoothstep(0.0, fw * 1.5, lineDist);
+
+      // Major index contour every 5 intervals
+      float majorInterval = uContourInterval * 5.0;
+      float majorDist = abs(fract(elev / majorInterval - 0.5) - 0.5) * majorInterval;
+      float majorContour = 1.0 - smoothstep(0.0, fw * 2.2, majorDist);
+
+      // Subtle crisp cartographic line
+      vec3 contourColor = vec3(0.06, 0.09, 0.14);
+      shadow = mix(shadow, contourColor, clamp(contour * 0.45 + majorContour * 0.35, 0.0, 0.85));
+    }
+
     gl_FragColor = vec4(shadow, 1.0);
   }
 `;
@@ -362,6 +384,11 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     disposed: false,
     cameraMode: 'orbit',        // 'orbit' | 'first-person' | 'top'
     fpTick: null,               // callback injected from useCameraController
+    contoursEnabled: false,
+    contourInterval: 5.0,
+    minElevation: 0.0,
+    maxElevation: 100.0,
+    elevationSpan: 100.0,
   });
 
   /* ── Expose handle to parent ── */
@@ -459,6 +486,26 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         requestAnimationFrame(fadeIn);
       };
       img.src = url;
+    },
+    /**
+     * Toggle contour lines and set elevation interval (§21, task 8.4).
+     * @param {boolean} enabled
+     * @param {number} [interval]
+     */
+    setContours(enabled, interval) {
+      const g = glRef.current;
+      g.contoursEnabled = !!enabled;
+      if (typeof interval === 'number' && interval > 0) {
+        g.contourInterval = interval;
+      }
+      if (g.program) {
+        if (g.program.uniforms.uContoursEnabled) {
+          g.program.uniforms.uContoursEnabled.value = enabled ? 1.0 : 0.0;
+        }
+        if (g.program.uniforms.uContourInterval && typeof interval === 'number' && interval > 0) {
+          g.program.uniforms.uContourInterval.value = interval;
+        }
+      }
     },
   }));
 
@@ -558,7 +605,11 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         uSunColor:     { value: [1.0, 0.95, 0.85] },
         uAmbient:      { value: 0.32 },
         uTextureReady: { value: 0.0 },
-        uColormapMode: { value: 0.0 },  // 0=rgb, 1=greyscale, 2=viridis, 3=diverging
+        uColormapMode:    { value: 0.0 },  // 0=rgb, 1=greyscale, 2=viridis, 3=diverging
+        uContoursEnabled: { value: g.contoursEnabled ? 1.0 : 0.0 },
+        uContourInterval: { value: g.contourInterval },
+        uElevationSpan:   { value: g.elevationSpan },
+        uMinElevation:    { value: g.minElevation },
       },
       transparent: false,
       depthTest: true,
@@ -661,6 +712,15 @@ async function loadTerrainData(gl, g, program, mesh, scene, sceneId, actions) {
     if (program.uniforms.uHeightScale) {
       program.uniforms.uHeightScale.value = hs;
     }
+
+    const minElev = typeof min_elevation === 'number' ? min_elevation : 0.0;
+    const maxElev = typeof max_elevation === 'number' ? max_elevation : (minElev + hs * 100.0);
+    const span = Math.max(0.001, maxElev - minElev);
+    g.minElevation = minElev;
+    g.maxElevation = maxElev;
+    g.elevationSpan = span;
+    if (program.uniforms.uMinElevation) program.uniforms.uMinElevation.value = minElev;
+    if (program.uniforms.uElevationSpan) program.uniforms.uElevationSpan.value = span;
 
     // ── 4.2: Decode heightmap ──
     const { data, width, height } = await decodeHeightmap(heightmap_url);
