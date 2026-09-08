@@ -15,17 +15,31 @@
  * DESIGN.md: Terrain primary — 70–80% usable screen; panels narrow + dark.
  */
 import { useRef, useEffect, useState } from 'react';
-import { RotateCcw, Layers } from 'lucide-react';
 import Header from '../components/common/Header.jsx';
 import TerrainCanvas from '../components/TerrainViewer/TerrainCanvas.jsx';
 import TerrainControls from '../components/TerrainViewer/TerrainControls.jsx';
 import Minimap from '../components/TerrainViewer/Minimap.jsx';
 import CameraHUD from '../components/TerrainViewer/CameraHUD.jsx';
 import LayerControl, { LAYER_META } from '../components/TerrainViewer/LayerControl.jsx';
+import ElevationProbe from '../components/Analysis/ElevationProbe.jsx';
+import HeightMeasurement from '../components/Analysis/HeightMeasurement.jsx';
+import DistanceMeasurement from '../components/Analysis/DistanceMeasurement.jsx';
+import SlopeMeasurement from '../components/Analysis/SlopeMeasurement.jsx';
+import StructureInspector from '../components/Analysis/StructureInspector.jsx';
+import ToolGuard from '../components/Analysis/ToolGuard.jsx';
 import { useCameraController } from '../hooks/useCameraController.js';
 import { getMinimap } from '../api/terrain.js';
 import { getResults, getDepth, getDsm } from '../api/results.js';
 import { useApp, AppState } from '../store/appStore.jsx';
+import {
+  RotateCcw,
+  Layers,
+  Crosshair,
+  ArrowUpDown,
+  Ruler,
+  TrendingUp,
+  Building2,
+} from 'lucide-react';
 
 export default function TerrainWorkspace() {
   const { state } = useApp();
@@ -134,6 +148,32 @@ export default function TerrainWorkspace() {
     }
   }
 
+  // ── Analysis tools state (Phase 9) ──
+  const [activeTool, setActiveTool] = useState('none');
+  const heightToolRef = useRef(null);
+  const distToolRef   = useRef(null);
+  const slopeToolRef  = useRef(null);
+  const structToolRef = useRef(null);
+
+  /** Handle clicks on the terrain canvas to feed active measurement tool */
+  const handleTerrainClick = (e) => {
+    if (isLoading) return;
+    const pt = terrainRef.current?.getTerrainPointFromEvent?.(e);
+    if (!pt) return;
+
+    setSelectedPoint({ x: pt.x, z: pt.z, elevation: pt.elevation });
+
+    if (activeTool === 'height') {
+      heightToolRef.current?.handleTerrainClick(pt);
+    } else if (activeTool === 'distance') {
+      distToolRef.current?.handleSelectPoint(pt);
+    } else if (activeTool === 'slope') {
+      slopeToolRef.current?.handleSelectPoint(pt);
+    } else if (activeTool === 'structure') {
+      structToolRef.current?.inspectPoint(pt);
+    }
+  };
+
   return (
     <div style={{
       height: '100vh',
@@ -146,11 +186,15 @@ export default function TerrainWorkspace() {
       <Header />
 
       {/* Terrain viewport — fills remaining space */}
-      <div style={{
-        flex: 1,
-        position: 'relative',
-        overflow: 'hidden',
-      }}>
+      <div
+        onClick={handleTerrainClick}
+        style={{
+          flex: 1,
+          position: 'relative',
+          overflow: 'hidden',
+          cursor: activeTool !== 'none' ? 'crosshair' : 'default',
+        }}
+      >
         {/* Full-bleed OGL canvas */}
         <TerrainCanvas ref={terrainRef} />
 
@@ -164,6 +208,14 @@ export default function TerrainWorkspace() {
           />
         )}
 
+        {/* Elevation Probe (task 9.1) */}
+        {!isLoading && (
+          <ElevationProbe
+            terrainRef={terrainRef}
+            enabled={activeTool === 'probe' || activeTool === 'none'}
+          />
+        )}
+
         {/* Navigation HUD — bottom-right, first-person mode only (Phase 7) */}
         {!isLoading && (
           <CameraHUD
@@ -173,6 +225,39 @@ export default function TerrainWorkspace() {
           />
         )}
 
+        {/* Active Analysis tool readout panel (Phase 9, tasks 9.2-9.6) */}
+        {!isLoading && activeTool !== 'none' && activeTool !== 'probe' && (
+          <div style={{
+            position: 'absolute',
+            top: 56,
+            right: 12,
+            transform: layerPanelOpen ? 'translateX(-220px)' : 'translateX(0)',
+            zIndex: 12,
+            transition: 'transform 200ms ease-out',
+          }}>
+            <ToolGuard>
+              {activeTool === 'height' && (
+                <HeightMeasurement ref={heightToolRef} active={true} />
+              )}
+              {activeTool === 'distance' && (
+                <DistanceMeasurement ref={distToolRef} active={true} />
+              )}
+              {activeTool === 'slope' && (
+                <SlopeMeasurement ref={slopeToolRef} active={true} />
+              )}
+              {activeTool === 'structure' && (
+                <StructureInspector
+                  ref={structToolRef}
+                  terrainRef={terrainRef}
+                  active={true}
+                  selectedPoint={selectedPoint}
+                  onClear={() => setSelectedPoint(null)}
+                />
+              )}
+            </ToolGuard>
+          </div>
+        )}
+
         {/* Layer panel — collapsible right overlay (Phase 8) */}
         {!isLoading && (
           <div style={{
@@ -180,11 +265,11 @@ export default function TerrainWorkspace() {
             top: 0,
             right: 0,
             bottom: 0,
-            width: layerPanelOpen ? 220 : 0,
-            overflow: 'hidden',
-            transition: 'width 200ms ease-out',
+            width: 220,
+            transform: layerPanelOpen ? 'translateX(0)' : 'translateX(100%)',
+            transition: 'transform 200ms ease-out',
             zIndex: 11,
-            display: 'flex',
+            pointerEvents: layerPanelOpen ? 'auto' : 'none',
           }}>
             <div style={{
               width: 220,
@@ -193,7 +278,6 @@ export default function TerrainWorkspace() {
               borderLeft: '1px solid var(--dw-rim)',
               padding: 12,
               overflowY: 'auto',
-              flexShrink: 0,
             }}>
               <LayerControl
                 activeLayer={activeLayer}
@@ -213,7 +297,8 @@ export default function TerrainWorkspace() {
             style={{
               position: 'absolute',
               top: 12,
-              right: layerPanelOpen ? 232 : 12,
+              right: 12,
+              transform: layerPanelOpen ? 'translateX(-220px)' : 'translateX(0)',
               height: 32,
               padding: '0 10px',
               display: 'inline-flex',
@@ -228,7 +313,7 @@ export default function TerrainWorkspace() {
               cursor: 'pointer',
               outline: 'none',
               zIndex: 12,
-              transition: 'right 200ms ease-out, border-color 120ms ease, color 120ms ease',
+              transition: 'transform 200ms ease-out, border-color 120ms ease, color 120ms ease',
             }}
             onFocus={e => {
               e.currentTarget.style.outline = '2px solid var(--dw-accent)';
@@ -280,6 +365,13 @@ export default function TerrainWorkspace() {
           onSetMode={setCameraMode}
           disabled={isLoading}
           terrainRef={terrainRef}
+        />
+
+        {/* Analysis measurement tools — Phase 9 (tasks 9.1–9.6) */}
+        <AnalysisToolsSwitcher
+          activeTool={activeTool}
+          onSelectTool={(tool) => setActiveTool(curr => curr === tool ? 'none' : tool)}
+          disabled={isLoading}
         />
 
         {/* Spacer */}
@@ -449,6 +541,78 @@ function CameraModeSwitcher({ mode, onSetMode, disabled, terrainRef }) {
             }}
           >
             {m.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── Analysis tools switcher component (Phase 9) ─────────────────────────── */
+
+const ANALYSIS_TOOLS = [
+  { id: 'probe',     label: 'Probe',    icon: Crosshair },
+  { id: 'height',    label: 'Height',   icon: ArrowUpDown },
+  { id: 'distance',  label: 'Distance', icon: Ruler },
+  { id: 'slope',     label: 'Slope',    icon: TrendingUp },
+  { id: 'structure', label: 'Inspect',  icon: Building2 },
+];
+
+function AnalysisToolsSwitcher({ activeTool, onSelectTool, disabled }) {
+  return (
+    <div
+      role="group"
+      aria-label="Analysis tools"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 2,
+        padding: '0 8px',
+        opacity: disabled ? 0.4 : 1,
+        pointerEvents: disabled ? 'none' : 'auto',
+      }}
+    >
+      <div style={{ width: 1, height: 24, background: 'var(--dw-rim)', marginRight: 8 }} />
+      {ANALYSIS_TOOLS.map((tool) => {
+        const Icon = tool.icon;
+        const isActive = activeTool === tool.id;
+        return (
+          <button
+            key={tool.id}
+            onClick={() => onSelectTool(tool.id)}
+            aria-pressed={isActive}
+            title={`${tool.label} tool`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              height: 32,
+              padding: '0 8px',
+              background: isActive ? 'var(--dw-surface)' : 'none',
+              border: isActive ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
+              borderRadius: 'var(--dw-radius-sm)',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 12,
+              color: isActive ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+              cursor: 'pointer',
+              outline: 'none',
+              transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
+              whiteSpace: 'nowrap',
+            }}
+            onFocus={e => {
+              e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+              e.currentTarget.style.outlineOffset = '2px';
+            }}
+            onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+            onMouseEnter={e => {
+              if (!isActive) e.currentTarget.style.borderColor = 'var(--dw-fg-ghost)';
+            }}
+            onMouseLeave={e => {
+              if (!isActive) e.currentTarget.style.borderColor = 'var(--dw-rim)';
+            }}
+          >
+            <Icon size={12} strokeWidth={1.5} aria-hidden="true" />
+            {tool.label}
           </button>
         );
       })}

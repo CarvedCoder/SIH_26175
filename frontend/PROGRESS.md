@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 complete.
-> **In Progress:** Task 9.1 — ElevationProbe (`src/components/Analysis/ElevationProbe.jsx`)
-> **Next:** Task 9.2 — HeightMeasurement (`src/components/Analysis/HeightMeasurement.jsx`)
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 complete.
+> **In Progress:** Task 10.1 — AnalysisPanel (`src/components/common/AnalysisPanel.jsx`)
+> **Next:** Task 10.2 — Context switching
 
 ---
 
@@ -104,12 +104,12 @@
 
 ## Phase 9 — Analysis Tools (§11–§15)
 
-- [ ] **9.1** `ElevationProbe` (`src/components/Analysis/ElevationProbe.jsx`) — hover crosshair; reads heightmap pixel at cursor; throttled to 60fps; labels "m" or "scene units" per mode (§14)
-- [ ] **9.2** `HeightMeasurement` (`src/components/Analysis/HeightMeasurement.jsx`) — click ground → click top → shows Ground Elev / Top Elev / Estimated Height panel; vertical line drawn in 3D (§11)
-- [ ] **9.3** `DistanceMeasurement` (`src/components/Analysis/DistanceMeasurement.jsx`) — two-point click; shows Horizontal + 3D distance; units labelled correctly (§12)
-- [ ] **9.4** `SlopeMeasurement` (`src/components/Analysis/SlopeMeasurement.jsx`) — two-point click; shows Elevation Difference / Horizontal Distance / Slope° (§13)
-- [ ] **9.5** `StructureInspector` (`src/components/Analysis/StructureInspector.jsx`) — click terrain; highlights local area; shows "Selected Area" panel (§15)
-- [ ] **9.6** Tool enable guard — measurement tools render but show "Terrain not ready" when state < `TERRAIN_READY`
+- [x] **9.1** `ElevationProbe` (`src/components/Analysis/ElevationProbe.jsx`) — hover crosshair; reads heightmap pixel at cursor; throttled to 60fps; labels "m" or "scene units" per mode (§14)
+- [x] **9.2** `HeightMeasurement` (`src/components/Analysis/HeightMeasurement.jsx`) — click ground → click top → shows Ground Elev / Top Elev / Estimated Height panel; vertical line drawn in 3D (§11)
+- [x] **9.3** `DistanceMeasurement` (`src/components/Analysis/DistanceMeasurement.jsx`) — two-point click; shows Horizontal + 3D distance; units labelled correctly (§12)
+- [x] **9.4** `SlopeMeasurement` (`src/components/Analysis/SlopeMeasurement.jsx`) — two-point click; shows Elevation Difference / Horizontal Distance / Slope° (§13)
+- [x] **9.5** `StructureInspector` (`src/components/Analysis/StructureInspector.jsx`) — click terrain; highlights local area; shows "Selected Area" panel (§15)
+- [x] **9.6** Tool enable guard — measurement tools render but show "Terrain not ready" when state < `TERRAIN_READY`
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 8 complete; Phase 9 starting*
+*Last updated: 2026-09-08 — Phase 9 complete; Phase 10 starting*

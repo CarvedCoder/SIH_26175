@@ -507,6 +507,41 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         }
       }
     },
+    /** Sample elevation from heightmap at normalised coordinates [0, 1] */
+    sampleElevation(nx, nz) {
+      const g = glRef.current;
+      if (!g.heightData || !g.hmWidth || !g.hmHeight) return null;
+      const px = Math.min(Math.max(Math.round(nx * (g.hmWidth - 1)), 0), g.hmWidth - 1);
+      const pz = Math.min(Math.max(Math.round(nz * (g.hmHeight - 1)), 0), g.hmHeight - 1);
+      const raw = g.heightData[pz * g.hmWidth + px];
+      if (typeof g.minElevation === 'number' && typeof g.elevationSpan === 'number') {
+        return g.minElevation + raw * g.elevationSpan;
+      }
+      return raw * 100.0 * (g.heightScale ?? 1.0);
+    },
+    /** Convert a client mouse event to terrain coordinates { x, z, elevation } */
+    getTerrainPointFromEvent(event) {
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      const rect = canvas.getBoundingClientRect();
+      const clientX = event.clientX - rect.left;
+      const clientY = event.clientY - rect.top;
+      if (clientX < 0 || clientX > rect.width || clientY < 0 || clientY > rect.height) return null;
+      const ndcX = (clientX / rect.width) * 2 - 1;
+      const ndcY = -(clientY / rect.height) * 2 + 1;
+      const g = glRef.current;
+      let wx = ndcX;
+      let wz = -ndcY;
+      if (g.orbit?.target && g.camera) {
+        const dist = g.camera.position.distance ? g.camera.position.distance(g.orbit.target) : 2.5;
+        wx = (g.orbit.target.x ?? 0) + ndcX * dist * 0.45;
+        wz = (g.orbit.target.z ?? 0) - ndcY * dist * 0.45;
+      }
+      const nx = Math.max(0, Math.min(1, (wx + 1) / 2));
+      const nz = Math.max(0, Math.min(1, (wz + 1) / 2));
+      const elevation = this.sampleElevation(nx, nz) ?? 0;
+      return { x: nx * 2 - 1, z: nz * 2 - 1, elevation };
+    },
   }));
 
   /* ── Resize handler ── */
