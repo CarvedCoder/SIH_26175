@@ -1,18 +1,18 @@
 /**
- * DepthWizard — AnalysisPanel (Phase 10, Tasks 10.1, 10.2, 10.3)
+ * DepthWizard — AnalysisPanel (Phase 10 & Phase 12)
  *
- * Collapsible side analysis panel (§25).
+ * Collapsible side analysis panel (§25, §16, §17).
  * Contains context-sensitive information:
  *
  * 1. Default context:
- *    SCENE:
- *      Image: scene_042.tif
- *      Resolution: 4096 × 4096
- *      Mode: Absolute DSM / Relative DSM
- *      Reference: SRTM / None
- *    MODEL:
- *      Depth Model: Depth Anything V2
- *      Status: Complete
+ *    - Tab "Overview":
+ *      SCENE (Image, Resolution, Mode, Reference, Georeferenced)
+ *      MODEL (Depth Model, Status, Calibration, Segments)
+ *    - Tab "Validation" (§16, §17, §63, §64):
+ *      ReferenceComparison suite:
+ *        - ComparisonView (Estimated DSM / Reference DEM / Difference Map)
+ *        - MetricsPanel (RMSE, MAE, Correlation)
+ *        - Ground truth reference information
  *
  * 2. When user selects a point (context: location):
  *    SELECTED LOCATION:
@@ -35,17 +35,18 @@
  *   - Thin 1px --dw-rim dividers
  *   - No card shadows
  *
- * Spec §25, §D05, §D10.
+ * Spec §16, §17, §25, §63, §64, §D05, §D10.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '../../store/appStore.jsx';
+import ReferenceComparison from '../Validation/ReferenceComparison.jsx';
 import {
   ChevronRight,
-  ChevronLeft,
   Info,
   MapPin,
   Building2,
   X,
+  ShieldCheck,
 } from 'lucide-react';
 
 /**
@@ -55,6 +56,10 @@ import {
  *   selectedLocation?: { x: number, z: number, elevation: number, slope?: number } | null,
  *   selectedStructure?: { id: string, ground: number, top: number, height: number } | null,
  *   onClearSelection?: () => void,
+ *   activeLayer?: string,
+ *   onSelectLayer?: (layerId: string) => void,
+ *   panelTab?: 'overview' | 'validation',
+ *   onSelectTab?: (tab: 'overview' | 'validation') => void,
  * }} props
  */
 export default function AnalysisPanel({
@@ -63,11 +68,31 @@ export default function AnalysisPanel({
   selectedLocation = null,
   selectedStructure = null,
   onClearSelection,
+  activeLayer = 'rgb',
+  onSelectLayer,
+  panelTab,
+  onSelectTab,
 }) {
   const { state } = useApp();
 
   const isAbsolute = state.results?.elevation_mode === 'absolute';
   const unitLabel  = isAbsolute ? 'm' : 'scene units';
+
+  // Internal tab state if not controlled externally
+  const [internalTab, setInternalTab] = useState('overview');
+  const currentTab = panelTab ?? internalTab;
+
+  const setTab = (tab) => {
+    if (onSelectTab) onSelectTab(tab);
+    else setInternalTab(tab);
+  };
+
+  // Automatically switch to validation tab when user chooses a comparison layer
+  useEffect(() => {
+    if (activeLayer === 'error' || activeLayer === 'reference_dem') {
+      setTab('validation');
+    }
+  }, [activeLayer]);
 
   // Determine current context view
   const isStructure = !!selectedStructure;
@@ -108,6 +133,8 @@ export default function AnalysisPanel({
             <Building2 size={14} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           ) : isLocation ? (
             <MapPin size={14} strokeWidth={1.5} color="var(--dw-probe)" aria-hidden="true" />
+          ) : currentTab === 'validation' ? (
+            <ShieldCheck size={14} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           ) : (
             <Info size={14} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           )}
@@ -119,7 +146,13 @@ export default function AnalysisPanel({
             color: 'var(--dw-fg)',
             fontWeight: 500,
           }}>
-            {isStructure ? 'Selected Structure' : isLocation ? 'Selected Location' : 'Analysis'}
+            {isStructure
+              ? 'Selected Structure'
+              : isLocation
+              ? 'Selected Location'
+              : currentTab === 'validation'
+              ? 'Validation & Accuracy'
+              : 'Scene Analysis'}
           </span>
         </div>
 
@@ -127,7 +160,7 @@ export default function AnalysisPanel({
           {(isStructure || isLocation) && (
             <button
               onClick={onClearSelection}
-              aria-label="Back to scene overview"
+              aria-label="Back to overview"
               title="Overview"
               style={{
                 height: 24,
@@ -144,6 +177,11 @@ export default function AnalysisPanel({
                 cursor: 'pointer',
                 outline: 'none',
               }}
+              onFocus={e => {
+                e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+                e.currentTarget.style.outlineOffset = '1px';
+              }}
+              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
             >
               <X size={10} strokeWidth={1.5} aria-hidden="true" />
               Reset
@@ -168,6 +206,11 @@ export default function AnalysisPanel({
                 cursor: 'pointer',
                 outline: 'none',
               }}
+              onFocus={e => {
+                e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+                e.currentTarget.style.outlineOffset = '1px';
+              }}
+              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
             >
               <ChevronRight size={14} strokeWidth={1.5} aria-hidden="true" />
             </button>
@@ -175,14 +218,90 @@ export default function AnalysisPanel({
         </div>
       </div>
 
+      {/* Overview / Validation Tab Switcher (when not inspecting specific point/structure) */}
+      {!isStructure && !isLocation && (
+        <div
+          role="tablist"
+          aria-label="Analysis sections"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            borderBottom: '1px solid var(--dw-rim)',
+            background: 'var(--dw-surface)',
+          }}
+        >
+          <button
+            role="tab"
+            aria-selected={currentTab === 'overview'}
+            onClick={() => setTab('overview')}
+            style={{
+              height: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: currentTab === 'overview' ? 'var(--dw-panel)' : 'transparent',
+              border: 'none',
+              borderBottom: currentTab === 'overview' ? '2px solid var(--dw-accent)' : '2px solid transparent',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 10,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              fontWeight: currentTab === 'overview' ? 600 : 400,
+              color: currentTab === 'overview' ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+              cursor: 'pointer',
+              outline: 'none',
+              transition: 'color 120ms ease, background 120ms ease',
+            }}
+            onFocus={e => {
+              e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+              e.currentTarget.style.outlineOffset = '-2px';
+            }}
+            onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+          >
+            Overview
+          </button>
+
+          <button
+            role="tab"
+            aria-selected={currentTab === 'validation'}
+            onClick={() => setTab('validation')}
+            style={{
+              height: 32,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: currentTab === 'validation' ? 'var(--dw-panel)' : 'transparent',
+              border: 'none',
+              borderBottom: currentTab === 'validation' ? '2px solid var(--dw-accent)' : '2px solid transparent',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 10,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              fontWeight: currentTab === 'validation' ? 600 : 400,
+              color: currentTab === 'validation' ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+              cursor: 'pointer',
+              outline: 'none',
+              transition: 'color 120ms ease, background 120ms ease',
+            }}
+            onFocus={e => {
+              e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+              e.currentTarget.style.outlineOffset = '-2px';
+            }}
+            onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+          >
+            Validation
+          </button>
+        </div>
+      )}
+
       {/* Scrollable Content Body */}
       <div style={{
         flex: 1,
-        padding: '16px 14px',
+        padding: '14px 12px',
         overflowY: 'auto',
         display: 'flex',
         flexDirection: 'column',
-        gap: 20,
+        gap: 16,
       }}>
         {/* Context 1: Structure Selected */}
         {isStructure && (
@@ -253,8 +372,19 @@ export default function AnalysisPanel({
           </section>
         )}
 
-        {/* Context 3 (Default): Scene and Model Info (§25) */}
-        {!isStructure && !isLocation && (
+        {/* Context 3: Default — Validation Tab */}
+        {!isStructure && !isLocation && currentTab === 'validation' && (
+          <ReferenceComparison
+            sceneId={state.scene?.scene_id}
+            isGeoreferenced={isAbsolute}
+            activeLayer={activeLayer}
+            onSelectLayer={onSelectLayer ?? (() => {})}
+            compact={true}
+          />
+        )}
+
+        {/* Context 3: Default — Overview Tab (Scene & Model Info) */}
+        {!isStructure && !isLocation && currentTab === 'overview' && (
           <>
             {/* SCENE Section */}
             <section aria-labelledby="scene-info-heading">
@@ -300,7 +430,7 @@ export default function AnalysisPanel({
               </div>
             </section>
 
-            <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
+            <div style={{ height: 1, background: 'var(--dw-rim)', margin: '2px 0' }} />
 
             {/* MODEL Section */}
             <section aria-labelledby="model-info-heading">

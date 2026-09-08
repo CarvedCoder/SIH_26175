@@ -20,6 +20,8 @@ import { useEffect, useState } from 'react';
 import { Mountain } from 'lucide-react';
 import Header from '../components/common/Header.jsx';
 import LayerImageCard from '../components/common/LayerImageCard.jsx';
+import MetricsPanel from '../components/Validation/MetricsPanel.jsx';
+import { useValidation } from '../hooks/useValidation.js';
 import { useApp } from '../store/appStore.jsx';
 import { getDepth, getDsm } from '../api/results.js';
 
@@ -41,6 +43,8 @@ export default function ResultDashboard() {
   // Capability flags from ResultsMeta
   const elevationMode = results?.elevation_mode ?? 'relative';
   const isAbsolute    = elevationMode === 'absolute';
+
+  const { validation, reference, isLoading: valLoading } = useValidation(scene?.scene_id, isAbsolute);
 
   useEffect(() => {
     if (!scene?.scene_id) return;
@@ -224,6 +228,41 @@ export default function ResultDashboard() {
             )}
           </div>
         </section>
+
+        {/* Validation Accuracy Evaluation (§16, §63) */}
+        {isAbsolute && (
+          <section aria-labelledby="validation-accuracy-heading">
+            <h2
+              id="validation-accuracy-heading"
+              style={{
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 10,
+                letterSpacing: '0.07em',
+                textTransform: 'uppercase',
+                color: 'var(--dw-fg-ghost)',
+                margin: '0 0 10px 0',
+              }}
+            >
+              ACCURACY EVALUATION
+            </h2>
+            <div style={{
+              background: 'var(--dw-panel)',
+              border: '1px solid var(--dw-rim)',
+              borderRadius: 'var(--dw-radius-md)',
+              padding: '16px',
+              maxWidth: 720,
+            }}>
+              <MetricsPanel
+                available={validation?.available === true && !!validation?.metrics}
+                metrics={validation?.metrics ?? null}
+                units={validation?.units ?? 'm'}
+                reference={reference?.source ?? 'SRTM'}
+                sceneTypes={validation?.scene_types ?? null}
+                isLoading={valLoading}
+              />
+            </div>
+          </section>
+        )}
 
         {/* Error state — API load failure */}
         {fetchState === 'error' && (
