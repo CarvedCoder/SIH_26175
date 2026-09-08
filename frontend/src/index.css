@@ -7,10 +7,10 @@
   --dw-surface: #131923; /* cards, input fields, popovers */
   --dw-rim:     #1c2636; /* 1px borders, dividers */
 
-  /* Foreground */
-  --dw-fg:       #dde4ef; /* primary text */
-  --dw-fg-muted: #6b7d96; /* secondary labels, metadata */
-  --dw-fg-ghost: #38495c; /* disabled, placeholder */
+  /* Foreground — high-clarity contrast for mission-control readability */
+  --dw-fg:       #f3f6fb; /* primary text — crisp and luminous */
+  --dw-fg-muted: #94a3b8; /* secondary labels, metadata — clearly legible */
+  --dw-fg-ghost: #64748b; /* tertiary, placeholders, units — readable */
 
   /* Status / accent */
   --dw-accent:  #3b82f6; /* active state, selection, progress — instrument blue */
@@ -27,11 +27,11 @@
   --dw-font-ui:   'Geist Variable', ui-sans-serif, system-ui, sans-serif;
   --dw-font-data: ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
-  /* Layout */
-  --dw-header-h:  48px;
-  --dw-toolbar-h: 48px;
-  --dw-panel-w:   280px;
-  --dw-minimap-sz: 200px;
+  /* Layout — generous mission-control sizing */
+  --dw-header-h:  56px;
+  --dw-toolbar-h: 56px;
+  --dw-panel-w:   320px;
+  --dw-minimap-sz: 220px;
   --dw-radius-sm: 4px;
   --dw-radius:    6px;
 }
@@ -69,6 +69,8 @@
 
   body {
     font-family: var(--dw-font-ui);
+    font-size: 15px;
+    line-height: 1.5;
     background-color: var(--dw-void);
     color: var(--dw-fg);
     overflow-x: hidden;

@@ -49,18 +49,18 @@ function NavItem({ label, active, onClick, disabled }) {
       onClick={onClick}
       disabled={disabled}
       style={{
-        background: 'none',
-        border: 'none',
-        padding: '0 10px',
-        height: 28,
+        background: active ? 'var(--dw-surface)' : 'none',
+        border: active ? '1px solid var(--dw-accent)' : '1px solid transparent',
+        padding: '0 14px',
+        height: 34,
         borderRadius: 'var(--dw-radius-sm)',
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 12,
-        fontWeight: active ? 500 : 400,
+        fontSize: 14,
+        fontWeight: active ? 600 : 450,
         color: active ? 'var(--dw-fg)' : 'var(--dw-fg-muted)',
         cursor: disabled ? 'not-allowed' : 'pointer',
         letterSpacing: '0em',
-        transition: 'color 150ms ease, background 150ms ease',
+        transition: 'color 150ms ease, background 150ms ease, border-color 150ms ease',
         outline: 'none',
       }}
       onMouseEnter={e => { if (!disabled && !active) e.currentTarget.style.color = 'var(--dw-fg)'; }}
@@ -111,14 +111,14 @@ export default function Header({ onNavigate }) {
           height: 'var(--dw-header-h)',
           background: 'var(--dw-panel)',
           borderBottom: '1px solid var(--dw-rim)',
-          display: 'flex',
+          display: 'grid',
+          gridTemplateColumns: '1fr auto 1fr',
           alignItems: 'center',
-          padding: '0 16px',
-          gap: 0,
+          padding: '0 20px',
           userSelect: 'none',
         }}
       >
-        {/* Wordmark */}
+        {/* Wordmark (Column 1 — left aligned) */}
         <button
           onClick={() => {
             setMobileMenuOpen(false);
@@ -126,35 +126,36 @@ export default function Header({ onNavigate }) {
           }}
           aria-label="DepthWizard — go to home"
           style={{
+            justifySelf: 'start',
             background: 'none',
             border: 'none',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 8,
             padding: 0,
             outline: 'none',
           }}
           onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; e.currentTarget.style.outlineOffset = '2px'; }}
           onBlur={e => { e.currentTarget.style.outline = 'none'; }}
         >
-          {/* Logo mark — a simple elevation indicator glyph */}
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+          {/* Logo mark — elevation indicator glyph */}
+          <svg width="22" height="22" viewBox="0 0 18 18" fill="none" aria-hidden="true">
             <polyline
               points="2,14 6,7 10,10 14,4 16,4"
               stroke="var(--dw-accent)"
-              strokeWidth="1.5"
+              strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <line x1="14" y1="2" x2="14" y2="6" stroke="var(--dw-accent)" strokeWidth="1.5" strokeLinecap="round" />
-            <line x1="12" y1="4" x2="16" y2="4" stroke="var(--dw-accent)" strokeWidth="1.5" strokeLinecap="round" />
+            <line x1="14" y1="2" x2="14" y2="6" stroke="var(--dw-accent)" strokeWidth="1.8" strokeLinecap="round" />
+            <line x1="12" y1="4" x2="16" y2="4" stroke="var(--dw-accent)" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
           <span
             style={{
               fontFamily: 'var(--dw-font-ui)',
               fontWeight: 600,
-              fontSize: 14,
+              fontSize: 16,
               letterSpacing: '-0.02em',
               color: 'var(--dw-fg)',
             }}
@@ -163,15 +164,14 @@ export default function Header({ onNavigate }) {
           </span>
         </button>
 
-        {/* Centre nav (Desktop / Tablet) */}
+        {/* Centre nav (Column 2 — mathematical center of header) */}
         <nav
           className="dw-desktop-only"
           aria-label="Main navigation"
           style={{
+            justifySelf: 'center',
             alignItems: 'center',
-            gap: 2,
-            marginLeft: 'auto',
-            marginRight: 'auto',
+            gap: 4,
           }}
         >
           <NavItem
@@ -212,23 +212,23 @@ export default function Header({ onNavigate }) {
           />
         </nav>
 
-        {/* Right: status & mobile toggle */}
+        {/* Right: status & mobile toggle (Column 3 — right aligned) */}
         <div
           style={{
+            justifySelf: 'end',
             display: 'flex',
             alignItems: 'center',
-            gap: 10,
-            marginLeft: 'auto',
+            gap: 12,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <StatusDot status={health.status} />
             <span
               style={{
                 fontFamily: 'var(--dw-font-data)',
-                fontSize: 11,
-                color: 'var(--dw-fg-ghost)',
-                letterSpacing: '0.03em',
+                fontSize: 12.5,
+                color: 'var(--dw-fg-muted)',
+                letterSpacing: '0.02em',
               }}
               aria-label={`Backend status: ${health.status}`}
             >
@@ -251,13 +251,13 @@ export default function Header({ onNavigate }) {
               border: 'none',
               color: 'var(--dw-fg)',
               cursor: 'pointer',
-              padding: 4,
+              padding: 6,
               outline: 'none',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            {mobileMenuOpen ? <X size={18} strokeWidth={1.5} /> : <Menu size={18} strokeWidth={1.5} />}
+            {mobileMenuOpen ? <X size={22} strokeWidth={1.5} /> : <Menu size={22} strokeWidth={1.5} />}
           </button>
         </div>
       </header>
@@ -288,9 +288,10 @@ export default function Header({ onNavigate }) {
               background: 'none',
               border: 'none',
               textAlign: 'left',
-              padding: '8px 0',
+              padding: '10px 0',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 13,
+              fontSize: 15,
+              fontWeight: isHome ? 600 : 400,
               color: isHome ? 'var(--dw-accent)' : 'var(--dw-fg)',
               cursor: 'pointer',
             }}
@@ -306,9 +307,9 @@ export default function Header({ onNavigate }) {
               background: 'none',
               border: 'none',
               textAlign: 'left',
-              padding: '8px 0',
+              padding: '10px 0',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 13,
+              fontSize: 15,
               color: 'var(--dw-fg-muted)',
               cursor: 'pointer',
             }}
@@ -324,9 +325,9 @@ export default function Header({ onNavigate }) {
               background: 'none',
               border: 'none',
               textAlign: 'left',
-              padding: '8px 0',
+              padding: '10px 0',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 13,
+              fontSize: 15,
               color: recentOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
               cursor: 'pointer',
             }}
@@ -342,9 +343,9 @@ export default function Header({ onNavigate }) {
               background: 'none',
               border: 'none',
               textAlign: 'left',
-              padding: '8px 0',
+              padding: '10px 0',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 13,
+              fontSize: 15,
               color: aboutOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
               cursor: 'pointer',
             }}
@@ -373,15 +374,15 @@ export default function Header({ onNavigate }) {
           <div
             style={{
               width: '100%',
-              maxWidth: 420,
+              maxWidth: 440,
               height: '100%',
               background: 'var(--dw-panel)',
               borderLeft: '1px solid var(--dw-rim)',
-              padding: '20px 16px',
+              padding: '24px 20px',
               overflowY: 'auto',
               display: 'flex',
               flexDirection: 'column',
-              gap: 16,
+              gap: 18,
               boxSizing: 'border-box',
             }}
             onClick={e => e.stopPropagation()}
@@ -390,12 +391,12 @@ export default function Header({ onNavigate }) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              paddingBottom: 8,
+              paddingBottom: 10,
               borderBottom: '1px solid var(--dw-rim)',
             }}>
               <span style={{
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 13,
+                fontSize: 15,
                 fontWeight: 600,
                 color: 'var(--dw-fg)',
               }}>
@@ -409,13 +410,13 @@ export default function Header({ onNavigate }) {
                   border: 'none',
                   color: 'var(--dw-fg-muted)',
                   cursor: 'pointer',
-                  padding: 4,
+                  padding: 6,
                   display: 'flex',
                   alignItems: 'center',
                   outline: 'none',
                 }}
               >
-                <X size={15} strokeWidth={1.5} />
+                <X size={18} strokeWidth={1.5} />
               </button>
             </div>
 
@@ -448,14 +449,14 @@ export default function Header({ onNavigate }) {
           <div
             style={{
               width: '100%',
-              maxWidth: 520,
+              maxWidth: 540,
               background: 'var(--dw-panel)',
               border: '1px solid var(--dw-rim)',
               borderRadius: 'var(--dw-radius-md)',
-              padding: 20,
+              padding: 24,
               display: 'flex',
               flexDirection: 'column',
-              gap: 14,
+              gap: 16,
             }}
             onClick={e => e.stopPropagation()}
           >
@@ -463,14 +464,14 @@ export default function Header({ onNavigate }) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              paddingBottom: 8,
+              paddingBottom: 10,
               borderBottom: '1px solid var(--dw-rim)',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Info size={15} strokeWidth={1.5} color="var(--dw-accent)" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Info size={18} strokeWidth={1.5} color="var(--dw-accent)" />
                 <span style={{
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 13,
+                  fontSize: 15,
                   fontWeight: 600,
                   color: 'var(--dw-fg)',
                 }}>
@@ -485,21 +486,21 @@ export default function Header({ onNavigate }) {
                   border: 'none',
                   color: 'var(--dw-fg-muted)',
                   cursor: 'pointer',
-                  padding: 4,
+                  padding: 6,
                   display: 'flex',
                   alignItems: 'center',
                 }}
               >
-                <X size={15} strokeWidth={1.5} />
+                <X size={18} strokeWidth={1.5} />
               </button>
             </div>
 
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: 12,
+              gap: 14,
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 12,
+              fontSize: 14,
               color: 'var(--dw-fg-muted)',
               lineHeight: 1.6,
             }}>
@@ -511,22 +512,22 @@ export default function Header({ onNavigate }) {
                 background: 'var(--dw-surface)',
                 border: '1px solid var(--dw-rim)',
                 borderRadius: 'var(--dw-radius-sm)',
-                padding: '10px 12px',
+                padding: '12px 14px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 6,
+                gap: 8,
               }}>
                 <span style={{
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 10,
-                  fontWeight: 500,
+                  fontSize: 12,
+                  fontWeight: 600,
                   color: 'var(--dw-fg)',
                   letterSpacing: '0.05em',
                   textTransform: 'uppercase',
                 }}>
                   Navigation Controls
                 </span>
-                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '4px 8px', fontFamily: 'var(--dw-font-data)', fontSize: 11 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '6px 10px', fontFamily: 'var(--dw-font-data)', fontSize: 13 }}>
                   <span style={{ color: 'var(--dw-accent)' }}>Orbit Mode:</span>
                   <span>Left-drag rotate · Right-drag pan · Scroll zoom</span>
                   <span style={{ color: 'var(--dw-accent)' }}>First Person:</span>
@@ -538,7 +539,7 @@ export default function Header({ onNavigate }) {
                 </div>
               </div>
 
-              <p style={{ margin: 0, fontSize: 11, color: 'var(--dw-fg-ghost)' }}>
+              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--dw-fg-ghost)' }}>
                 Intended for preliminary terrain assessment and geospatial reconnaissance support.
               </p>
             </div>

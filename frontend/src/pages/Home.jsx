@@ -48,8 +48,8 @@ function PipelineDiagram() {
           <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
             <span style={{
               fontFamily: 'var(--dw-font-data)',
-              fontSize: 10,
-              fontWeight: 500,
+              fontSize: 12.5,
+              fontWeight: 600,
               letterSpacing: '0.08em',
               color: 'var(--dw-fg)',
             }}>
@@ -57,8 +57,8 @@ function PipelineDiagram() {
             </span>
             <span style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 10,
-              color: 'var(--dw-fg-ghost)',
+              fontSize: 11.5,
+              color: 'var(--dw-fg-muted)',
               letterSpacing: '0.03em',
             }}>
               {step.sub}
@@ -66,9 +66,9 @@ function PipelineDiagram() {
           </span>
           {i < PIPELINE.length - 1 && (
             <span style={{
-              margin: '0 10px',
+              margin: '0 12px',
               color: 'var(--dw-rim)',
-              fontSize: 14,
+              fontSize: 16,
               fontFamily: 'var(--dw-font-data)',
               marginBottom: 10,
             }}>
@@ -104,26 +104,26 @@ function StartProcessingPanel({ sceneId }) {
       alignItems: 'center',
       gap: 16,
       width: '100%',
-      maxWidth: 560,
+      maxWidth: 580,
     }}>
       <button
         onClick={handleStart}
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
-          padding: '10px 24px',
+          gap: 10,
+          padding: '12px 32px',
           background: 'var(--dw-accent)',
           border: 'none',
           borderRadius: 'var(--dw-radius-sm)',
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 13,
-          fontWeight: 500,
+          fontSize: 15,
+          fontWeight: 600,
           color: '#fff',
           cursor: 'pointer',
           transition: 'opacity 150ms ease',
           outline: 'none',
-          letterSpacing: '0em',
+          letterSpacing: '0.01em',
         }}
         onMouseEnter={e => { e.currentTarget.style.opacity = '0.88'; }}
         onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
@@ -131,13 +131,13 @@ function StartProcessingPanel({ sceneId }) {
         onBlur={e => { e.currentTarget.style.outline = 'none'; }}
         aria-label="Start depth and DSM processing"
       >
-        <Play size={14} strokeWidth={1.5} />
+        <Play size={16} strokeWidth={1.5} />
         Start Processing
       </button>
       <p style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 11,
-        color: 'var(--dw-fg-ghost)',
+        fontSize: 13,
+        color: 'var(--dw-fg-muted)',
         margin: 0,
         textAlign: 'center',
       }}>
@@ -169,27 +169,27 @@ export default function Home() {
 
         {/* Hero */}
         <section
-          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, marginBottom: 52, textAlign: 'center', maxWidth: 640 }}
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24, marginBottom: 56, textAlign: 'center', maxWidth: 720 }}
           aria-label="DepthWizard hero"
         >
           <h1 style={{
             fontFamily: 'var(--dw-font-ui)',
             fontWeight: 600,
-            fontSize: 'clamp(1.75rem, 4vw, 2.75rem)',
+            fontSize: 'clamp(2.2rem, 5vw, 3.25rem)',
             letterSpacing: '-0.03em',
             color: 'var(--dw-fg)',
-            lineHeight: 1.1,
+            lineHeight: 1.15,
             margin: 0,
           }}>
             From a single image<br />to an interactive 3D terrain.
           </h1>
           <p style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 15,
+            fontSize: 17,
             color: 'var(--dw-fg-muted)',
             margin: 0,
-            lineHeight: 1.6,
-            maxWidth: 480,
+            lineHeight: 1.65,
+            maxWidth: 540,
           }}>
             Turn optical remote-sensing imagery into depth, elevation and an explorable 3D terrain you can navigate, measure and validate.
           </p>
@@ -199,7 +199,7 @@ export default function Home() {
             display: 'flex',
             alignItems: 'center',
             gap: 0,
-            padding: '14px 20px',
+            padding: '16px 24px',
             background: 'var(--dw-surface)',
             border: '1px solid var(--dw-rim)',
             borderRadius: 'var(--dw-radius)',
@@ -209,17 +209,18 @@ export default function Home() {
               <span key={step.id} style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                 <span style={{
                   fontFamily: 'var(--dw-font-data)',
-                  fontSize: 10.5,
+                  fontSize: 12.5,
+                  fontWeight: 500,
                   letterSpacing: '0.06em',
-                  color: 'var(--dw-fg-muted)',
+                  color: 'var(--dw-fg)',
                 }}>
                   {step.label}
                 </span>
                 {i < PIPELINE.length - 1 && (
                   <span style={{
-                    margin: '0 10px',
+                    margin: '0 14px',
                     color: 'var(--dw-rim)',
-                    fontSize: 12,
+                    fontSize: 14,
                   }}>→</span>
                 )}
               </span>
@@ -237,16 +238,17 @@ export default function Home() {
                   }
                 }}
                 style={{
-                  height: 32,
-                  padding: '0 14px',
+                  height: 38,
+                  padding: '0 18px',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 6,
+                  gap: 8,
                   background: 'none',
                   border: '1px solid var(--dw-accent)',
                   borderRadius: 'var(--dw-radius-sm)',
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 12,
+                  fontSize: 14,
+                  fontWeight: 500,
                   color: 'var(--dw-accent)',
                   cursor: 'pointer',
                   outline: 'none',
@@ -256,7 +258,7 @@ export default function Home() {
                 onMouseLeave={e => e.currentTarget.style.background = 'none'}
                 aria-label="View pre-calibrated demo scene (Scene_042 · Absolute DSM)"
               >
-                <Play size={12} strokeWidth={1.5} />
+                <Play size={14} strokeWidth={1.5} />
                 View Demo (Scene_042 · Absolute DSM)
               </button>
             </div>

@@ -50,10 +50,10 @@ export default function MetricsPanel({
           gap: 10,
         }}
       >
-        <Activity size={16} strokeWidth={1.5} color="var(--dw-accent)" className="animate-spin" />
+        <Activity size={18} strokeWidth={1.5} color="var(--dw-accent)" className="animate-spin" />
         <span style={{
           fontFamily: 'var(--dw-font-data)',
-          fontSize: 12,
+          fontSize: 13.5,
           color: 'var(--dw-fg-muted)',
         }}>
           Evaluating elevation residuals vs {reference}…
@@ -69,32 +69,32 @@ export default function MetricsPanel({
         role="region"
         aria-label="Validation status"
         style={{
-          padding: compact ? '12px' : '16px',
+          padding: compact ? '14px' : '18px',
           background: 'var(--dw-surface)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-md)',
           display: 'flex',
           flexDirection: 'column',
-          gap: 8,
+          gap: 10,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <ShieldAlert size={14} strokeWidth={1.5} color="var(--dw-fg-muted)" aria-hidden="true" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <ShieldAlert size={16} strokeWidth={1.5} color="var(--dw-fg-muted)" aria-hidden="true" />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
+            fontSize: 12.5,
             letterSpacing: '0.06em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-muted)',
-            fontWeight: 500,
+            fontWeight: 600,
           }}>
             Validation Data Unavailable
           </span>
         </div>
         <p style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 12,
-          lineHeight: 1.5,
+          fontSize: 13.5,
+          lineHeight: 1.55,
           color: 'var(--dw-fg-muted)',
           margin: 0,
         }}>
@@ -121,7 +121,7 @@ export default function MetricsPanel({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: compact ? 10 : 14,
+        gap: compact ? 12 : 16,
         width: '100%',
       }}
     >
@@ -130,26 +130,26 @@ export default function MetricsPanel({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingBottom: 6,
+        paddingBottom: 8,
         borderBottom: '1px solid var(--dw-rim)',
       }}>
         <span style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 10,
+          fontSize: 11.5,
           letterSpacing: '0.07em',
           textTransform: 'uppercase',
           color: 'var(--dw-fg-ghost)',
-          fontWeight: 500,
+          fontWeight: 600,
         }}>
           Accuracy Metrics
         </span>
         <span style={{
           fontFamily: 'var(--dw-font-data)',
-          fontSize: 10,
+          fontSize: 11,
           color: 'var(--dw-accent)',
           background: 'rgba(59, 130, 246, 0.08)',
           border: '1px solid rgba(59, 130, 246, 0.25)',
-          padding: '1px 6px',
+          padding: '2px 8px',
           borderRadius: 'var(--dw-radius-sm)',
         }}>
           REF: {reference}
@@ -190,22 +190,22 @@ export default function MetricsPanel({
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
-        padding: '6px 10px',
+        gap: 8,
+        padding: '8px 12px',
         background: 'var(--dw-surface)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
       }}>
         {isHighCorr ? (
-          <CheckCircle2 size={13} strokeWidth={1.5} color="var(--dw-confirm)" aria-hidden="true" />
+          <CheckCircle2 size={15} strokeWidth={1.5} color="var(--dw-confirm)" aria-hidden="true" />
         ) : isModCorr ? (
-          <AlertTriangle size={13} strokeWidth={1.5} color="var(--dw-live)" aria-hidden="true" />
+          <AlertTriangle size={15} strokeWidth={1.5} color="var(--dw-live)" aria-hidden="true" />
         ) : (
-          <AlertTriangle size={13} strokeWidth={1.5} color="var(--dw-fault)" aria-hidden="true" />
+          <AlertTriangle size={15} strokeWidth={1.5} color="var(--dw-fault)" aria-hidden="true" />
         )}
         <span style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 11,
+          fontSize: 12.5,
           color: isHighCorr ? 'var(--dw-fg)' : 'var(--dw-fg-muted)',
         }}>
           {isHighCorr
@@ -222,14 +222,15 @@ export default function MetricsPanel({
           marginTop: 4,
           display: 'flex',
           flexDirection: 'column',
-          gap: 4,
+          gap: 6,
         }}>
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 9,
+            fontSize: 11.5,
             letterSpacing: '0.07em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
+            fontWeight: 600,
           }}>
             Per-Terrain Evaluation
           </span>
@@ -247,14 +248,14 @@ export default function MetricsPanel({
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  padding: '5px 8px',
+                  padding: '7px 10px',
                   background: i % 2 === 0 ? 'var(--dw-surface)' : 'transparent',
                   borderBottom: i < Object.keys(sceneTypes).length - 1 ? '1px solid var(--dw-rim)' : 'none',
                 }}
               >
                 <span style={{
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 11,
+                  fontSize: 13,
                   textTransform: 'capitalize',
                   color: 'var(--dw-fg-muted)',
                 }}>
@@ -262,7 +263,7 @@ export default function MetricsPanel({
                 </span>
                 <span style={{
                   fontFamily: 'var(--dw-font-data)',
-                  fontSize: 11,
+                  fontSize: 13,
                   color: 'var(--dw-fg)',
                 }}>
                   RMSE: {data?.rmse != null ? `${data.rmse.toFixed(1)} ${unitSuffix}` : '—'}
@@ -282,18 +283,18 @@ function MetricItem({ label, fullLabel, value, highlight = false, accent = false
     <div
       title={fullLabel}
       style={{
-        padding: '8px 10px',
+        padding: '10px 12px',
         background: 'var(--dw-surface)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 3,
+        gap: 4,
       }}
     >
       <span style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 10,
+        fontSize: 12,
         letterSpacing: '0.04em',
         textTransform: 'uppercase',
         color: 'var(--dw-fg-muted)',
@@ -302,8 +303,8 @@ function MetricItem({ label, fullLabel, value, highlight = false, accent = false
       </span>
       <span style={{
         fontFamily: 'var(--dw-font-data)',
-        fontSize: 14,
-        fontWeight: 500,
+        fontSize: 16,
+        fontWeight: 600,
         color: highlight
           ? 'var(--dw-fg)'
           : accent

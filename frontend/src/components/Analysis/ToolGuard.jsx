@@ -35,18 +35,18 @@ export default function ToolGuard({ children, fallbackMessage = 'Terrain not rea
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
-          padding: '8px 12px',
+          gap: 8,
+          padding: '10px 14px',
           background: 'rgba(13,17,23,0.85)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-sm)',
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 11,
+          fontSize: 13,
           color: 'var(--dw-fg-ghost)',
           pointerEvents: 'none',
         }}
       >
-        <AlertCircle size={12} strokeWidth={1.5} color="var(--dw-fg-ghost)" aria-hidden="true" />
+        <AlertCircle size={15} strokeWidth={1.5} color="var(--dw-fg-ghost)" aria-hidden="true" />
         <span>{fallbackMessage}</span>
       </div>
     );

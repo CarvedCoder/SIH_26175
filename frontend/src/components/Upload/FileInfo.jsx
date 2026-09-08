@@ -16,21 +16,21 @@ const LABELS = {
 
 function Row({ label, value, valueStyle }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minHeight: 20 }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, minHeight: 24 }}>
       <span style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 11,
+        fontSize: 13,
         color: 'var(--dw-fg-muted)',
         textTransform: 'uppercase',
         letterSpacing: '0.06em',
-        minWidth: 110,
+        minWidth: 130,
         flexShrink: 0,
       }}>
         {label}
       </span>
       <span style={{
         fontFamily: 'var(--dw-font-data)',
-        fontSize: 12,
+        fontSize: 14,
         color: 'var(--dw-fg)',
         ...valueStyle,
       }}>
@@ -44,10 +44,10 @@ function Tag({ label, positive }) {
   return (
     <span style={{
       display: 'inline-block',
-      padding: '1px 7px',
+      padding: '2px 8px',
       borderRadius: 'var(--dw-radius-sm)',
       fontFamily: 'var(--dw-font-data)',
-      fontSize: 11,
+      fontSize: 12,
       letterSpacing: '0.04em',
       background: positive ? 'rgba(34,197,94,0.1)' : 'rgba(107,125,150,0.1)',
       color: positive ? 'var(--dw-confirm)' : 'var(--dw-fg-muted)',
@@ -71,21 +71,21 @@ export default function FileInfo() {
       aria-label="Image information"
       style={{
         width: '100%',
-        maxWidth: 560,
+        maxWidth: 580,
         background: 'var(--dw-surface)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius)',
-        padding: '16px 20px',
+        padding: '20px 24px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 10,
+        gap: 12,
       }}
     >
       {/* Section label */}
       <p style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 10,
-        fontWeight: 500,
+        fontSize: 12,
+        fontWeight: 600,
         letterSpacing: '0.08em',
         textTransform: 'uppercase',
         color: 'var(--dw-fg-muted)',
@@ -95,22 +95,22 @@ export default function FileInfo() {
       </p>
 
       {/* Divider */}
-      <div style={{ height: 1, background: 'var(--dw-rim)', margin: '0 -20px' }} />
+      <div style={{ height: 1, background: 'var(--dw-rim)', margin: '0 -24px' }} />
 
       {/* Data rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Row label="File" value={scene.filename} />
         <Row label="Dimensions" value={`${scene.width} × ${scene.height}`} />
         <Row label="Format" value={scene.format} />
         {scene.crs && <Row label="CRS" value={scene.crs} />}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--dw-fg-muted)',
             textTransform: 'uppercase',
             letterSpacing: '0.06em',
-            minWidth: 110,
+            minWidth: 130,
             flexShrink: 0,
           }}>Georeferenced</span>
           <Tag label={isGeo ? 'YES' : 'NO'} positive={isGeo} />
@@ -118,14 +118,14 @@ export default function FileInfo() {
       </div>
 
       {/* Divider */}
-      <div style={{ height: 1, background: 'var(--dw-rim)', margin: '0 -20px' }} />
+      <div style={{ height: 1, background: 'var(--dw-rim)', margin: '0 -24px' }} />
 
       {/* Processing path */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <p style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 10,
-          fontWeight: 500,
+          fontSize: 12,
+          fontWeight: 600,
           letterSpacing: '0.08em',
           textTransform: 'uppercase',
           color: 'var(--dw-fg-muted)',
@@ -135,8 +135,8 @@ export default function FileInfo() {
         </p>
         <p style={{
           fontFamily: 'var(--dw-font-data)',
-          fontSize: 13,
-          fontWeight: 500,
+          fontSize: 15,
+          fontWeight: 600,
           color: 'var(--dw-accent)',
           margin: 0,
         }}>
@@ -144,10 +144,10 @@ export default function FileInfo() {
         </p>
         <p style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 11,
+          fontSize: 13.5,
           color: 'var(--dw-fg-muted)',
           margin: 0,
-          lineHeight: 1.5,
+          lineHeight: 1.55,
         }}>
           {scene.processing_path === 'absolute_dsm'
             ? 'Georeferencing detected. Metric scale recovery enabled. Producing absolute elevation values in metres.'

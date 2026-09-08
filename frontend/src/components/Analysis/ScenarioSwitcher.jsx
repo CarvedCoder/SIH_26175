@@ -42,22 +42,22 @@ export default function ScenarioSwitcher({
       }}>
         <span style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 9,
+          fontSize: 11,
           letterSpacing: '0.07em',
           textTransform: 'uppercase',
           color: 'var(--dw-fg-ghost)',
-          fontWeight: 500,
+          fontWeight: 600,
         }}>
           Operational Scenario (§23)
         </span>
         {scenario === 'disaster' && (
           <span style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 9,
+            fontSize: 10.5,
             color: 'var(--dw-live)',
             background: 'rgba(245, 158, 11, 0.08)',
             border: '1px solid rgba(245, 158, 11, 0.25)',
-            padding: '1px 5px',
+            padding: '2px 6px',
             borderRadius: 'var(--dw-radius-sm)',
           }}>
             ACTIVE PRESET
@@ -73,14 +73,14 @@ export default function ScenarioSwitcher({
         padding: 2,
         borderRadius: 'var(--dw-radius-sm)',
         border: '1px solid var(--dw-rim)',
-        gap: 2,
+        gap: 3,
       }}>
         {/* Option 1: Terrain Exploration */}
         <button
           onClick={() => onSelectScenario('exploration')}
           aria-pressed={scenario === 'exploration'}
           style={{
-            height: 30,
+            height: 34,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -89,7 +89,7 @@ export default function ScenarioSwitcher({
             border: scenario === 'exploration' ? '1px solid var(--dw-accent)' : '1px solid transparent',
             borderRadius: 'var(--dw-radius-sm)',
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
+            fontSize: 12.5,
             color: scenario === 'exploration' ? 'var(--dw-fg)' : 'var(--dw-fg-muted)',
             cursor: 'pointer',
             outline: 'none',
@@ -101,7 +101,7 @@ export default function ScenarioSwitcher({
           }}
           onBlur={e => { e.currentTarget.style.outline = 'none'; }}
         >
-          <Compass size={12} strokeWidth={1.5} color={scenario === 'exploration' ? 'var(--dw-accent)' : 'var(--dw-fg-muted)'} />
+          <Compass size={14} strokeWidth={1.5} color={scenario === 'exploration' ? 'var(--dw-accent)' : 'var(--dw-fg-muted)'} />
           Exploration
         </button>
 
@@ -110,7 +110,7 @@ export default function ScenarioSwitcher({
           onClick={() => onSelectScenario('disaster')}
           aria-pressed={scenario === 'disaster'}
           style={{
-            height: 30,
+            height: 34,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -119,8 +119,8 @@ export default function ScenarioSwitcher({
             border: scenario === 'disaster' ? '1px solid var(--dw-live)' : '1px solid transparent',
             borderRadius: 'var(--dw-radius-sm)',
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
-            fontWeight: scenario === 'disaster' ? 500 : 400,
+            fontSize: 12.5,
+            fontWeight: scenario === 'disaster' ? 600 : 400,
             color: scenario === 'disaster' ? 'var(--dw-live)' : 'var(--dw-fg-muted)',
             cursor: 'pointer',
             outline: 'none',
@@ -132,7 +132,7 @@ export default function ScenarioSwitcher({
           }}
           onBlur={e => { e.currentTarget.style.outline = 'none'; }}
         >
-          <AlertTriangle size={12} strokeWidth={1.5} color={scenario === 'disaster' ? 'var(--dw-live)' : 'var(--dw-fg-muted)'} />
+          <AlertTriangle size={14} strokeWidth={1.5} color={scenario === 'disaster' ? 'var(--dw-live)' : 'var(--dw-fg-muted)'} />
           Disaster Mode
         </button>
       </div>
@@ -140,14 +140,14 @@ export default function ScenarioSwitcher({
       {/* Mandatory Disclaimer Label (§23) */}
       {scenario === 'disaster' && (
         <div style={{
-          padding: '6px 8px',
+          padding: '8px 10px',
           background: 'rgba(245, 158, 11, 0.05)',
           border: '1px solid rgba(245, 158, 11, 0.18)',
           borderRadius: 'var(--dw-radius-sm)',
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 10,
+          fontSize: 12,
           color: 'var(--dw-live)',
-          lineHeight: 1.4,
+          lineHeight: 1.45,
         }}>
           Terrain intelligence / preliminary terrain assessment support.
         </div>

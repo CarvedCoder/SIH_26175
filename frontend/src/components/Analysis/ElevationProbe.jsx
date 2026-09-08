@@ -176,18 +176,19 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
         background: 'rgba(13,17,23,0.92)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
-        padding: '6px 10px',
+        padding: '8px 12px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 2,
-        minWidth: 120,
+        gap: 4,
+        minWidth: 140,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-        <Crosshair size={11} strokeWidth={1.5} color="var(--dw-probe)" aria-hidden="true" />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Crosshair size={13} strokeWidth={1.5} color="var(--dw-probe)" aria-hidden="true" />
         <span style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 9,
+          fontSize: 10.5,
+          fontWeight: 600,
           letterSpacing: '0.07em',
           textTransform: 'uppercase',
           color: 'var(--dw-fg-ghost)',
@@ -196,25 +197,25 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
         </span>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
         <span style={{
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 11,
+          fontSize: 13,
           color: 'var(--dw-fg-muted)',
         }}>
           {isAbsolute ? 'Elevation' : 'Rel. Elevation'}:
         </span>
         <span style={{
           fontFamily: 'var(--dw-font-data)',
-          fontSize: 13,
-          fontWeight: 500,
+          fontSize: 15,
+          fontWeight: 600,
           color: 'var(--dw-fg)',
         }}>
           {probeData.elevation >= 0 && !isAbsolute ? `+${probeData.elevation.toFixed(1)}` : probeData.elevation.toFixed(1)}
         </span>
         <span style={{
           fontFamily: 'var(--dw-font-data)',
-          fontSize: 10,
+          fontSize: 12,
           color: 'var(--dw-fg-ghost)',
         }}>
           {unitLabel}
@@ -223,7 +224,7 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
 
       <div style={{
         fontFamily: 'var(--dw-font-data)',
-        fontSize: 9,
+        fontSize: 11.5,
         color: 'var(--dw-fg-ghost)',
       }}>
         X: {probeData.x} / Z: {probeData.z}

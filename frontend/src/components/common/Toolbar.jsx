@@ -244,8 +244,8 @@ export default function Toolbar({
         aria-label="Reset camera and terrain settings to default"
         title="Reset view"
         style={{
-          height: 32,
-          padding: '0 10px',
+          height: 36,
+          padding: '0 12px',
           display: 'inline-flex',
           alignItems: 'center',
           gap: 6,
@@ -253,7 +253,7 @@ export default function Toolbar({
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-sm)',
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 12,
+          fontSize: 13.5,
           color: 'var(--dw-fg-muted)',
           cursor: 'pointer',
           outline: 'none',
@@ -267,7 +267,7 @@ export default function Toolbar({
         onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--dw-fg-ghost)'; }}
         onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--dw-rim)'; }}
       >
-        <RotateCcw size={14} strokeWidth={1.5} aria-hidden="true" />
+        <RotateCcw size={16} strokeWidth={1.5} aria-hidden="true" />
         Reset
       </button>
 
@@ -377,14 +377,14 @@ export default function Toolbar({
       {/* Popover 4: Terrain */}
       {openMenu === 'terrain' && (
         <PopoverPanel title="TERRAIN SETTINGS" onClose={() => setOpenMenu(null)}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {/* Exaggeration */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
                   Exaggeration
                 </span>
-                <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 11, color: 'var(--dw-fg)' }}>
+                <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 13, color: 'var(--dw-fg)' }}>
                   {exaggeration.toFixed(1)}×
                 </span>
               </div>
@@ -402,20 +402,20 @@ export default function Toolbar({
 
             {/* Wireframe Toggle */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>
+              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
                 Wireframe Mesh
               </span>
               <button
                 onClick={handleWireframeToggle}
                 aria-pressed={wireframe}
                 style={{
-                  height: 24,
-                  padding: '0 8px',
+                  height: 28,
+                  padding: '0 10px',
                   background: wireframe ? 'var(--dw-surface)' : 'none',
                   border: wireframe ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
                   borderRadius: 'var(--dw-radius-sm)',
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 11,
+                  fontSize: 12.5,
                   color: wireframe ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
                   cursor: 'pointer',
                   outline: 'none',
@@ -426,22 +426,22 @@ export default function Toolbar({
             </div>
 
             {/* Contours Toggle & Interval */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
                   Contour Lines
                 </span>
                 <button
                   onClick={handleContoursToggle}
                   aria-pressed={contours}
                   style={{
-                    height: 24,
-                    padding: '0 8px',
+                    height: 28,
+                    padding: '0 10px',
                     background: contours ? 'var(--dw-surface)' : 'none',
                     border: contours ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
                     borderRadius: 'var(--dw-radius-sm)',
                     fontFamily: 'var(--dw-font-ui)',
-                    fontSize: 11,
+                    fontSize: 12.5,
                     color: contours ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
                     cursor: 'pointer',
                     outline: 'none',
@@ -452,8 +452,8 @@ export default function Toolbar({
               </div>
 
               {contours && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                  <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 10, color: 'var(--dw-fg-ghost)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12, color: 'var(--dw-fg-ghost)' }}>
                     Interval ({unitLabel}):
                   </span>
                   <input
@@ -465,14 +465,14 @@ export default function Toolbar({
                     onChange={e => handleContourIntervalChange(e.target.value)}
                     aria-label={`Contour interval in ${unitLabel}`}
                     style={{
-                      width: 50,
-                      height: 22,
+                      width: 60,
+                      height: 28,
                       background: 'var(--dw-surface)',
                       border: '1px solid var(--dw-rim)',
                       borderRadius: 'var(--dw-radius-sm)',
-                      padding: '0 4px',
+                      padding: '0 6px',
                       fontFamily: 'var(--dw-font-data)',
-                      fontSize: 11,
+                      fontSize: 13,
                       color: 'var(--dw-fg)',
                       textAlign: 'right',
                     }}
@@ -483,20 +483,20 @@ export default function Toolbar({
 
             {/* Fog Toggle (§20, task 19.4) */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>
+              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
                 Atmospheric Fog
               </span>
               <button
                 onClick={handleFogToggle}
                 aria-pressed={fog}
                 style={{
-                  height: 24,
-                  padding: '0 8px',
+                  height: 28,
+                  padding: '0 10px',
                   background: fog ? 'var(--dw-surface)' : 'none',
                   border: fog ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
                   borderRadius: 'var(--dw-radius-sm)',
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 11,
+                  fontSize: 12.5,
                   color: fog ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
                   cursor: 'pointer',
                   outline: 'none',
@@ -512,7 +512,7 @@ export default function Toolbar({
       {/* Popover 5: Camera */}
       {openMenu === 'camera' && (
         <PopoverPanel title="CAMERA MODE" onClose={() => setOpenMenu(null)}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {[
               { id: 'orbit',        label: 'Orbit (Arcball View)' },
               { id: 'first-person', label: 'First Person (WASD)' },
@@ -535,7 +535,7 @@ export default function Toolbar({
 
       {/* Popover 6: Export (§27, §66) */}
       {openMenu === 'export' && (
-        <PopoverPanel title="EXPORT" onClose={() => setOpenMenu(null)} width={300} alignRight={true}>
+        <PopoverPanel title="EXPORT" onClose={() => setOpenMenu(null)} width={340} alignRight={true}>
           <ExportPanel
             onCaptureSnapshot={onCaptureSnapshot}
             onClose={() => setOpenMenu(null)}
@@ -557,8 +557,8 @@ function ToolbarItem({ id, label, icon: Icon, isOpen, isActive, onToggle }) {
       aria-haspopup="dialog"
       aria-label={`${label} menu`}
       style={{
-        height: 32,
-        padding: '0 10px',
+        height: 36,
+        padding: '0 12px',
         display: 'inline-flex',
         alignItems: 'center',
         gap: 6,
@@ -566,7 +566,7 @@ function ToolbarItem({ id, label, icon: Icon, isOpen, isActive, onToggle }) {
         border: isOpen || isActive ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 12,
+        fontSize: 13.5,
         color: isOpen || isActive ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
         cursor: 'pointer',
         outline: 'none',
@@ -585,14 +585,14 @@ function ToolbarItem({ id, label, icon: Icon, isOpen, isActive, onToggle }) {
         if (!isOpen && !isActive) e.currentTarget.style.borderColor = 'var(--dw-rim)';
       }}
     >
-      <Icon size={14} strokeWidth={1.5} aria-hidden="true" />
+      <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
       {label}
     </button>
   );
 }
 
 /** Floating docked popover container */
-function PopoverPanel({ title, children, onClose, width = 240, alignRight = false }) {
+function PopoverPanel({ title, children, onClose, width = 280, alignRight = false }) {
   return (
     <div
       role="dialog"
@@ -605,7 +605,7 @@ function PopoverPanel({ title, children, onClose, width = 240, alignRight = fals
         background: 'var(--dw-panel)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
-        padding: 12,
+        padding: 14,
         width: `min(calc(100vw - 24px), ${width}px)`,
         maxWidth: 'calc(100vw - 24px)',
         maxHeight: 'calc(100vh - 100px)',
@@ -613,13 +613,14 @@ function PopoverPanel({ title, children, onClose, width = 240, alignRight = fals
         zIndex: 30,
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: 10,
       }}
     >
       <div style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 10,
-        letterSpacing: '0.07em',
+        fontSize: 11.5,
+        fontWeight: 600,
+        letterSpacing: '0.08em',
         textTransform: 'uppercase',
         color: 'var(--dw-fg-ghost)',
         marginBottom: 2,
@@ -639,17 +640,17 @@ function PopoverButton({ label, icon: Icon, active, disabled = false, onClick })
       disabled={disabled}
       aria-pressed={active}
       style={{
-        height: 28,
-        padding: '0 8px',
+        height: 34,
+        padding: '0 10px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'flex-start',
-        gap: 6,
+        gap: 8,
         background: active ? 'var(--dw-surface)' : 'none',
         border: active ? '1px solid var(--dw-accent)' : '1px solid transparent',
         borderRadius: 'var(--dw-radius-sm)',
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 11,
+        fontSize: 13,
         color: disabled ? 'var(--dw-fg-ghost)' : active ? 'var(--dw-accent)' : 'var(--dw-fg)',
         cursor: disabled ? 'not-allowed' : 'pointer',
         outline: 'none',
@@ -663,7 +664,7 @@ function PopoverButton({ label, icon: Icon, active, disabled = false, onClick })
         if (!active && !disabled) e.currentTarget.style.background = 'none';
       }}
     >
-      {Icon && <Icon size={12} strokeWidth={1.5} aria-hidden="true" />}
+      {Icon && <Icon size={15} strokeWidth={1.5} aria-hidden="true" />}
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {label}
       </span>

@@ -57,14 +57,14 @@ export default function ApiErrorAlert({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingBottom: 8,
+        paddingBottom: 10,
         borderBottom: '1px solid var(--dw-rim)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <AlertTriangle size={15} strokeWidth={1.5} color="var(--dw-fault)" aria-hidden="true" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <AlertTriangle size={18} strokeWidth={1.5} color="var(--dw-fault)" aria-hidden="true" />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 13,
+            fontSize: 15,
             fontWeight: 600,
             color: 'var(--dw-fg)',
           }}>
@@ -74,9 +74,9 @@ export default function ApiErrorAlert({
 
         <span style={{
           fontFamily: 'var(--dw-font-data)',
-          fontSize: 10,
+          fontSize: 12,
           color: 'var(--dw-fault)',
-          padding: '1px 6px',
+          padding: '2px 8px',
           background: 'rgba(239,68,68,0.08)',
           borderRadius: 3,
           border: '1px solid rgba(239,68,68,0.2)',
@@ -89,22 +89,22 @@ export default function ApiErrorAlert({
       <div style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: 10,
+        gap: 12,
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 12,
-        lineHeight: 1.5,
+        fontSize: 14,
+        lineHeight: 1.55,
       }}>
         {/* What happened */}
         <div>
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 9,
+            fontSize: 11.5,
             letterSpacing: '0.07em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
             display: 'block',
-            fontWeight: 500,
-            marginBottom: 2,
+            fontWeight: 600,
+            marginBottom: 3,
           }}>
             What happened
           </span>
@@ -117,23 +117,23 @@ export default function ApiErrorAlert({
         <div>
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 9,
+            fontSize: 11.5,
             letterSpacing: '0.07em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
             display: 'block',
-            fontWeight: 500,
-            marginBottom: 2,
+            fontWeight: 600,
+            marginBottom: 3,
           }}>
             Why it happened
           </span>
           <span style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--dw-fg-muted)',
             display: 'block',
             background: 'var(--dw-surface)',
-            padding: '4px 8px',
+            padding: '6px 10px',
             borderRadius: 'var(--dw-radius-sm)',
             border: '1px solid var(--dw-rim)',
           }}>
@@ -145,13 +145,13 @@ export default function ApiErrorAlert({
         <div>
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 9,
+            fontSize: 11.5,
             letterSpacing: '0.07em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
             display: 'block',
-            fontWeight: 500,
-            marginBottom: 2,
+            fontWeight: 600,
+            marginBottom: 3,
           }}>
             What can I do next?
           </span>
@@ -165,8 +165,8 @@ export default function ApiErrorAlert({
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        paddingTop: 10,
+        gap: 10,
+        paddingTop: 12,
         borderTop: '1px solid var(--dw-rim)',
         flexWrap: 'wrap',
       }}>
@@ -174,8 +174,8 @@ export default function ApiErrorAlert({
           <button
             onClick={handleRetry}
             style={{
-              height: 30,
-              padding: '0 12px',
+              height: 36,
+              padding: '0 14px',
               display: 'inline-flex',
               alignItems: 'center',
               gap: 6,
@@ -183,14 +183,14 @@ export default function ApiErrorAlert({
               border: 'none',
               borderRadius: 'var(--dw-radius-sm)',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
-              fontWeight: 500,
+              fontSize: 13,
+              fontWeight: 600,
               color: '#fff',
               cursor: 'pointer',
               outline: 'none',
             }}
           >
-            <RotateCcw size={12} strokeWidth={1.5} />
+            <RotateCcw size={14} strokeWidth={1.5} />
             Retry
           </button>
         )}
@@ -199,8 +199,8 @@ export default function ApiErrorAlert({
           <button
             onClick={handleFallback}
             style={{
-              height: 30,
-              padding: '0 12px',
+              height: 36,
+              padding: '0 14px',
               display: 'inline-flex',
               alignItems: 'center',
               gap: 6,
@@ -208,22 +208,22 @@ export default function ApiErrorAlert({
               border: '1px solid var(--dw-rim)',
               borderRadius: 'var(--dw-radius-sm)',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
+              fontSize: 13,
               color: 'var(--dw-fg)',
               cursor: 'pointer',
               outline: 'none',
             }}
           >
             <span>Continue with Relative DSM</span>
-            <ArrowRight size={12} strokeWidth={1.5} />
+            <ArrowRight size={14} strokeWidth={1.5} />
           </button>
         )}
 
         <button
           onClick={handleReset}
           style={{
-            height: 30,
-            padding: '0 10px',
+            height: 36,
+            padding: '0 12px',
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6,
@@ -231,7 +231,7 @@ export default function ApiErrorAlert({
             border: 'none',
             color: 'var(--dw-fg-ghost)',
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
+            fontSize: 13,
             cursor: 'pointer',
             marginLeft: 'auto',
             outline: 'none',
@@ -239,7 +239,7 @@ export default function ApiErrorAlert({
           onMouseEnter={e => { e.currentTarget.style.color = 'var(--dw-fg-muted)'; }}
           onMouseLeave={e => { e.currentTarget.style.color = 'var(--dw-fg-ghost)'; }}
         >
-          <Home size={12} strokeWidth={1.5} />
+          <Home size={14} strokeWidth={1.5} />
           Return to Landing
         </button>
       </div>

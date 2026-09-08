@@ -144,15 +144,16 @@ export default function RegionSelector({
       {active && (
         <div style={{
           position: 'absolute',
-          top: 14,
+          top: 16,
           left: '50%',
           transform: 'translateX(-50%)',
-          background: 'rgba(13, 17, 23, 0.92)',
+          background: 'rgba(13, 17, 23, 0.94)',
           border: '1px solid var(--dw-accent)',
           borderRadius: 'var(--dw-radius-sm)',
-          padding: '6px 12px',
+          padding: '8px 16px',
           fontFamily: 'var(--dw-font-ui)',
-          fontSize: 11,
+          fontSize: 13,
+          fontWeight: 500,
           color: 'var(--dw-fg)',
           display: 'flex',
           alignItems: 'center',
@@ -160,8 +161,8 @@ export default function RegionSelector({
           pointerEvents: 'none',
         }}>
           <span style={{
-            width: 6,
-            height: 6,
+            width: 7,
+            height: 7,
             borderRadius: '50%',
             background: 'var(--dw-accent)',
           }} />
@@ -202,20 +203,20 @@ export default function RegionSelector({
             {/* Dimension Badge */}
             <foreignObject
               x={renderBox.x}
-              y={Math.max(0, renderBox.y - 20)}
-              width={160}
-              height={20}
+              y={Math.max(0, renderBox.y - 24)}
+              width={200}
+              height={24}
             >
               <div style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 4,
+                gap: 5,
                 background: 'var(--dw-panel)',
                 border: '1px solid var(--dw-accent)',
                 borderRadius: 2,
-                padding: '1px 5px',
+                padding: '2px 8px',
                 fontFamily: 'var(--dw-font-data)',
-                fontSize: 9,
+                fontSize: 11,
                 color: 'var(--dw-fg)',
                 whiteSpace: 'nowrap',
               }}>

@@ -101,23 +101,23 @@ export default function RecentProjects({
         paddingBottom: 4,
         borderBottom: '1px solid var(--dw-rim)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Clock size={12} strokeWidth={1.5} color="var(--dw-fg-ghost)" aria-hidden="true" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Clock size={15} strokeWidth={1.5} color="var(--dw-fg-muted)" aria-hidden="true" />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 10,
+            fontSize: 12,
             letterSpacing: '0.07em',
             textTransform: 'uppercase',
-            color: 'var(--dw-fg-ghost)',
-            fontWeight: 500,
+            color: 'var(--dw-fg-muted)',
+            fontWeight: 600,
           }}>
             RECENT PROJECTS (§28)
           </span>
           <span style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 10,
-            color: 'var(--dw-fg-ghost)',
-            padding: '1px 5px',
+            fontSize: 11.5,
+            color: 'var(--dw-fg)',
+            padding: '2px 6px',
             background: 'var(--dw-surface)',
             borderRadius: 3,
             border: '1px solid var(--dw-rim)',
@@ -135,15 +135,15 @@ export default function RecentProjects({
               border: 'none',
               cursor: 'pointer',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 10,
-              color: 'var(--dw-fg-ghost)',
-              padding: '2px 6px',
+              fontSize: 12,
+              color: 'var(--dw-fg-muted)',
+              padding: '4px 8px',
               borderRadius: 'var(--dw-radius-sm)',
               outline: 'none',
               transition: 'color 120ms ease',
             }}
             onMouseEnter={e => { e.currentTarget.style.color = 'var(--dw-fault)'; }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'var(--dw-fg-ghost)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--dw-fg-muted)'; }}
             onFocus={e => {
               e.currentTarget.style.outline = '2px solid var(--dw-accent)';
               e.currentTarget.style.outlineOffset = '1px';
@@ -158,7 +158,7 @@ export default function RecentProjects({
       {/* Projects list */}
       {projects.length === 0 ? (
         <div style={{
-          padding: '20px 16px',
+          padding: '28px 20px',
           background: 'var(--dw-surface)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-sm)',
@@ -166,20 +166,21 @@ export default function RecentProjects({
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: 6,
+          gap: 8,
         }}>
-          <FolderOpen size={20} strokeWidth={1.5} color="var(--dw-fg-ghost)" aria-hidden="true" />
+          <FolderOpen size={24} strokeWidth={1.5} color="var(--dw-fg-ghost)" aria-hidden="true" />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 12,
-            color: 'var(--dw-fg-muted)',
+            fontSize: 14,
+            color: 'var(--dw-fg)',
+            fontWeight: 500,
           }}>
             No recent projects found
           </span>
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
-            color: 'var(--dw-fg-ghost)',
+            fontSize: 12.5,
+            color: 'var(--dw-fg-muted)',
           }}>
             Uploaded and processed scenes are persisted here automatically.
           </span>
@@ -188,7 +189,7 @@ export default function RecentProjects({
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: 6,
+          gap: 8,
         }}>
           {projects.map((proj) => {
             const isAbsolute = proj.elevation_mode === 'absolute' || proj.processing_path === 'absolute_dsm';
@@ -215,7 +216,7 @@ export default function RecentProjects({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: compact ? '8px 10px' : '10px 14px',
+                  padding: compact ? '10px 12px' : '12px 16px',
                   background: isCurrent
                     ? 'rgba(59,130,246,0.06)'
                     : isHovered
@@ -248,10 +249,10 @@ export default function RecentProjects({
                 }}>
                   {/* Status / Mode icon */}
                   <div style={{
-                    marginTop: 2,
+                    marginTop: 4,
                     flexShrink: 0,
-                    width: 7,
-                    height: 7,
+                    width: 8,
+                    height: 8,
                     borderRadius: '50%',
                     background: isAbsolute ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
                     boxShadow: isAbsolute ? '0 0 0 2px rgba(59,130,246,0.2)' : 'none',
@@ -260,15 +261,15 @@ export default function RecentProjects({
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: 3,
+                    gap: 4,
                     minWidth: 0,
                   }}>
                     {/* Scene name / title */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{
                         fontFamily: 'var(--dw-font-ui)',
-                        fontSize: 12,
-                        fontWeight: 500,
+                        fontSize: 14,
+                        fontWeight: 550,
                         color: 'var(--dw-fg)',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
@@ -279,9 +280,9 @@ export default function RecentProjects({
                       {isCurrent && (
                         <span style={{
                           fontFamily: 'var(--dw-font-data)',
-                          fontSize: 9,
+                          fontSize: 10.5,
                           color: 'var(--dw-accent)',
-                          padding: '0 4px',
+                          padding: '1px 5px',
                           border: '1px solid rgba(59,130,246,0.4)',
                           borderRadius: 2,
                         }}>
@@ -296,12 +297,13 @@ export default function RecentProjects({
                       alignItems: 'center',
                       gap: 8,
                       fontFamily: 'var(--dw-font-data)',
-                      fontSize: 10,
+                      fontSize: 12,
                       color: 'var(--dw-fg-muted)',
                       flexWrap: 'wrap',
                     }}>
                       <span style={{
                         color: isAbsolute ? 'var(--dw-fg)' : 'var(--dw-fg-muted)',
+                        fontWeight: 500,
                       }}>
                         {modeLabel}
                       </span>
@@ -315,7 +317,7 @@ export default function RecentProjects({
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 6,
+                  gap: 8,
                   flexShrink: 0,
                 }}>
                   {/* Enter Terrain shortcut button */}
@@ -327,17 +329,17 @@ export default function RecentProjects({
                     title="Jump directly to 3D Terrain"
                     aria-label={`Enter 3D terrain for ${proj.filename || proj.scene_id}`}
                     style={{
-                      height: 26,
-                      padding: '0 8px',
+                      height: 30,
+                      padding: '0 10px',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: 4,
+                      gap: 6,
                       background: 'var(--dw-surface)',
                       border: '1px solid var(--dw-rim)',
                       borderRadius: 'var(--dw-radius-sm)',
                       fontFamily: 'var(--dw-font-ui)',
-                      fontSize: 10,
-                      color: 'var(--dw-fg-muted)',
+                      fontSize: 12.5,
+                      color: 'var(--dw-fg)',
                       cursor: 'pointer',
                       outline: 'none',
                       transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
@@ -348,7 +350,7 @@ export default function RecentProjects({
                     }}
                     onMouseLeave={e => {
                       e.currentTarget.style.borderColor = 'var(--dw-rim)';
-                      e.currentTarget.style.color = 'var(--dw-fg-muted)';
+                      e.currentTarget.style.color = 'var(--dw-fg)';
                     }}
                     onFocus={e => {
                       e.currentTarget.style.outline = '2px solid var(--dw-accent)';
@@ -356,7 +358,7 @@ export default function RecentProjects({
                     }}
                     onBlur={e => { e.currentTarget.style.outline = 'none'; }}
                   >
-                    <Mountain size={11} strokeWidth={1.5} />
+                    <Mountain size={13} strokeWidth={1.5} />
                     <span>3D Terrain</span>
                   </button>
 
@@ -366,28 +368,28 @@ export default function RecentProjects({
                     title="Remove from recent list"
                     aria-label={`Remove ${proj.filename || proj.scene_id} from recent projects`}
                     style={{
-                      width: 26,
-                      height: 26,
+                      width: 30,
+                      height: 30,
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       background: 'none',
                       border: 'none',
                       borderRadius: 'var(--dw-radius-sm)',
-                      color: 'var(--dw-fg-ghost)',
+                      color: 'var(--dw-fg-muted)',
                       cursor: 'pointer',
                       outline: 'none',
                       transition: 'color 120ms ease',
                     }}
                     onMouseEnter={e => { e.currentTarget.style.color = 'var(--dw-fault)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--dw-fg-ghost)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--dw-fg-muted)'; }}
                     onFocus={e => {
                       e.currentTarget.style.outline = '2px solid var(--dw-accent)';
                       e.currentTarget.style.outlineOffset = '1px';
                     }}
                     onBlur={e => { e.currentTarget.style.outline = 'none'; }}
                   >
-                    <Trash2 size={12} strokeWidth={1.5} />
+                    <Trash2 size={14} strokeWidth={1.5} />
                   </button>
                 </div>
               </div>

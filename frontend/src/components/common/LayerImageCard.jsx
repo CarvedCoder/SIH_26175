@@ -152,18 +152,19 @@ export default function LayerImageCard({
           position: 'absolute',
           top: 8,
           left: 8,
-          padding: '2px 7px',
-          background: 'rgba(7,9,14,0.75)',
+          padding: '4px 10px',
+          background: 'rgba(7,9,14,0.82)',
           borderRadius: 'var(--dw-radius-sm)',
           backdropFilter: 'blur(4px)',
           WebkitBackdropFilter: 'blur(4px)',
+          border: '1px solid var(--dw-rim)',
         }}>
           <span style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 10,
+            fontSize: 12.5,
             letterSpacing: '0.07em',
             color: 'var(--dw-fg)',
-            fontWeight: 500,
+            fontWeight: 600,
           }}>
             {label}
           </span>
@@ -172,33 +173,34 @@ export default function LayerImageCard({
 
       {/* Metadata strip */}
       <div style={{
-        padding: '10px 12px',
+        padding: '12px 14px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 6,
+        gap: 8,
         borderTop: '1px solid var(--dw-rim)',
       }}>
         {sublabel && (
           <p style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--dw-fg-muted)',
             margin: 0,
+            fontWeight: 450,
           }}>
             {sublabel}
           </p>
         )}
 
         {hasRange && !disabled && (
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
             <Stat label="MIN" value={fmt(minValue)} units={units} />
             {/* Mini gradient bar */}
             <div style={{
               flex: 1,
-              height: 3,
+              height: 4,
               borderRadius: 2,
               background: 'linear-gradient(to right, var(--dw-fg-ghost), var(--dw-accent))',
-              opacity: 0.6,
+              opacity: 0.7,
             }} />
             <Stat label="MAX" value={fmt(maxValue)} units={units} align="right" />
           </div>
@@ -207,9 +209,10 @@ export default function LayerImageCard({
         {disabled && disabledReason && (
           <p style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
-            color: 'var(--dw-fg-ghost)',
+            fontSize: 12.5,
+            color: 'var(--dw-fg-muted)',
             margin: 0,
+            lineHeight: 1.4,
           }}>
             {disabledReason}
           </p>
@@ -224,17 +227,19 @@ function Stat({ label, value, units, align = 'left' }) {
     <div style={{ textAlign: align, flexShrink: 0 }}>
       <div style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 9,
+        fontSize: 11,
         letterSpacing: '0.07em',
         textTransform: 'uppercase',
-        color: 'var(--dw-fg-ghost)',
+        color: 'var(--dw-fg-muted)',
+        fontWeight: 600,
       }}>
         {label}
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 2, justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
         <span style={{
           fontFamily: 'var(--dw-font-data)',
-          fontSize: 12,
+          fontSize: 14.5,
+          fontWeight: 600,
           color: 'var(--dw-fg)',
         }}>
           {value}
@@ -242,8 +247,8 @@ function Stat({ label, value, units, align = 'left' }) {
         {units && (
           <span style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 10,
-            color: 'var(--dw-fg-ghost)',
+            fontSize: 12,
+            color: 'var(--dw-fg-muted)',
           }}>
             {units}
           </span>

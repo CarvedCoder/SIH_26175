@@ -129,18 +129,18 @@ export default function DetailMode({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingBottom: 6,
+        paddingBottom: 8,
         borderBottom: '1px solid var(--dw-rim)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Sparkles size={13} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <Sparkles size={15} strokeWidth={1.5} color="var(--dw-accent)" aria-hidden="true" />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 10,
+            fontSize: 11.5,
             letterSpacing: '0.07em',
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
-            fontWeight: 500,
+            fontWeight: 600,
           }}>
             Detail Mode (§18)
           </span>
@@ -156,7 +156,7 @@ export default function DetailMode({
               border: 'none',
               cursor: 'pointer',
               color: 'var(--dw-fg-muted)',
-              padding: 2,
+              padding: 4,
               display: 'flex',
               alignItems: 'center',
               outline: 'none',
@@ -167,7 +167,7 @@ export default function DetailMode({
             }}
             onBlur={e => { e.currentTarget.style.outline = 'none'; }}
           >
-            <X size={12} strokeWidth={1.5} />
+            <X size={15} strokeWidth={1.5} />
           </button>
         )}
       </div>
@@ -179,12 +179,12 @@ export default function DetailMode({
         gap: 6,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>
+          <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
             Target Detail Level
           </span>
           <span style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 10,
+            fontSize: 12,
             color: resolution === 'high' ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
             textTransform: 'uppercase',
           }}>
@@ -200,19 +200,19 @@ export default function DetailMode({
           padding: 2,
           borderRadius: 'var(--dw-radius-sm)',
           border: '1px solid var(--dw-rim)',
-          gap: 2,
+          gap: 3,
         }}>
           <button
             onClick={() => setResolution('standard')}
             disabled={isBusy}
             aria-pressed={resolution === 'standard'}
             style={{
-              height: 28,
+              height: 32,
               background: resolution === 'standard' ? 'var(--dw-panel)' : 'transparent',
               border: resolution === 'standard' ? '1px solid var(--dw-accent)' : '1px solid transparent',
               borderRadius: 'var(--dw-radius-sm)',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
+              fontSize: 12.5,
               color: resolution === 'standard' ? 'var(--dw-fg)' : 'var(--dw-fg-muted)',
               cursor: isBusy ? 'not-allowed' : 'pointer',
               outline: 'none',
@@ -231,13 +231,13 @@ export default function DetailMode({
             disabled={isBusy}
             aria-pressed={resolution === 'high'}
             style={{
-              height: 28,
+              height: 32,
               background: resolution === 'high' ? 'var(--dw-panel)' : 'transparent',
               border: resolution === 'high' ? '1px solid var(--dw-accent)' : '1px solid transparent',
               borderRadius: 'var(--dw-radius-sm)',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
-              fontWeight: resolution === 'high' ? 500 : 400,
+              fontSize: 12.5,
+              fontWeight: resolution === 'high' ? 600 : 400,
               color: resolution === 'high' ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
               cursor: isBusy ? 'not-allowed' : 'pointer',
               outline: 'none',
@@ -255,20 +255,20 @@ export default function DetailMode({
 
       {/* Selected Area Coordinates / Selection Prompt */}
       <div style={{
-        padding: '8px 10px',
+        padding: '10px 12px',
         background: 'var(--dw-surface)',
         border: '1px solid ' + (isSelecting ? 'var(--dw-accent)' : 'var(--dw-rim)'),
         borderRadius: 'var(--dw-radius-sm)',
         display: 'flex',
         flexDirection: 'column',
-        gap: 4,
+        gap: 6,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 10, textTransform: 'uppercase', color: 'var(--dw-fg-ghost)' }}>
+          <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', color: 'var(--dw-fg-ghost)' }}>
             Selected Region (BBox)
           </span>
           {hasBbox && (
-            <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 9, color: 'var(--dw-confirm)' }}>
+            <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 10.5, color: 'var(--dw-confirm)' }}>
               READY
             </span>
           )}
@@ -277,20 +277,20 @@ export default function DetailMode({
         {hasBbox ? (
           <div style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--dw-fg)',
             display: 'flex',
             flexDirection: 'column',
-            gap: 2,
+            gap: 3,
           }}>
             <div>X: [{selectedBbox.x_min.toFixed(3)}, {selectedBbox.x_max.toFixed(3)}]</div>
             <div>Y: [{selectedBbox.y_min.toFixed(3)}, {selectedBbox.y_max.toFixed(3)}]</div>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <span style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
+              fontSize: 13,
               color: isSelecting ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
             }}>
               {isSelecting ? 'Click and drag on terrain…' : 'No region selected'}
@@ -301,19 +301,19 @@ export default function DetailMode({
                 disabled={isBusy}
                 aria-pressed={isSelecting}
                 style={{
-                  height: 24,
-                  padding: '0 8px',
+                  height: 28,
+                  padding: '0 10px',
                   background: isSelecting ? 'var(--dw-accent)' : 'transparent',
                   border: '1px solid var(--dw-accent)',
                   borderRadius: 'var(--dw-radius-sm)',
                   fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 11,
+                  fontSize: 12,
                   color: isSelecting ? '#fff' : 'var(--dw-accent)',
                   cursor: isBusy ? 'not-allowed' : 'pointer',
                   outline: 'none',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: 4,
+                  gap: 5,
                 }}
                 onFocus={e => {
                   e.currentTarget.style.outline = '2px solid var(--dw-accent)';
@@ -321,7 +321,7 @@ export default function DetailMode({
                 }}
                 onBlur={e => { e.currentTarget.style.outline = 'none'; }}
               >
-                <Crop size={11} strokeWidth={1.5} />
+                <Crop size={13} strokeWidth={1.5} />
                 {isSelecting ? 'Selecting…' : 'Select Box'}
               </button>
             )}
@@ -337,17 +337,17 @@ export default function DetailMode({
           aria-label="Refine selected area"
           style={{
             width: '100%',
-            height: 34,
+            height: 38,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 6,
+            gap: 7,
             background: hasBbox && !isBusy ? 'var(--dw-accent)' : 'var(--dw-surface)',
             border: hasBbox && !isBusy ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
             borderRadius: 'var(--dw-radius-sm)',
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 12,
-            fontWeight: 500,
+            fontSize: 14,
+            fontWeight: 600,
             color: hasBbox && !isBusy ? '#fff' : 'var(--dw-fg-ghost)',
             cursor: hasBbox && !isBusy ? 'pointer' : 'not-allowed',
             outline: 'none',
@@ -363,12 +363,12 @@ export default function DetailMode({
         >
           {isBusy ? (
             <>
-              <Loader2 size={13} strokeWidth={1.5} className="animate-spin" />
+              <Loader2 size={15} strokeWidth={1.5} className="animate-spin" />
               <span>Refining selected area…</span>
             </>
           ) : (
             <>
-              <Sparkles size={13} strokeWidth={1.5} />
+              <Sparkles size={15} strokeWidth={1.5} />
               <span>Refine Area</span>
             </>
           )}
@@ -378,7 +378,7 @@ export default function DetailMode({
       {/* Processing Status Banner (§18: "The UI should clearly indicate when local refinement is being processed.") */}
       {isBusy && (
         <div style={{
-          padding: '8px 10px',
+          padding: '10px 12px',
           background: 'var(--dw-surface)',
           border: '1px solid rgba(59, 130, 246, 0.3)',
           borderRadius: 'var(--dw-radius-sm)',
@@ -387,15 +387,15 @@ export default function DetailMode({
           gap: 8,
         }}>
           <div style={{
-            width: 6,
-            height: 6,
+            width: 7,
+            height: 7,
             borderRadius: '50%',
             background: 'var(--dw-live)',
             animation: 'pulse 1.2s infinite',
           }} />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--dw-fg)',
           }}>
             Processing high-res local tile depth refinement…
@@ -406,7 +406,7 @@ export default function DetailMode({
       {/* Completed State */}
       {status === 'completed' && (
         <div style={{
-          padding: '8px 10px',
+          padding: '10px 12px',
           background: 'rgba(34, 197, 94, 0.08)',
           border: '1px solid rgba(34, 197, 94, 0.25)',
           borderRadius: 'var(--dw-radius-sm)',
@@ -414,11 +414,11 @@ export default function DetailMode({
           alignItems: 'center',
           justifyContent: 'space-between',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <CheckCircle2 size={14} strokeWidth={1.5} color="var(--dw-confirm)" aria-hidden="true" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <CheckCircle2 size={16} strokeWidth={1.5} color="var(--dw-confirm)" aria-hidden="true" />
             <span style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
+              fontSize: 13,
               color: 'var(--dw-fg)',
             }}>
               Local DSM updated with refined detail.
@@ -430,10 +430,11 @@ export default function DetailMode({
               background: 'none',
               border: 'none',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 10,
+              fontSize: 12,
+              fontWeight: 500,
               color: 'var(--dw-accent)',
               cursor: 'pointer',
-              padding: '2px 4px',
+              padding: '2px 6px',
               outline: 'none',
             }}
           >
@@ -445,18 +446,18 @@ export default function DetailMode({
       {/* Error State */}
       {status === 'error' && (
         <div style={{
-          padding: '8px 10px',
+          padding: '10px 12px',
           background: 'rgba(239, 68, 68, 0.08)',
           border: '1px solid rgba(239, 68, 68, 0.25)',
           borderRadius: 'var(--dw-radius-sm)',
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
+          gap: 8,
         }}>
-          <AlertCircle size={14} strokeWidth={1.5} color="var(--dw-fault)" aria-hidden="true" />
+          <AlertCircle size={16} strokeWidth={1.5} color="var(--dw-fault)" aria-hidden="true" />
           <span style={{
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--dw-fault)',
           }}>
             {errorMessage ?? 'Refinement failed.'}

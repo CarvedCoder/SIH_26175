@@ -81,8 +81,8 @@ export default function ReferenceComparison({
           style={{
             display: 'flex',
             flexDirection: 'column',
-            gap: 6,
-            padding: '10px 12px',
+            gap: 8,
+            padding: '12px 14px',
             background: 'var(--dw-surface)',
             border: '1px solid var(--dw-rim)',
             borderRadius: 'var(--dw-radius-sm)',
@@ -93,14 +93,15 @@ export default function ReferenceComparison({
             alignItems: 'center',
             justifyContent: 'space-between',
             borderBottom: '1px solid var(--dw-rim)',
-            paddingBottom: 4,
+            paddingBottom: 6,
           }}>
             <h3
               id="reference-dem-details-heading"
               style={{
                 fontFamily: 'var(--dw-font-ui)',
-                fontSize: 10,
-                letterSpacing: '0.07em',
+                fontSize: 11.5,
+                fontWeight: 600,
+                letterSpacing: '0.08em',
                 textTransform: 'uppercase',
                 color: 'var(--dw-fg-ghost)',
                 margin: 0,
@@ -117,7 +118,7 @@ export default function ReferenceComparison({
                 border: 'none',
                 cursor: 'pointer',
                 color: 'var(--dw-fg-muted)',
-                padding: 2,
+                padding: 3,
                 display: 'flex',
                 alignItems: 'center',
                 outline: 'none',
@@ -128,15 +129,15 @@ export default function ReferenceComparison({
               }}
               onBlur={e => { e.currentTarget.style.outline = 'none'; }}
             >
-              <RefreshCw size={11} strokeWidth={1.5} />
+              <RefreshCw size={13} strokeWidth={1.5} />
             </button>
           </div>
 
           <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
-            gap: 6,
-            fontSize: 11,
+            gap: 8,
+            fontSize: 13,
           }}>
             <div>
               <span style={{ fontFamily: 'var(--dw-font-ui)', color: 'var(--dw-fg-muted)' }}>Source: </span>
@@ -164,11 +165,12 @@ export default function ReferenceComparison({
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: 4,
+                    gap: 5,
                     color: 'var(--dw-accent)',
                     textDecoration: 'none',
                     fontFamily: 'var(--dw-font-ui)',
-                    fontSize: 11,
+                    fontSize: 12.5,
+                    fontWeight: 500,
                     outline: 'none',
                   }}
                   onFocus={e => {
@@ -177,7 +179,7 @@ export default function ReferenceComparison({
                   }}
                   onBlur={e => { e.currentTarget.style.outline = 'none'; }}
                 >
-                  <Download size={11} strokeWidth={1.5} />
+                  <Download size={13} strokeWidth={1.5} />
                   Download DEM
                 </a>
               </div>
@@ -191,27 +193,27 @@ export default function ReferenceComparison({
         <div style={{
           display: 'flex',
           alignItems: 'flex-start',
-          gap: 8,
-          padding: '10px 12px',
+          gap: 10,
+          padding: '12px 14px',
           background: 'var(--dw-surface)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-sm)',
         }}>
-          <ShieldAlert size={14} strokeWidth={1.5} color="var(--dw-fg-muted)" style={{ marginTop: 2, flexShrink: 0 }} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <ShieldAlert size={16} strokeWidth={1.5} color="var(--dw-fg-muted)" style={{ marginTop: 2, flexShrink: 0 }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             <span style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
-              fontWeight: 500,
+              fontSize: 13,
+              fontWeight: 600,
               color: 'var(--dw-fg-muted)',
             }}>
               Reference Elevation Not Available
             </span>
             <span style={{
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
+              fontSize: 12.5,
               color: 'var(--dw-fg-ghost)',
-              lineHeight: 1.4,
+              lineHeight: 1.45,
             }}>
               {reference?.reason ?? 'This scene was uploaded without an aligned ground-truth reference DEM. Reconstruction operates in relative depth mode.'}
             </span>

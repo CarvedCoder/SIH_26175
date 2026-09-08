@@ -21,22 +21,23 @@ export default function ProcessingPath() {
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 4,
+        gap: 6,
         flexWrap: 'wrap',
       }}
     >
       {steps.map((step, i) => (
-        <span key={step} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span key={step} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 11,
-            color: 'var(--dw-fg-muted)',
+            fontSize: 13,
+            fontWeight: 500,
+            color: 'var(--dw-fg)',
             letterSpacing: '0.04em',
           }}>
             {step}
           </span>
           {i < steps.length - 1 && (
-            <span style={{ color: 'var(--dw-rim)', fontSize: 10 }}>→</span>
+            <span style={{ color: 'var(--dw-rim)', fontSize: 13 }}>→</span>
           )}
         </span>
       ))}

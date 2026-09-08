@@ -84,17 +84,17 @@ export default function UploadZone() {
       style={{
         position: 'relative',
         width: '100%',
-        maxWidth: 560,
-        padding: '48px 32px',
+        maxWidth: 580,
+        padding: '56px 36px',
         borderRadius: 'var(--dw-radius)',
         border: `1px dashed ${dragOver ? 'var(--dw-accent)' : 'var(--dw-rim)'}`,
-        background: dragOver ? 'rgba(59,130,246,0.04)' : 'var(--dw-surface)',
+        background: dragOver ? 'rgba(59,130,246,0.06)' : 'var(--dw-surface)',
         cursor: isUploading ? 'wait' : 'pointer',
         transition: 'border-color 150ms ease, background 150ms ease',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: 12,
+        gap: 14,
         outline: 'none',
       }}
       tabIndex={0}
@@ -113,17 +113,17 @@ export default function UploadZone() {
       />
 
       {/* Icon */}
-      <div style={{ color: isUploading ? 'var(--dw-accent)' : dragOver ? 'var(--dw-accent)' : 'var(--dw-fg-ghost)' }}>
+      <div style={{ color: isUploading ? 'var(--dw-accent)' : dragOver ? 'var(--dw-accent)' : 'var(--dw-fg-muted)' }}>
         {isUploading
           ? <UploadSpinner />
-          : <Upload size={28} strokeWidth={1.5} />}
+          : <Upload size={36} strokeWidth={1.5} />}
       </div>
 
       {/* Primary label */}
       <p style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 14,
-        fontWeight: 500,
+        fontSize: 17,
+        fontWeight: 600,
         color: 'var(--dw-fg)',
         margin: 0,
         textAlign: 'center',
@@ -134,24 +134,24 @@ export default function UploadZone() {
       {/* or / browse */}
       {!isUploading && (
         <>
-          <p style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12, color: 'var(--dw-fg-muted)', margin: 0 }}>or</p>
+          <p style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 14, color: 'var(--dw-fg-muted)', margin: 0 }}>or</p>
           <button
             onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
             style={{
               background: 'none',
               border: '1px solid var(--dw-rim)',
               borderRadius: 'var(--dw-radius-sm)',
-              padding: '6px 14px',
+              padding: '8px 20px',
               fontFamily: 'var(--dw-font-ui)',
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 500,
               color: 'var(--dw-fg)',
               cursor: 'pointer',
-              transition: 'border-color 150ms ease',
+              transition: 'border-color 150ms ease, background 150ms ease',
               outline: 'none',
             }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--dw-accent)'; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--dw-rim)'; }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--dw-accent)'; e.currentTarget.style.background = 'var(--dw-panel)'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--dw-rim)'; e.currentTarget.style.background = 'none'; }}
             onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; e.currentTarget.style.outlineOffset = '2px'; }}
             onBlur={e => { e.currentTarget.style.outline = 'none'; }}
           >
@@ -159,8 +159,8 @@ export default function UploadZone() {
           </button>
           <p style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 11,
-            color: 'var(--dw-fg-ghost)',
+            fontSize: 12.5,
+            color: 'var(--dw-fg-muted)',
             margin: 0,
             letterSpacing: '0.04em',
           }}>
@@ -176,14 +176,14 @@ export default function UploadZone() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 8,
             color: 'var(--dw-fault)',
             fontFamily: 'var(--dw-font-ui)',
-            fontSize: 12,
+            fontSize: 13.5,
             marginTop: 4,
           }}
         >
-          <AlertCircle size={13} strokeWidth={1.5} />
+          <AlertCircle size={16} strokeWidth={1.5} />
           <span>{localErr}</span>
         </div>
       )}
@@ -193,7 +193,7 @@ export default function UploadZone() {
 
 function UploadSpinner() {
   return (
-    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-label="Uploading…">
+    <svg width="36" height="36" viewBox="0 0 28 28" fill="none" aria-label="Uploading…">
       <circle cx="14" cy="14" r="11" stroke="var(--dw-rim)" strokeWidth="2" />
       <path
         d="M14 3 A11 11 0 0 1 25 14"

@@ -121,30 +121,31 @@ function HUDContent({ terrainRef, elevationMode }) {
 function HUDFace({ label, value, unit }) {
   return (
     <div style={{
-      background: 'rgba(13,17,23,0.88)', // --dw-panel with alpha
+      background: 'rgba(13,17,23,0.92)', // --dw-panel with alpha
       border: '1px solid var(--dw-rim)',
       borderRadius: 'var(--dw-radius-sm)',
-      padding: '8px 12px',
+      padding: '10px 14px',
       display: 'flex',
       flexDirection: 'column',
-      gap: 3,
-      minWidth: 72,
+      gap: 4,
+      minWidth: 80,
       alignItems: 'flex-start',
     }}>
       <span style={{
         fontFamily: 'var(--dw-font-ui)',
-        fontSize: 9,
+        fontSize: 11,
         letterSpacing: '0.07em',
         textTransform: 'uppercase',
         color: 'var(--dw-fg-ghost)',
+        fontWeight: 600,
       }}>
         {label}
       </span>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
         <span style={{
           fontFamily: 'var(--dw-font-data)',
-          fontSize: 18,
-          fontWeight: 500,
+          fontSize: 20,
+          fontWeight: 600,
           letterSpacing: '-0.01em',
           color: 'var(--dw-fg)',
           lineHeight: 1,
@@ -154,7 +155,7 @@ function HUDFace({ label, value, unit }) {
         {unit && (
           <span style={{
             fontFamily: 'var(--dw-font-data)',
-            fontSize: 11,
+            fontSize: 13,
             color: 'var(--dw-fg-ghost)',
           }}>
             {unit}
