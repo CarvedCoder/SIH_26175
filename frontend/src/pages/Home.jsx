@@ -225,6 +225,42 @@ export default function Home() {
               </span>
             ))}
           </div>
+
+          {/* Quick Demo CTA (§1.2, §33) */}
+          {showUploadZone && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+              <button
+                onClick={() => {
+                  const demoProject = state.recentScenes?.[0];
+                  if (demoProject) {
+                    actions.resumeSession(demoProject, AppState.RESULTS_READY);
+                  }
+                }}
+                style={{
+                  height: 32,
+                  padding: '0 14px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'none',
+                  border: '1px solid var(--dw-accent)',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 12,
+                  color: 'var(--dw-accent)',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  transition: 'background 150ms ease',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--dw-surface)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                aria-label="View pre-calibrated demo scene (Scene_042 · Absolute DSM)"
+              >
+                <Play size={12} strokeWidth={1.5} />
+                View Demo (Scene_042 · Absolute DSM)
+              </button>
+            </div>
+          )}
         </section>
 
         {/* Upload or file info */}
