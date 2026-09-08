@@ -205,4 +205,13 @@
 
 ---
 
-*Last updated: 2026-09-08 — All Phases (0–20) Complete & Verified*
+## Phase 21 — Ergonomic Typography & Navigation Alignment (Impeccable Polish)
+
+- [x] **21.1** Global Typography Scale: Upgraded base CSS font tokens (`html { font-size: 16px; }`, `body { font-size: 15px; }`, `--dw-fg-muted: #94a3b8`, `--dw-fg-ghost: #64748b`) ensuring AAA/AA contrast against dark mission-control background.
+- [x] **21.2** Mathematical Nav Bar Centering: Converted `Header.jsx` to CSS Grid `1fr auto 1fr` guaranteeing the navigation links sit at exact 50% viewport midpoint regardless of variable wordmark or status pill widths.
+- [x] **21.3** Comprehensive Component Typography Upscaling: Scaled all inline fonts (11px–17px) across all 35 components (Toolbar, AnalysisPanel, CameraHUD, ElevationProbe, HeightMeasurement, DistanceMeasurement, SlopeMeasurement, StructureInspector, DetailMode, ScenarioSwitcher, DisasterAssessmentPanel, Minimap, LayerControl, ComparisonView, MetricsPanel, ReferenceComparison, ExportPanel, ApiErrorAlert, ErrorBoundary, UploadZone, FileInfo, ResultDashboard, etc.) with touch targets >= 32px–44px.
+
+---
+
+*Last updated: 2026-09-08 — All Phases (0–21) Complete, Typography Scaled & Verified*
+
