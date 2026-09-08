@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 complete.
-> **In Progress:** Task 6.1 — Minimap component
-> **Next:** Task 6.2 — Camera position marker
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 complete.
+> **In Progress:** Task 7.1 — CameraHUD navigation readouts
+> **Next:** Task 8.1 — LayerControl
 
 ---
 
@@ -76,13 +76,13 @@
 
 ## Phase 6 — Minimap — Signature UX Feature (§8, §57, §58)
 
-- [ ] **6.1** `Minimap` component (`src/components/TerrainViewer/Minimap.jsx`) — 200×200 canvas; draws source image as background; sits top-left over terrain viewport
-- [ ] **6.2** Camera position marker — amber dot at projected 2D position, updated every frame
-- [ ] **6.3** Camera heading arrow — rotates with camera yaw
-- [ ] **6.4** FOV cone — filled `--dw-fov` triangle showing camera view frustum
-- [ ] **6.5** Coordinate mapping — georeferenced: world→CRS bounds→image pixel; non-georeferenced: normalised terrain→normalised image
-- [ ] **6.6** Selected point marker — secondary dot at last terrain click; preserved across layer switches
-- [ ] **6.7** Navigation trail — breadcrumb path drawn in first-person mode; max 200 points, oldest culled
+- [x] **6.1** `Minimap` component (`src/components/TerrainViewer/Minimap.jsx`) — 200×200 canvas; draws source image as background; sits top-left over terrain viewport
+- [x] **6.2** Camera position marker — amber dot at projected 2D position, updated every frame
+- [x] **6.3** Camera heading arrow — rotates with camera yaw
+- [x] **6.4** FOV cone — filled `--dw-fov` triangle showing camera view frustum
+- [x] **6.5** Coordinate mapping — georeferenced: world→CRS bounds→image pixel; non-georeferenced: normalised terrain→normalised image
+- [x] **6.6** Selected point marker — secondary dot at last terrain click; preserved across layer switches
+- [x] **6.7** Navigation trail — breadcrumb path drawn in first-person mode; max 200 points, oldest culled
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 5 complete; Phase 6 starting*
+*Last updated: 2026-09-08 — Phase 6 complete; Phase 7 starting*

@@ -19,7 +19,9 @@ import { RotateCcw } from 'lucide-react';
 import Header from '../components/common/Header.jsx';
 import TerrainCanvas from '../components/TerrainViewer/TerrainCanvas.jsx';
 import TerrainControls from '../components/TerrainViewer/TerrainControls.jsx';
+import Minimap from '../components/TerrainViewer/Minimap.jsx';
 import { useCameraController } from '../hooks/useCameraController.js';
+import { getMinimap } from '../api/terrain.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 
 export default function TerrainWorkspace() {
@@ -61,6 +63,20 @@ export default function TerrainWorkspace() {
     terrainRef.current?.setCameraMode(cameraMode);
   }, [cameraMode, tickFirstPerson]);
 
+  // ── Minimap metadata ──
+  const [minimapMeta, setMinimapMeta] = useState(null);
+  const [selectedPoint, setSelectedPoint] = useState(null);
+
+  useEffect(() => {
+    const sceneId = state.scene?.scene_id;
+    if (!sceneId || isLoading) return;
+    let cancelled = false;
+    getMinimap(sceneId)
+      .then(meta => { if (!cancelled) setMinimapMeta(meta); })
+      .catch(() => { /* minimap is optional — silently skip */ });
+    return () => { cancelled = true; };
+  }, [state.scene?.scene_id, isLoading]);
+
   return (
     <div style={{
       height: '100vh',
@@ -80,6 +96,16 @@ export default function TerrainWorkspace() {
       }}>
         {/* Full-bleed OGL canvas */}
         <TerrainCanvas ref={terrainRef} />
+
+        {/* Minimap overlay — top-left of terrain viewport (task 6.1) */}
+        {!isLoading && (
+          <Minimap
+            terrainRef={terrainRef}
+            cameraMode={cameraMode}
+            minimapMeta={minimapMeta}
+            selectedPoint={selectedPoint}
+          />
+        )}
 
         {/* Loading overlay — while TERRAIN_LOADING */}
         {isLoading && (
