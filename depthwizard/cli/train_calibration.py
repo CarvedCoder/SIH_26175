@@ -347,7 +347,7 @@ def run(args) -> int:
     opt = torch.optim.Adam(net.parameters(), lr=args.lr or tcfg["lr"],
                            weight_decay=tcfg.get("weight_decay", 1e-4))
 
-        # CUDA AMP: reduce VRAM usage and improve throughput on NVIDIA GPUs.
+    # CUDA AMP: reduce VRAM usage and improve throughput on NVIDIA GPUs.
     amp_enabled = (device == "cuda")
     amp_dtype = torch.float16 if amp_enabled else torch.float32
 
