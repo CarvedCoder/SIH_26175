@@ -311,6 +311,8 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     segs: LO_SEGS,
     textureReady: 0,
     disposed: false,
+    cameraMode: 'orbit',        // 'orbit' | 'first-person' | 'top'
+    fpTick: null,               // callback injected from useCameraController
   });
 
   /* ── Expose handle to parent ── */
@@ -326,7 +328,6 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       const g = glRef.current;
       g.wireframe = v;
       if (g.mesh) {
-        // OGL uses mode: gl.LINES or gl.TRIANGLES
         const gl = g.renderer?.gl;
         if (gl) {
           g.mesh.mode = v ? gl.LINES : gl.TRIANGLES;
@@ -339,7 +340,25 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         g.camera.position.set(...DEFAULT_CAMERA_POS);
         g.orbit.target.set(0, 0, 0);
       }
+      g.cameraMode = 'orbit';
+      if (g.orbit) g.orbit.enabled = true;
+      g.fpTick = null;
     },
+    /** Register first-person tick callback — called every frame when mode is fp */
+    setFpTick(fn) {
+      glRef.current.fpTick = fn;
+    },
+    /** Set camera mode so render loop knows which controller is active */
+    setCameraMode(newMode) {
+      glRef.current.cameraMode = newMode;
+      if (glRef.current.orbit) {
+        glRef.current.orbit.enabled = (newMode === 'orbit');
+      }
+    },
+    /** Expose raw glRef so useCameraController can read camera and heightData */
+    getRef() { return glRef; },
+    /** Expose canvas ref for pointer-lock in first-person mode */
+    getCanvas() { return canvasRef; },
   }));
 
   /* ── Resize handler ── */
@@ -478,6 +497,10 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       }
 
       orbit.update();
+      // First-person tick: called every frame if mode is fp and callback is registered
+      if (g.cameraMode === 'first-person' && typeof g.fpTick === 'function') {
+        g.fpTick(dt);
+      }
       renderer.render({ scene, camera });
     }
     g.rafId = requestAnimationFrame(render);

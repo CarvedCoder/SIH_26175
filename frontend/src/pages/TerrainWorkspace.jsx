@@ -14,11 +14,12 @@
  *
  * DESIGN.md: Terrain primary — 70–80% usable screen; panels narrow + dark.
  */
-import { useRef } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import Header from '../components/common/Header.jsx';
 import TerrainCanvas from '../components/TerrainViewer/TerrainCanvas.jsx';
 import TerrainControls from '../components/TerrainViewer/TerrainControls.jsx';
+import { useCameraController } from '../hooks/useCameraController.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 
 export default function TerrainWorkspace() {
@@ -26,6 +27,39 @@ export default function TerrainWorkspace() {
   const terrainRef = useRef(null);
 
   const isLoading = state.status === AppState.TERRAIN_LOADING;
+
+  // ── Camera controller ──
+  // canvasRef and glRef are exposed from TerrainCanvas via terrainRef.getCanvas/getRef
+  // We wire these after first mount via a stable placeholder ref
+  const canvasPlaceholder = useRef({ current: null });
+  const glPlaceholder     = useRef({ current: {} });
+
+  const {
+    mode: cameraMode,
+    setMode: setCameraMode,
+    tickFirstPerson,
+  } = useCameraController({
+    canvasRef: canvasPlaceholder,
+    glRef: glPlaceholder,
+  });
+
+  // After TerrainCanvas mounts, connect the real refs into the camera controller
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!terrainRef.current) return;
+      const realCanvas = terrainRef.current.getCanvas?.();
+      const realGl     = terrainRef.current.getRef?.();
+      if (realCanvas) canvasPlaceholder.current = realCanvas.current ? realCanvas : { current: realCanvas };
+      if (realGl)     Object.assign(glPlaceholder, { current: realGl.current ?? realGl });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Register first-person tick in canvas render loop
+  useEffect(() => {
+    terrainRef.current?.setFpTick(cameraMode === 'first-person' ? tickFirstPerson : null);
+    terrainRef.current?.setCameraMode(cameraMode);
+  }, [cameraMode, tickFirstPerson]);
 
   return (
     <div style={{
@@ -79,6 +113,14 @@ export default function TerrainWorkspace() {
         flexShrink: 0,
       }}>
         <TerrainControls terrainRef={terrainRef} disabled={isLoading} />
+
+        {/* Camera mode switcher — task 5.4: [ First Person ] [ Orbit ] [ Top View ] */}
+        <CameraModeSwitcher
+          mode={cameraMode}
+          onSetMode={setCameraMode}
+          disabled={isLoading}
+          terrainRef={terrainRef}
+        />
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
@@ -177,6 +219,79 @@ function TerrainLoadingIndicator() {
       }}>
         BUILDING TERRAIN
       </span>
+    </div>
+  );
+}
+
+/**
+ * Camera mode switcher — task 5.4
+ * [ First Person ] [ Orbit ] [ Top View ] button group.
+ * DESIGN.md: buttons 32px high, border-radius 4px, active state: --dw-surface + --dw-accent border.
+ */
+const CAMERA_MODES = [
+  { id: 'first-person', label: 'First Person' },
+  { id: 'orbit',        label: 'Orbit' },
+  { id: 'top',          label: 'Top View' },
+];
+
+function CameraModeSwitcher({ mode, onSetMode, disabled, terrainRef }) {
+  function handleClick(newMode) {
+    if (newMode === mode) return;
+    terrainRef.current?.setCameraMode(newMode);
+    onSetMode(newMode);
+  }
+
+  return (
+    <div
+      role="group"
+      aria-label="Camera mode"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 2,
+        padding: '0 8px',
+        opacity: disabled ? 0.4 : 1,
+        pointerEvents: disabled ? 'none' : 'auto',
+      }}
+    >
+      <div style={{ width: 1, height: 24, background: 'var(--dw-rim)', marginRight: 8 }} />
+      {CAMERA_MODES.map((m) => {
+        const isActive = mode === m.id;
+        return (
+          <button
+            key={m.id}
+            onClick={() => handleClick(m.id)}
+            aria-pressed={isActive}
+            style={{
+              height: 32,
+              padding: '0 10px',
+              background: isActive ? 'var(--dw-surface)' : 'none',
+              border: isActive ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
+              borderRadius: 'var(--dw-radius-sm)',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 12,
+              color: isActive ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+              cursor: 'pointer',
+              outline: 'none',
+              transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
+              whiteSpace: 'nowrap',
+            }}
+            onFocus={e => {
+              e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+              e.currentTarget.style.outlineOffset = '2px';
+            }}
+            onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+            onMouseEnter={e => {
+              if (!isActive) e.currentTarget.style.borderColor = 'var(--dw-fg-ghost)';
+            }}
+            onMouseLeave={e => {
+              if (!isActive) e.currentTarget.style.borderColor = 'var(--dw-rim)';
+            }}
+          >
+            {m.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
