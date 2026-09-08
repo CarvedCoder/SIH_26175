@@ -17,10 +17,10 @@
 import { useRef, useEffect, useState } from 'react';
 import Header from '../components/common/Header.jsx';
 import TerrainCanvas from '../components/TerrainViewer/TerrainCanvas.jsx';
-import TerrainControls from '../components/TerrainViewer/TerrainControls.jsx';
 import Minimap from '../components/TerrainViewer/Minimap.jsx';
 import CameraHUD from '../components/TerrainViewer/CameraHUD.jsx';
 import LayerControl, { LAYER_META } from '../components/TerrainViewer/LayerControl.jsx';
+import Toolbar from '../components/common/Toolbar.jsx';
 import ElevationProbe from '../components/Analysis/ElevationProbe.jsx';
 import HeightMeasurement from '../components/Analysis/HeightMeasurement.jsx';
 import DistanceMeasurement from '../components/Analysis/DistanceMeasurement.jsx';
@@ -437,78 +437,17 @@ export default function TerrainWorkspace() {
         )}
       </div>
 
-      {/* 48px bottom toolbar */}
-      <div style={{
-        height: 'var(--dw-toolbar-h)',
-        background: 'var(--dw-panel)',
-        borderTop: '1px solid var(--dw-rim)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 0,
-        flexShrink: 0,
-      }}>
-        <TerrainControls terrainRef={terrainRef} disabled={isLoading} />
-
-        {/* Camera mode switcher — task 5.4: [ First Person ] [ Orbit ] [ Top View ] */}
-        <CameraModeSwitcher
-          mode={cameraMode}
-          onSetMode={setCameraMode}
-          disabled={isLoading}
-          terrainRef={terrainRef}
-        />
-
-        {/* Analysis measurement tools — Phase 9 (tasks 9.1–9.6) */}
-        <AnalysisToolsSwitcher
-          activeTool={activeTool}
-          onSelectTool={(tool) => setActiveTool(curr => curr === tool ? 'none' : tool)}
-          disabled={isLoading}
-        />
-
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
-
-        {/* Camera reset button */}
-        <div style={{ padding: '0 12px', display: 'flex', alignItems: 'center' }}>
-          <button
-            onClick={() => terrainRef.current?.resetCamera()}
-            disabled={isLoading}
-            aria-label="Reset camera to default position"
-            title="Reset camera"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              height: 32,
-              padding: '0 10px',
-              background: 'none',
-              border: '1px solid var(--dw-rim)',
-              borderRadius: 'var(--dw-radius-sm)',
-              fontFamily: 'var(--dw-font-ui)',
-              fontSize: 11,
-              color: 'var(--dw-fg-muted)',
-              cursor: isLoading ? 'not-allowed' : 'pointer',
-              opacity: isLoading ? 0.4 : 1,
-              outline: 'none',
-            }}
-            onFocus={e => {
-              if (!isLoading) {
-                e.currentTarget.style.outline = '2px solid var(--dw-accent)';
-                e.currentTarget.style.outlineOffset = '2px';
-              }
-            }}
-            onBlur={e => { e.currentTarget.style.outline = 'none'; }}
-            onMouseEnter={e => {
-              if (!isLoading) e.currentTarget.style.borderColor = 'var(--dw-fg-ghost)';
-            }}
-            onMouseLeave={e => {
-              if (!isLoading) e.currentTarget.style.borderColor = 'var(--dw-rim)';
-            }}
-          >
-            <RotateCcw size={13} strokeWidth={1.5} aria-hidden="true" />
-            Reset view
-          </button>
-        </div>
-      </div>
+      {/* 48px unified bottom toolbar (Phase 11, §26) */}
+      <Toolbar
+        terrainRef={terrainRef}
+        cameraMode={cameraMode}
+        onSetCameraMode={setCameraMode}
+        activeLayer={activeLayer}
+        onSelectLayer={handleLayerChange}
+        activeTool={activeTool}
+        onSelectTool={setActiveTool}
+        disabled={isLoading}
+      />
     </div>
   );
 }
@@ -561,151 +500,6 @@ function TerrainLoadingIndicator() {
       }}>
         BUILDING TERRAIN
       </span>
-    </div>
-  );
-}
-
-/**
- * Camera mode switcher — task 5.4
- * [ First Person ] [ Orbit ] [ Top View ] button group.
- * DESIGN.md: buttons 32px high, border-radius 4px, active state: --dw-surface + --dw-accent border.
- */
-const CAMERA_MODES = [
-  { id: 'first-person', label: 'First Person' },
-  { id: 'orbit',        label: 'Orbit' },
-  { id: 'top',          label: 'Top View' },
-];
-
-function CameraModeSwitcher({ mode, onSetMode, disabled, terrainRef }) {
-  function handleClick(newMode) {
-    if (newMode === mode) return;
-    terrainRef.current?.setCameraMode(newMode);
-    onSetMode(newMode);
-  }
-
-  return (
-    <div
-      role="group"
-      aria-label="Camera mode"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        padding: '0 8px',
-        opacity: disabled ? 0.4 : 1,
-        pointerEvents: disabled ? 'none' : 'auto',
-      }}
-    >
-      <div style={{ width: 1, height: 24, background: 'var(--dw-rim)', marginRight: 8 }} />
-      {CAMERA_MODES.map((m) => {
-        const isActive = mode === m.id;
-        return (
-          <button
-            key={m.id}
-            onClick={() => handleClick(m.id)}
-            aria-pressed={isActive}
-            style={{
-              height: 32,
-              padding: '0 10px',
-              background: isActive ? 'var(--dw-surface)' : 'none',
-              border: isActive ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
-              borderRadius: 'var(--dw-radius-sm)',
-              fontFamily: 'var(--dw-font-ui)',
-              fontSize: 12,
-              color: isActive ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
-              cursor: 'pointer',
-              outline: 'none',
-              transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
-              whiteSpace: 'nowrap',
-            }}
-            onFocus={e => {
-              e.currentTarget.style.outline = '2px solid var(--dw-accent)';
-              e.currentTarget.style.outlineOffset = '2px';
-            }}
-            onBlur={e => { e.currentTarget.style.outline = 'none'; }}
-            onMouseEnter={e => {
-              if (!isActive) e.currentTarget.style.borderColor = 'var(--dw-fg-ghost)';
-            }}
-            onMouseLeave={e => {
-              if (!isActive) e.currentTarget.style.borderColor = 'var(--dw-rim)';
-            }}
-          >
-            {m.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ─── Analysis tools switcher component (Phase 9) ─────────────────────────── */
-
-const ANALYSIS_TOOLS = [
-  { id: 'probe',     label: 'Probe',    icon: Crosshair },
-  { id: 'height',    label: 'Height',   icon: ArrowUpDown },
-  { id: 'distance',  label: 'Distance', icon: Ruler },
-  { id: 'slope',     label: 'Slope',    icon: TrendingUp },
-  { id: 'structure', label: 'Inspect',  icon: Building2 },
-];
-
-function AnalysisToolsSwitcher({ activeTool, onSelectTool, disabled }) {
-  return (
-    <div
-      role="group"
-      aria-label="Analysis tools"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 2,
-        padding: '0 8px',
-        opacity: disabled ? 0.4 : 1,
-        pointerEvents: disabled ? 'none' : 'auto',
-      }}
-    >
-      <div style={{ width: 1, height: 24, background: 'var(--dw-rim)', marginRight: 8 }} />
-      {ANALYSIS_TOOLS.map((tool) => {
-        const Icon = tool.icon;
-        const isActive = activeTool === tool.id;
-        return (
-          <button
-            key={tool.id}
-            onClick={() => onSelectTool(tool.id)}
-            aria-pressed={isActive}
-            title={`${tool.label} tool`}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              height: 32,
-              padding: '0 8px',
-              background: isActive ? 'var(--dw-surface)' : 'none',
-              border: isActive ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
-              borderRadius: 'var(--dw-radius-sm)',
-              fontFamily: 'var(--dw-font-ui)',
-              fontSize: 12,
-              color: isActive ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
-              cursor: 'pointer',
-              outline: 'none',
-              transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
-              whiteSpace: 'nowrap',
-            }}
-            onFocus={e => {
-              e.currentTarget.style.outline = '2px solid var(--dw-accent)';
-              e.currentTarget.style.outlineOffset = '2px';
-            }}
-            onBlur={e => { e.currentTarget.style.outline = 'none'; }}
-            onMouseEnter={e => {
-              if (!isActive) e.currentTarget.style.borderColor = 'var(--dw-fg-ghost)';
-            }}
-            onMouseLeave={e => {
-              if (!isActive) e.currentTarget.style.borderColor = 'var(--dw-rim)';
-            }}
-          >
-            <Icon size={12} strokeWidth={1.5} aria-hidden="true" />
-            {tool.label}
-          </button>
-        );
-      })}
     </div>
   );
 }

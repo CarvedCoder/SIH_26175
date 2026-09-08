@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 complete.
-> **In Progress:** Task 11.1 — Toolbar (`src/components/common/Toolbar.jsx`)
-> **Next:** Task 11.2 — Toolbar popover submenus
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 complete.
+> **In Progress:** Task 12.1 — ReferenceComparison (`src/components/Validation/ReferenceComparison.jsx`)
+> **Next:** Task 12.2 — MetricsPanel (`src/components/Validation/MetricsPanel.jsx`)
 
 ---
 
@@ -123,9 +123,9 @@
 
 ## Phase 11 — Bottom Toolbar (§26)
 
-- [ ] **11.1** `Toolbar` (`src/components/common/Toolbar.jsx`) — `[Layers] [Measure] [Compare] [Terrain] [Camera] [Reset]`; 48px height, full width, `--dw-panel` background
-- [ ] **11.2** Toolbar popover submenus — each button opens a compact popover with its sub-options
-- [ ] **11.3** Active tool/layer state styled with `--dw-accent` border
+- [x] **11.1** `Toolbar` (`src/components/common/Toolbar.jsx`) — `[Layers] [Measure] [Compare] [Terrain] [Camera] [Reset]`; 48px height, full width, `--dw-panel` background
+- [x] **11.2** Toolbar popover submenus — each button opens a compact popover with its sub-options
+- [x] **11.3** Active tool/layer state styled with `--dw-accent` border
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 10 complete; Phase 11 starting*
+*Last updated: 2026-09-08 — Phase 11 complete; Phase 12 starting*
