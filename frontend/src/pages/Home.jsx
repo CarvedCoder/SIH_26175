@@ -17,6 +17,7 @@ import Header from '../components/common/Header.jsx';
 import UploadZone from '../components/Upload/UploadZone.jsx';
 import FileInfo from '../components/Upload/FileInfo.jsx';
 import ProcessingPath from '../components/Upload/ProcessingPath.jsx';
+import RecentProjects from '../components/common/RecentProjects.jsx';
 import { useApp, AppState } from '../store/appStore.jsx';
 import { startProcessing } from '../api/processing.js';
 
@@ -236,6 +237,17 @@ export default function Home() {
           {showUploadZone && <UploadZone />}
           {showFileInfo   && <FileInfo />}
           {showStart      && state.scene && <StartProcessingPanel sceneId={state.scene.scene_id} />}
+
+          {/* Recent projects list (§28) */}
+          {showUploadZone && (
+            <div style={{
+              width: '100%',
+              maxWidth: 560,
+              marginTop: 32,
+            }}>
+              <RecentProjects />
+            </div>
+          )}
         </div>
 
         {/* Error state */}

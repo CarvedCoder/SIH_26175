@@ -36,6 +36,9 @@ const Action = {
   FALLBACK_RELATIVE:  'FALLBACK_RELATIVE',
   SET_ERROR:          'SET_ERROR',
   RESET:              'RESET',
+  RESUME_SESSION:     'RESUME_SESSION',
+  REMOVE_RECENT_PROJECT: 'REMOVE_RECENT_PROJECT',
+  CLEAR_RECENT_PROJECTS: 'CLEAR_RECENT_PROJECTS',
 };
 
 /**
@@ -95,8 +98,74 @@ const initialState = {
   validation: null,
   error: null,
   recentScenes: (() => {
-    try { return JSON.parse(localStorage.getItem('dw_recent') || '[]'); }
-    catch { return []; }
+    try {
+      const stored = localStorage.getItem('dw_recent');
+      if (stored) return JSON.parse(stored);
+      // Pre-seed sample projects as illustrated in spec §28:
+      const sample = [
+        {
+          scene_id: 'scene_042',
+          filename: 'Scene_042.tif',
+          format: 'GeoTIFF',
+          processing_path: 'absolute_dsm',
+          elevation_mode: 'absolute',
+          status: 'completed',
+          ts: Date.now() - 2 * 60 * 1000, // 2 min ago
+          results: {
+            scene_id: 'scene_042',
+            elevation_mode: 'absolute',
+            units: 'm',
+            reference_source: 'SRTM GL1 30m',
+            reference_dem_available: true,
+            min_elevation: 142.5,
+            max_elevation: 846.2,
+            outputs: ['rgb', 'depth', 'dsm', 'reference_dem', 'error', 'terrain'],
+          },
+        },
+        {
+          scene_id: 'hill_area',
+          filename: 'Hill_Area.png',
+          format: 'PNG',
+          processing_path: 'relative_dsm',
+          elevation_mode: 'relative',
+          status: 'completed',
+          ts: Date.now() - 24 * 60 * 60 * 1000, // yesterday
+          results: {
+            scene_id: 'hill_area',
+            elevation_mode: 'relative',
+            units: 'scene units',
+            reference_source: null,
+            reference_dem_available: false,
+            min_elevation: 0.0,
+            max_elevation: 1.0,
+            outputs: ['rgb', 'depth', 'terrain'],
+          },
+        },
+        {
+          scene_id: 'urban_block',
+          filename: 'Urban_Block.tif',
+          format: 'GeoTIFF',
+          processing_path: 'absolute_dsm',
+          elevation_mode: 'absolute',
+          status: 'completed',
+          ts: Date.now() - 26 * 60 * 60 * 1000, // yesterday
+          results: {
+            scene_id: 'urban_block',
+            elevation_mode: 'absolute',
+            units: 'm',
+            reference_source: 'ALOS AW3D30',
+            reference_dem_available: true,
+            min_elevation: 32.0,
+            max_elevation: 118.4,
+            outputs: ['rgb', 'depth', 'dsm', 'reference_dem', 'error', 'terrain'],
+          },
+        },
+      ];
+      try { localStorage.setItem('dw_recent', JSON.stringify(sample)); } catch {}
+      return sample;
+    } catch {
+      return [];
+    }
   })(),
 };
 
@@ -125,8 +194,23 @@ function reducer(state, action) {
     case Action.PROCESSING_UPDATE:
       return { ...state, job: action.payload };
 
-    case Action.PROCESSING_DONE:
-      return { ...state, status: AppState.RESULTS_READY, results: action.payload, error: null };
+    case Action.PROCESSING_DONE: {
+      const results = action.payload;
+      const recent = state.recentScenes.map(s => {
+        if (s.scene_id === state.scene?.scene_id) {
+          return {
+            ...s,
+            status: 'completed',
+            elevation_mode: results?.elevation_mode ?? (s.processing_path === 'absolute_dsm' ? 'absolute' : 'relative'),
+            results,
+            ts: Date.now(),
+          };
+        }
+        return s;
+      });
+      try { localStorage.setItem('dw_recent', JSON.stringify(recent)); } catch {}
+      return { ...state, status: AppState.RESULTS_READY, results: action.payload, error: null, recentScenes: recent };
+    }
 
     case Action.PROCESSING_FAIL:
       return { ...state, status: AppState.FAILED, error: action.payload };
@@ -156,6 +240,52 @@ function reducer(state, action) {
         scene: state.scene ? { ...state.scene, processing_path: 'relative_dsm' } : state.scene,
         error: null,
       };
+
+    case Action.RESUME_SESSION: {
+      const project = action.payload;
+      const isAbsolute = project.elevation_mode === 'absolute' || project.processing_path === 'absolute_dsm';
+      const scene = project.scene ?? {
+        scene_id: project.scene_id,
+        filename: project.filename,
+        format: project.format ?? (project.filename?.endsWith('.tif') || project.filename?.endsWith('.tiff') ? 'GeoTIFF' : 'PNG'),
+        width: project.width ?? 1024,
+        height: project.height ?? 1024,
+        georeferenced: isAbsolute,
+        crs: isAbsolute ? 'EPSG:32643' : null,
+        processing_path: isAbsolute ? 'absolute_dsm' : 'relative_dsm',
+        reference_available: isAbsolute,
+      };
+      const results = project.results ?? {
+        scene_id: project.scene_id,
+        elevation_mode: isAbsolute ? 'absolute' : 'relative',
+        units: isAbsolute ? 'm' : 'scene units',
+        reference_source: isAbsolute ? 'SRTM' : null,
+        reference_dem_available: isAbsolute,
+        min_elevation: isAbsolute ? 100 : 0,
+        max_elevation: isAbsolute ? 850 : 1,
+        outputs: isAbsolute ? ['rgb', 'depth', 'dsm', 'reference_dem', 'error', 'terrain'] : ['rgb', 'depth', 'terrain'],
+      };
+      const targetStatus = project.targetStatus ?? (project.status === 'completed' || project.results ? AppState.RESULTS_READY : AppState.SCENE_READY);
+      return {
+        ...state,
+        status: targetStatus,
+        scene,
+        results,
+        error: null,
+      };
+    }
+
+    case Action.REMOVE_RECENT_PROJECT: {
+      const sceneId = action.payload;
+      const recent = state.recentScenes.filter(s => s.scene_id !== sceneId);
+      try { localStorage.setItem('dw_recent', JSON.stringify(recent)); } catch {}
+      return { ...state, recentScenes: recent };
+    }
+
+    case Action.CLEAR_RECENT_PROJECTS: {
+      try { localStorage.removeItem('dw_recent'); } catch {}
+      return { ...state, recentScenes: [] };
+    }
 
     case Action.RESET:
       return { ...initialState, recentScenes: state.recentScenes };
@@ -187,6 +317,17 @@ export function AppProvider({ children }) {
     retry: () => dispatch({ type: Action.RETRY }),
     fallbackRelative: () => dispatch({ type: Action.FALLBACK_RELATIVE }),
     reset: () => dispatch({ type: Action.RESET }),
+    resumeSession: (project, targetStatus) => dispatch({
+      type: Action.RESUME_SESSION,
+      payload: { ...project, ...(targetStatus ? { targetStatus } : {}) },
+    }),
+    removeRecentProject: (sceneId) => dispatch({
+      type: Action.REMOVE_RECENT_PROJECT,
+      payload: sceneId,
+    }),
+    clearRecentProjects: () => dispatch({
+      type: Action.CLEAR_RECENT_PROJECTS,
+    }),
   };
 
   return (
