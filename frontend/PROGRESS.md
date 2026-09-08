@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 complete.
-> **In Progress:** Task 16.1 — RecentProjects (`src/components/common/RecentProjects.jsx`)
-> **Next:** Task 16.2 — Resume session (click restores scene state and navigates to correct page)
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 complete.
+> **In Progress:** Task 17.1 — Tablet (≤1024px) adaptive layout & side drawer collapse (§29)
+> **Next:** Task 17.2 — Mobile (≤640px) viewport controls & touch ergonomics
 
 ---
 
@@ -164,8 +164,8 @@
 
 ## Phase 16 — Recent Projects (§28)
 
-- [ ] **16.1** `RecentProjects` (`src/components/common/RecentProjects.jsx`) — list from localStorage; name / mode / timestamp
-- [ ] **16.2** Resume session — click restores scene state and navigates to correct page
+- [x] **16.1** `RecentProjects` (`src/components/common/RecentProjects.jsx`) — list from localStorage; name / mode / timestamp
+- [x] **16.2** Resume session — click restores scene state and navigates to correct page
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 15 complete; Phase 16 starting*
+*Last updated: 2026-09-08 — Phase 16 complete; Phase 17 starting*
