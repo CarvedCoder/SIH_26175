@@ -148,7 +148,7 @@ function StartProcessingPanel({ sceneId }) {
 }
 
 export default function Home() {
-  const { state } = useApp();
+  const { state, actions } = useApp();
 
   const showFileInfo   = state.status === AppState.SCENE_READY;
   const showUploadZone = state.status === AppState.NO_SCENE || state.status === AppState.UPLOADING;
