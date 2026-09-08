@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 complete.
-> **In Progress:** Task 3.1 — ResultDashboard page
-> **Next:** Task 4.1 — TerrainCanvas OGL renderer
+> **Done:** Phase 0 + 1 + 2 + 3 complete.
+> **In Progress:** Task 4.1 — TerrainCanvas OGL renderer
+> **Next:** Task 4.2 — Heightmap mesh
 
 ---
 
@@ -46,9 +46,9 @@
 
 ## Phase 3 — 2D Result Previews (§33 Scene 3, §53, §54)
 
-- [ ] **3.1** `LayerImageCard` (`src/components/common/LayerImageCard.jsx`) — image display + label + min/max metadata + units
-- [ ] **3.2** `ResultDashboard` (`src/pages/ResultDashboard.jsx`) — three cards: RGB / Depth / DSM; fetches `/depth` and `/dsm` metadata; capability-driven (hides Absolute DSM when `elevation_mode: relative`)
-- [ ] **3.3** "Enter 3D Terrain" CTA — transitions state to `TERRAIN_LOADING`
+- [x] **3.1** `LayerImageCard` (`src/components/common/LayerImageCard.jsx`) — image display + label + min/max metadata + units
+- [x] **3.2** `ResultDashboard` (`src/pages/ResultDashboard.jsx`) — three cards: RGB / Depth / DSM; fetches `/depth` and `/dsm` metadata; capability-driven (hides Absolute DSM when `elevation_mode: relative`)
+- [x] **3.3** "Enter 3D Terrain" CTA — transitions state to `TERRAIN_LOADING`
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-07 — Phase 2 complete; Phase 3 starting*
+*Last updated: 2026-09-08 — Phase 3 complete; Phase 4 starting*
