@@ -43,6 +43,7 @@ import {
   TrendingUp,
   Building2,
   PanelRight,
+  X,
 } from 'lucide-react';
 
 export default function TerrainWorkspace() {
@@ -293,7 +294,8 @@ export default function TerrainWorkspace() {
             position: 'absolute',
             top: 56,
             right: 12,
-            transform: `translateX(-${analysisPanelOpen ? 280 : (layerPanelOpen ? 220 : 0)}px)`,
+            maxWidth: 'calc(100vw - 24px)',
+            transform: `translateX(-${analysisPanelOpen ? 'min(280px, calc(100vw - 40px))' : (layerPanelOpen ? 'min(220px, calc(100vw - 40px))' : '0px')})`,
             zIndex: 12,
             transition: 'transform 200ms ease-out',
           }}>
@@ -334,27 +336,47 @@ export default function TerrainWorkspace() {
           />
         )}
 
-        {/* Layer panel — collapsible right overlay (Phase 8) */}
+        {/* Layer panel — collapsible right overlay (Phase 8, Phase 17) */}
         {!isLoading && (
           <div style={{
             position: 'absolute',
             top: 0,
             right: 0,
             bottom: 0,
-            width: 220,
+            width: 'min(240px, 100vw)',
             transform: layerPanelOpen ? 'translateX(0)' : 'translateX(100%)',
             transition: 'transform 200ms ease-out',
             zIndex: 14,
             pointerEvents: layerPanelOpen ? 'auto' : 'none',
           }}>
             <div style={{
-              width: 220,
+              width: '100%',
               height: '100%',
               background: 'var(--dw-panel)',
               borderLeft: '1px solid var(--dw-rim)',
               padding: 12,
               overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
             }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setLayerPanelOpen(false)}
+                  aria-label="Close layers"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--dw-fg-muted)',
+                    cursor: 'pointer',
+                    padding: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <X size={14} strokeWidth={1.5} />
+                </button>
+              </div>
               <LayerControl
                 activeLayer={activeLayer}
                 onLayerChange={handleLayerChange}

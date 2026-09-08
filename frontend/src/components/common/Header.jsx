@@ -10,7 +10,7 @@
  * Spec: §4 Home/Landing navigation structure
  */
 import { useEffect, useState, useCallback } from 'react';
-import { X, HelpCircle, Info, Keyboard } from 'lucide-react';
+import { X, HelpCircle, Info, Keyboard, Menu } from 'lucide-react';
 import { checkHealth } from '../../api/client.js';
 import { useApp, AppState } from '../../store/appStore.jsx';
 import RecentProjects from './RecentProjects.jsx';
@@ -96,8 +96,9 @@ export default function Header({ onNavigate }) {
   const hasScene    = state.status !== AppState.NO_SCENE;
   const inWorkspace = state.status === AppState.TERRAIN_READY || state.status === AppState.ANALYSIS;
 
-  const [recentOpen, setRecentOpen] = useState(false);
-  const [aboutOpen, setAboutOpen]   = useState(false);
+  const [recentOpen, setRecentOpen]       = useState(false);
+  const [aboutOpen, setAboutOpen]         = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <>
@@ -119,7 +120,10 @@ export default function Header({ onNavigate }) {
       >
         {/* Wordmark */}
         <button
-          onClick={() => actions.reset()}
+          onClick={() => {
+            setMobileMenuOpen(false);
+            actions.reset();
+          }}
           aria-label="DepthWizard — go to home"
           style={{
             background: 'none',
@@ -159,11 +163,11 @@ export default function Header({ onNavigate }) {
           </span>
         </button>
 
-        {/* Centre nav */}
+        {/* Centre nav (Desktop / Tablet) */}
         <nav
+          className="dw-desktop-only"
           aria-label="Main navigation"
           style={{
-            display: 'flex',
             alignItems: 'center',
             gap: 2,
             marginLeft: 'auto',
@@ -208,33 +212,147 @@ export default function Header({ onNavigate }) {
           />
         </nav>
 
-        {/* Right: status */}
+        {/* Right: status & mobile toggle */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 10,
             marginLeft: 'auto',
           }}
         >
-          <StatusDot status={health.status} />
-          <span
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <StatusDot status={health.status} />
+            <span
+              style={{
+                fontFamily: 'var(--dw-font-data)',
+                fontSize: 11,
+                color: 'var(--dw-fg-ghost)',
+                letterSpacing: '0.03em',
+              }}
+              aria-label={`Backend status: ${health.status}`}
+            >
+              {health.status === 'online'
+                ? health.version ? `API ${health.version}` : 'API online'
+                : health.status === 'offline'
+                ? 'API offline'
+                : '…'}
+            </span>
+          </div>
+
+          {/* Mobile hamburger menu toggle */}
+          <button
+            className="dw-mobile-only"
+            onClick={() => setMobileMenuOpen(v => !v)}
+            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileMenuOpen}
             style={{
-              fontFamily: 'var(--dw-font-data)',
-              fontSize: 11,
-              color: 'var(--dw-fg-ghost)',
-              letterSpacing: '0.03em',
+              background: 'none',
+              border: 'none',
+              color: 'var(--dw-fg)',
+              cursor: 'pointer',
+              padding: 4,
+              outline: 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
-            aria-label={`Backend status: ${health.status}`}
           >
-            {health.status === 'online'
-              ? health.version ? `API ${health.version}` : 'API online'
-              : health.status === 'offline'
-              ? 'API offline'
-              : '…'}
-          </span>
+            {mobileMenuOpen ? <X size={18} strokeWidth={1.5} /> : <Menu size={18} strokeWidth={1.5} />}
+          </button>
         </div>
       </header>
+
+      {/* Mobile navigation drop-down */}
+      {mobileMenuOpen && (
+        <div
+          className="dw-mobile-only"
+          style={{
+            position: 'fixed',
+            top: 'var(--dw-header-h)',
+            left: 0,
+            right: 0,
+            background: 'var(--dw-panel)',
+            borderBottom: '1px solid var(--dw-rim)',
+            zIndex: 99,
+            flexDirection: 'column',
+            padding: '12px 16px',
+            gap: 8,
+          }}
+        >
+          <button
+            onClick={() => {
+              setMobileMenuOpen(false);
+              actions.reset();
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              textAlign: 'left',
+              padding: '8px 0',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 13,
+              color: isHome ? 'var(--dw-accent)' : 'var(--dw-fg)',
+              cursor: 'pointer',
+            }}
+          >
+            Home
+          </button>
+          <button
+            onClick={() => {
+              setMobileMenuOpen(false);
+              actions.reset();
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              textAlign: 'left',
+              padding: '8px 0',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 13,
+              color: 'var(--dw-fg-muted)',
+              cursor: 'pointer',
+            }}
+          >
+            New Reconstruction
+          </button>
+          <button
+            onClick={() => {
+              setMobileMenuOpen(false);
+              setRecentOpen(true);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              textAlign: 'left',
+              padding: '8px 0',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 13,
+              color: recentOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+              cursor: 'pointer',
+            }}
+          >
+            Recent Projects
+          </button>
+          <button
+            onClick={() => {
+              setMobileMenuOpen(false);
+              setAboutOpen(true);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              textAlign: 'left',
+              padding: '8px 0',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 13,
+              color: aboutOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+              cursor: 'pointer',
+            }}
+          >
+            Help / About
+          </button>
+        </div>
+      )}
 
       {/* Slide-out Recent Projects Drawer (§28) */}
       {recentOpen && (

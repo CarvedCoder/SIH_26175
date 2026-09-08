@@ -23,7 +23,8 @@
  *
  * Spec §8, §57, §58.
  */
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { Map, Minus } from 'lucide-react';
 
 /** Minimap canvas size */
 const SIZE = 200;
@@ -43,6 +44,7 @@ const TRAIL_MAX = 200;
  * }} props
  */
 export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedPoint }) {
+  const [collapsed, setCollapsed] = useState(false);
   const canvasRef   = useRef(null);
   const bgRef       = useRef(null);  // loaded HTMLImageElement for the source photo
   const markerPos   = useRef({ x: SIZE / 2, y: SIZE / 2 }); // smoothed marker
@@ -252,6 +254,40 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
     return () => cancelAnimationFrame(animId);
   }, [cameraMode, selectedPoint, worldToCanvas, getCameraPos, getCameraYaw]);
 
+  if (collapsed) {
+    return (
+      <button
+        onClick={() => setCollapsed(false)}
+        aria-label="Expand minimap"
+        title="Expand minimap"
+        style={{
+          position: 'absolute',
+          top: 12,
+          left: 12,
+          zIndex: 12,
+          background: 'rgba(13,17,23,0.88)',
+          border: '1px solid var(--dw-rim)',
+          borderRadius: 'var(--dw-radius-sm)',
+          height: 28,
+          padding: '0 8px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontFamily: 'var(--dw-font-ui)',
+          fontSize: 11,
+          color: 'var(--dw-fg)',
+          cursor: 'pointer',
+          outline: 'none',
+        }}
+        onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; }}
+        onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+      >
+        <Map size={13} strokeWidth={1.5} color="var(--dw-accent)" />
+        <span>Minimap</span>
+      </button>
+    );
+  }
+
   return (
     <div
       aria-label="Minimap — source image with camera position overlay"
@@ -259,14 +295,14 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
         position: 'absolute',
         top: 12,
         left: 12,
-        width: SIZE,
-        height: SIZE,
+        width: 'min(200px, 45vw)',
+        height: 'min(200px, 45vw)',
+        maxWidth: SIZE,
+        maxHeight: SIZE,
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
         overflow: 'hidden',
-        // No shadow per DESIGN.md — depth comes from the rim
         zIndex: 10,
-        pointerEvents: 'none', // Minimap is display-only; no interaction in Phase 6
       }}
     >
       <canvas
@@ -276,6 +312,33 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
         style={{ display: 'block', width: '100%', height: '100%' }}
         aria-hidden="true"
       />
+      <button
+        onClick={() => setCollapsed(true)}
+        aria-label="Collapse minimap"
+        title="Collapse minimap"
+        style={{
+          position: 'absolute',
+          top: 4,
+          right: 4,
+          zIndex: 12,
+          background: 'rgba(7,9,14,0.75)',
+          border: '1px solid var(--dw-rim)',
+          borderRadius: 3,
+          width: 20,
+          height: 20,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--dw-fg-muted)',
+          cursor: 'pointer',
+          padding: 0,
+          outline: 'none',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.color = 'var(--dw-fg)'; }}
+        onMouseLeave={e => { e.currentTarget.style.color = 'var(--dw-fg-muted)'; }}
+      >
+        <Minus size={11} strokeWidth={2} />
+      </button>
     </div>
   );
 }
