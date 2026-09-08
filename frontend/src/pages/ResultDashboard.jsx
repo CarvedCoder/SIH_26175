@@ -22,6 +22,8 @@ import Header from '../components/common/Header.jsx';
 import LayerImageCard from '../components/common/LayerImageCard.jsx';
 import MetricsPanel from '../components/Validation/MetricsPanel.jsx';
 import ExportPanel from '../components/Export/ExportPanel.jsx';
+import PartialResultBanner from '../components/common/PartialResultBanner.jsx';
+import ApiErrorAlert from '../components/common/ApiErrorAlert.jsx';
 import { useValidation } from '../hooks/useValidation.js';
 import { useApp } from '../store/appStore.jsx';
 import { getDepth, getDsm } from '../api/results.js';
@@ -160,6 +162,17 @@ export default function ResultDashboard() {
           </section>
         )}
 
+        {/* Pipeline capability evaluation banner (§38) */}
+        <section aria-label="Pipeline capability evaluation">
+          <PartialResultBanner
+            format={scene?.format ?? (isAbsolute ? 'GeoTIFF' : 'PNG')}
+            georeferenced={isAbsolute}
+            elevationMode={elevationMode}
+            hasReference={isAbsolute && results?.reference_source != null}
+            compact={false}
+          />
+        </section>
+
         {/* Result cards — 3 columns (RGB / Depth / DSM) */}
         <section aria-labelledby="layers-heading">
           <p
@@ -266,32 +279,28 @@ export default function ResultDashboard() {
           </section>
         )}
 
-        {/* Error state — API load failure */}
+        {/* Error state — API load failure (§31 Rule 6, §69) */}
         {fetchState === 'error' && (
-          <div
-            role="alert"
-            style={{
-              padding: '12px 16px',
-              background: 'rgba(239,68,68,0.06)',
-              border: '1px solid rgba(239,68,68,0.18)',
-              borderRadius: 'var(--dw-radius)',
-              display: 'flex',
-              gap: 10,
-              alignItems: 'flex-start',
-              maxWidth: 480,
+          <ApiErrorAlert
+            error={{
+              code: 'SCENE_NOT_FOUND',
+              message: 'Could not fetch result metadata from the server.',
+              recoverable: true,
             }}
-          >
-            <p style={{
-              fontFamily: 'var(--dw-font-ui)',
-              fontSize: 13,
-              color: 'var(--dw-fault)',
-              margin: 0,
-              lineHeight: 1.5,
-            }}>
-              Could not fetch result metadata. The layers above may be incomplete.
-              You can still enter the terrain workspace.
-            </p>
-          </div>
+            onRetry={() => {
+              setFetchState('loading');
+              const id = scene?.scene_id;
+              if (id) {
+                Promise.all([getDepth(id), isAbsolute ? getDsm(id) : null])
+                  .then(([d, m]) => {
+                    setDepthData(d);
+                    setDsmData(m);
+                    setFetchState('done');
+                  })
+                  .catch(() => setFetchState('error'));
+              }
+            }}
+          />
         )}
 
         {/* Enter 3D Terrain CTA — task 3.3 */}

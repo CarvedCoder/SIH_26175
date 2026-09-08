@@ -7,6 +7,7 @@
  * Spec §5 Upload Intelligence. DESIGN.md: two-column data-face table, no card chrome.
  */
 import { useApp } from '../../store/appStore.jsx';
+import PartialResultBanner from '../common/PartialResultBanner.jsx';
 
 const LABELS = {
   absolute_dsm: 'Absolute DSM',
@@ -154,16 +155,14 @@ export default function FileInfo() {
         </p>
       </div>
 
-      {!scene.reference_available && scene.processing_path === 'absolute_dsm' && (
-        <p style={{
-          fontFamily: 'var(--dw-font-ui)',
-          fontSize: 11,
-          color: 'var(--dw-live)',
-          margin: 0,
-        }}>
-          Reference elevation unavailable — validation will be skipped.
-        </p>
-      )}
+      {/* Pipeline partial result capabilities (§38) */}
+      <PartialResultBanner
+        format={scene.format}
+        georeferenced={scene.georeferenced}
+        elevationMode={scene.processing_path === 'absolute_dsm' ? 'absolute' : 'relative'}
+        hasReference={scene.reference_available}
+        compact={true}
+      />
     </section>
   );
 }

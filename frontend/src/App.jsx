@@ -6,18 +6,30 @@
  * See DECISIONS.md §D02.
  */
 import { AppProvider, useApp, AppState } from './store/appStore.jsx';
+import ErrorBoundary from './components/common/ErrorBoundary.jsx';
+import Header from './components/common/Header.jsx';
+import ApiErrorAlert from './components/common/ApiErrorAlert.jsx';
 
 /* Pages */
 import Home from './pages/Home.jsx';
 import Processing from './pages/Processing.jsx';
 import ResultDashboard from './pages/ResultDashboard.jsx';
 import TerrainWorkspace from './pages/TerrainWorkspace.jsx';
-function FailedPage()        { return <PageStub label="Error" />; }
 
-function PageStub({ label }) {
+function FailedPage() {
+  const { state } = useApp();
   return (
-    <div className="flex items-center justify-center h-screen" style={{ color: 'var(--dw-fg-muted)', fontFamily: 'var(--dw-font-ui)' }}>
-      <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 13 }}>{label} — coming soon</span>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Header />
+      <main style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
+      }}>
+        <ApiErrorAlert error={state.error} />
+      </main>
     </div>
   );
 }
@@ -52,17 +64,19 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <AppProvider>
-      <div
-        style={{
-          minHeight: '100vh',
-          background: 'var(--dw-void)',
-          color: 'var(--dw-fg)',
-          fontFamily: 'var(--dw-font-ui)',
-        }}
-      >
-        <AppRoutes />
-      </div>
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <div
+          style={{
+            minHeight: '100vh',
+            background: 'var(--dw-void)',
+            color: 'var(--dw-fg)',
+            fontFamily: 'var(--dw-font-ui)',
+          }}
+        >
+          <AppRoutes />
+        </div>
+      </AppProvider>
+    </ErrorBoundary>
   );
 }
