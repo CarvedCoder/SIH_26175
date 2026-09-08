@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 complete.
-> **In Progress:** Task 14.1 — Scenario switcher (`[ Terrain Exploration ] [ Disaster Assessment ]`)
-> **Next:** Task 14.2 — Disaster Assessment preset (panel re-ordering, assessment labels)
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 complete.
+> **In Progress:** Task 15.1 — ExportPanel (`src/components/Export/ExportPanel.jsx`)
+> **Next:** Task 15.2 — Capability-driven export buttons (DSM, Depth, Snapshot, Validation Report, 3D Scene)
 
 ---
 
@@ -149,8 +149,8 @@
 
 ## Phase 14 — Disaster Assessment Mode (§23)
 
-- [ ] **14.1** Scenario switcher — `[ Terrain Exploration ] [ Disaster Assessment ]` in toolbar or side panel
-- [ ] **14.2** Disaster Assessment preset — re-orders panels to surface elevation, slope, structure height, reference comparison; label: "Terrain intelligence / preliminary terrain assessment support"
+- [x] **14.1** Scenario switcher — `[ Terrain Exploration ] [ Disaster Assessment ]` in toolbar or side panel
+- [x] **14.2** Disaster Assessment preset — re-orders panels to surface elevation, slope, structure height, reference comparison; label: "Terrain intelligence / preliminary terrain assessment support"
 
 ---
 

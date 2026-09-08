@@ -41,6 +41,8 @@ import { useState, useEffect } from 'react';
 import { useApp } from '../../store/appStore.jsx';
 import ReferenceComparison from '../Validation/ReferenceComparison.jsx';
 import DetailMode from '../Analysis/DetailMode.jsx';
+import ScenarioSwitcher from '../Analysis/ScenarioSwitcher.jsx';
+import DisasterAssessmentPanel from '../Analysis/DisasterAssessmentPanel.jsx';
 import {
   ChevronRight,
   Info,
@@ -68,6 +70,8 @@ import {
  *   onClearRefineBbox?: () => void,
  *   isSelectingRegion?: boolean,
  *   onRefineComplete?: (res: any) => void,
+ *   scenario?: 'exploration' | 'disaster',
+ *   onSelectScenario?: (scenario: 'exploration' | 'disaster') => void,
  * }} props
  */
 export default function AnalysisPanel({
@@ -86,11 +90,18 @@ export default function AnalysisPanel({
   onClearRefineBbox,
   isSelectingRegion = false,
   onRefineComplete,
+  scenario = 'exploration',
+  onSelectScenario,
 }) {
   const { state } = useApp();
 
   const isAbsolute = state.results?.elevation_mode === 'absolute';
   const unitLabel  = isAbsolute ? 'm' : 'scene units';
+
+  // Internal scenario state if not controlled externally
+  const [internalScenario, setInternalScenario] = useState('exploration');
+  const currentScenario = onSelectScenario ? scenario : internalScenario;
+  const setScenario = onSelectScenario ?? setInternalScenario;
 
   // Internal tab state if not controlled externally
   const [internalTab, setInternalTab] = useState('overview');
@@ -418,94 +429,117 @@ export default function AnalysisPanel({
           />
         )}
 
-        {/* Context 5: Default — Overview Tab (Scene & Model Info) */}
+        {/* Context 5: Default — Overview Tab (Scene & Model Info OR Disaster Assessment) */}
         {!isStructure && !isLocation && !isRefine && currentTab === 'overview' && (
           <>
-            {/* SCENE Section */}
-            <section aria-labelledby="scene-info-heading">
-              <h2
-                id="scene-info-heading"
-                style={{
-                  fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 10,
-                  letterSpacing: '0.07em',
-                  textTransform: 'uppercase',
-                  color: 'var(--dw-fg-ghost)',
-                  margin: '0 0 8px 0',
-                }}
-              >
-                SCENE
-              </h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                <DataRow
-                  label="Image"
-                  value={state.scene?.filename ?? state.scene?.image_name ?? 'scene_042.tif'}
-                />
-                <DataRow
-                  label="Resolution"
-                  value={
-                    state.scene?.width && state.scene?.height
-                      ? `${state.scene.width} × ${state.scene.height}`
-                      : '4096 × 4096'
-                  }
-                />
-                <DataRow
-                  label="Mode"
-                  value={isAbsolute ? 'Absolute DSM' : 'Relative DSM'}
-                  highlight={isAbsolute}
-                />
-                <DataRow
-                  label="Reference"
-                  value={state.results?.reference_source ?? (isAbsolute ? 'SRTM' : 'None')}
-                />
-                <DataRow
-                  label="Georeferenced"
-                  value={state.scene?.is_georeferenced ? 'Yes (EPSG:4326)' : 'No (Relative)'}
-                />
-              </div>
-            </section>
+            {/* Operational Scenario Switcher (§23) */}
+            <ScenarioSwitcher
+              scenario={currentScenario}
+              onSelectScenario={setScenario}
+            />
 
-            <div style={{ height: 1, background: 'var(--dw-rim)', margin: '2px 0' }} />
+            <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
 
-            {/* MODEL Section */}
-            <section aria-labelledby="model-info-heading">
-              <h2
-                id="model-info-heading"
-                style={{
-                  fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 10,
-                  letterSpacing: '0.07em',
-                  textTransform: 'uppercase',
-                  color: 'var(--dw-fg-ghost)',
-                  margin: '0 0 8px 0',
-                }}
-              >
-                MODEL
-              </h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                <DataRow
-                  label="Depth Model"
-                  value={state.scene?.model ?? 'Depth Anything V2'}
-                />
-                <DataRow
-                  label="Status"
-                  value={
-                    state.status === 'TERRAIN_READY' || state.status === 'ANALYSIS'
-                      ? 'Complete'
-                      : state.status
-                  }
-                  accent
-                />
-                <DataRow
-                  label="Elevation Calibration"
-                  value={isAbsolute ? 'Metric (Ground GCPs)' : 'Relative (Estimated)'}
-                />
-                <DataRow
-                  label="Terrain Segments"
-                  value="256 × 256 (Hi-Res)"
-                />
-              </div>
-            </section>
+            {/* Disaster Assessment Preset View (§23) */}
+            {currentScenario === 'disaster' ? (
+              <DisasterAssessmentPanel
+                terrainMeta={state.terrain}
+                selectedLocation={selectedLocation}
+                selectedStructure={selectedStructure}
+                isAbsolute={isAbsolute}
+                unitLabel={unitLabel}
+                onSelectLayer={onSelectLayer}
+                onOpenValidation={() => setTab('validation')}
+              />
+            ) : (
+              <>
+                {/* SCENE Section */}
+                <section aria-labelledby="scene-info-heading">
+                  <h2
+                    id="scene-info-heading"
+                    style={{
+                      fontFamily: 'var(--dw-font-ui)',
+                      fontSize: 10,
+                      letterSpacing: '0.07em',
+                      textTransform: 'uppercase',
+                      color: 'var(--dw-fg-ghost)',
+                      margin: '0 0 8px 0',
+                    }}
+                  >
+                    SCENE
+                  </h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    <DataRow
+                      label="Image"
+                      value={state.scene?.filename ?? state.scene?.image_name ?? 'scene_042.tif'}
+                    />
+                    <DataRow
+                      label="Resolution"
+                      value={
+                        state.scene?.width && state.scene?.height
+                          ? `${state.scene.width} × ${state.scene.height}`
+                          : '4096 × 4096'
+                      }
+                    />
+                    <DataRow
+                      label="Mode"
+                      value={isAbsolute ? 'Absolute DSM' : 'Relative DSM'}
+                      highlight={isAbsolute}
+                    />
+                    <DataRow
+                      label="Reference"
+                      value={state.results?.reference_source ?? (isAbsolute ? 'SRTM' : 'None')}
+                    />
+                    <DataRow
+                      label="Georeferenced"
+                      value={state.scene?.is_georeferenced ? 'Yes (EPSG:4326)' : 'No (Relative)'}
+                    />
+                  </div>
+                </section>
+
+                <div style={{ height: 1, background: 'var(--dw-rim)', margin: '2px 0' }} />
+
+                {/* MODEL Section */}
+                <section aria-labelledby="model-info-heading">
+                  <h2
+                    id="model-info-heading"
+                    style={{
+                      fontFamily: 'var(--dw-font-ui)',
+                      fontSize: 10,
+                      letterSpacing: '0.07em',
+                      textTransform: 'uppercase',
+                      color: 'var(--dw-fg-ghost)',
+                      margin: '0 0 8px 0',
+                    }}
+                  >
+                    MODEL
+                  </h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    <DataRow
+                      label="Depth Model"
+                      value={state.scene?.model ?? 'Depth Anything V2'}
+                    />
+                    <DataRow
+                      label="Status"
+                      value={
+                        state.status === 'TERRAIN_READY' || state.status === 'ANALYSIS'
+                          ? 'Complete'
+                          : state.status
+                      }
+                      accent
+                    />
+                    <DataRow
+                      label="Elevation Calibration"
+                      value={isAbsolute ? 'Metric (Ground GCPs)' : 'Relative (Estimated)'}
+                    />
+                    <DataRow
+                      label="Terrain Segments"
+                      value="256 × 256 (Hi-Res)"
+                    />
+                  </div>
+                </section>
+              </>
+            )}
           </>
         )}
       </div>
