@@ -17,10 +17,11 @@
  * Spec §33 Scene 3, §53 (Depth), §54 (DSM).
  */
 import { useEffect, useState } from 'react';
-import { Mountain } from 'lucide-react';
+import { Mountain, Download } from 'lucide-react';
 import Header from '../components/common/Header.jsx';
 import LayerImageCard from '../components/common/LayerImageCard.jsx';
 import MetricsPanel from '../components/Validation/MetricsPanel.jsx';
+import ExportPanel from '../components/Export/ExportPanel.jsx';
 import { useValidation } from '../hooks/useValidation.js';
 import { useApp } from '../store/appStore.jsx';
 import { getDepth, getDsm } from '../api/results.js';
@@ -39,6 +40,7 @@ export default function ResultDashboard() {
   /** @type {[import('../types/api.js').DsmResult|null, Function]} */
   const [dsmData, setDsmData]       = useState(null);
   const [fetchState, setFetchState] = useState(/** @type {FetchState} */ ('loading'));
+  const [showExport, setShowExport] = useState(false);
 
   // Capability flags from ResultsMeta
   const elevationMode = results?.elevation_mode ?? 'relative';
@@ -300,45 +302,78 @@ export default function ResultDashboard() {
             gap: 8,
             maxWidth: 400,
           }}>
-            <button
-              onClick={() => actions.startTerrainLoad()}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                height: 40,
-                padding: '0 20px',
-                background: 'var(--dw-accent)',
-                border: '1px solid var(--dw-accent)',
-                borderRadius: 'var(--dw-radius-sm)',
-                fontFamily: 'var(--dw-font-ui)',
-                fontSize: 13,
-                fontWeight: 500,
-                color: '#fff',
-                cursor: 'pointer',
-                letterSpacing: '0.01em',
-                outline: 'none',
-                transition: 'background 120ms ease, border-color 120ms ease',
-                alignSelf: 'flex-start',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = '#2563eb';
-                e.currentTarget.style.borderColor = '#2563eb';
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'var(--dw-accent)';
-                e.currentTarget.style.borderColor = 'var(--dw-accent)';
-              }}
-              onFocus={e => {
-                e.currentTarget.style.outline = '2px solid var(--dw-accent)';
-                e.currentTarget.style.outlineOffset = '3px';
-              }}
-              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
-            >
-              <Mountain size={15} strokeWidth={1.5} aria-hidden="true" />
-              Enter 3D Terrain
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => actions.startTerrainLoad()}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  height: 40,
+                  padding: '0 20px',
+                  background: 'var(--dw-accent)',
+                  border: '1px solid var(--dw-accent)',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: '#fff',
+                  cursor: 'pointer',
+                  letterSpacing: '0.01em',
+                  outline: 'none',
+                  transition: 'background 120ms ease, border-color 120ms ease',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = '#2563eb';
+                  e.currentTarget.style.borderColor = '#2563eb';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = 'var(--dw-accent)';
+                  e.currentTarget.style.borderColor = 'var(--dw-accent)';
+                }}
+                onFocus={e => {
+                  e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+                  e.currentTarget.style.outlineOffset = '3px';
+                }}
+                onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+              >
+                <Mountain size={15} strokeWidth={1.5} aria-hidden="true" />
+                Enter 3D Terrain
+              </button>
+
+              <button
+                onClick={() => setShowExport(v => !v)}
+                aria-expanded={showExport}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  height: 40,
+                  padding: '0 16px',
+                  background: showExport ? 'var(--dw-surface)' : 'var(--dw-panel)',
+                  border: showExport ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: showExport ? 'var(--dw-accent)' : 'var(--dw-fg)',
+                  cursor: 'pointer',
+                  letterSpacing: '0.01em',
+                  outline: 'none',
+                  transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
+                }}
+                onFocus={e => {
+                  e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+                  e.currentTarget.style.outlineOffset = '3px';
+                }}
+                onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+              >
+                <Download size={15} strokeWidth={1.5} aria-hidden="true" />
+                Export Outputs
+              </button>
+            </div>
 
             <p style={{
               fontFamily: 'var(--dw-font-ui)',
@@ -349,6 +384,24 @@ export default function ResultDashboard() {
             }}>
               Explore the reconstructed terrain, measure elevations, and analyse structures.
             </p>
+
+            {/* Collapsible Export Panel (§27, §66) */}
+            {showExport && (
+              <div style={{
+                marginTop: 8,
+                background: 'var(--dw-panel)',
+                border: '1px solid var(--dw-rim)',
+                borderRadius: 'var(--dw-radius-md)',
+                padding: 16,
+                maxWidth: 540,
+              }}>
+                <ExportPanel
+                  sceneId={scene?.scene_id}
+                  compact={false}
+                  onClose={() => setShowExport(false)}
+                />
+              </div>
+            )}
           </div>
         </section>
 
