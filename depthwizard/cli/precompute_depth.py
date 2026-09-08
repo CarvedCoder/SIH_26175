@@ -128,9 +128,6 @@ def _gamus_entries(args) -> List[Tuple[str, object]]:
     for split in cfg.splits:
         samples = per_split.get(split, [])
 
-        if args.limit > 0:
-            samples = samples[:args.limit]
-
         for s in samples:
             entries.append((s.sample_id, s))
     if not entries:
@@ -138,9 +135,6 @@ def _gamus_entries(args) -> List[Tuple[str, object]]:
             "[error] GAMUS discovery produced no samples — check "
             "--gamus-source/--gamus-local-root/--gamus-manifest.")
     return entries
-
-
-
 
 def run(args) -> int:
     import torch
