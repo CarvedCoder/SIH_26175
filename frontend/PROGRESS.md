@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 complete.
-> **In Progress:** Task 17.1 — Tablet (≤1024px) adaptive layout & side drawer collapse (§29)
-> **Next:** Task 17.2 — Mobile (≤640px) viewport controls & touch ergonomics
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 complete.
+> **In Progress:** Task 18.1 — Global error boundary (`src/components/common/ErrorBoundary.jsx`)
+> **Next:** Task 18.2 — API error mapping (`error.code` → human message with what/why/what-next)
 
 ---
 
@@ -171,9 +171,9 @@
 
 ## Phase 17 — Responsive Design (§29)
 
-- [ ] **17.1** Tablet (≤1024px): side panels collapse by default; toggle to open
-- [ ] **17.2** Mobile (≤640px): bottom sheet controls; terrain takes full screen
-- [ ] **17.3** All actions reachable at every breakpoint
+- [x] **17.1** Tablet (≤1024px): side panels collapse by default; toggle to open
+- [x] **17.2** Mobile (≤640px): bottom sheet controls; terrain takes full screen
+- [x] **17.3** All actions reachable at every breakpoint
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 16 complete; Phase 17 starting*
+*Last updated: 2026-09-08 — Phase 17 complete; Phase 18 starting*

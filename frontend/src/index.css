@@ -243,3 +243,18 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 }
+
+/* DepthWizard Responsive Utilities (Phase 17, §29) */
+@media (max-width: 640px) {
+  .dw-desktop-only {
+    display: none !important;
+  }
+  .dw-mobile-only {
+    display: flex !important;
+  }
+}
+@media (min-width: 641px) {
+  .dw-mobile-only {
+    display: none !important;
+  }
+}

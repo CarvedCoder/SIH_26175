@@ -101,7 +101,10 @@ function HUDContent({ terrainRef, elevationMode }) {
         bottom: 16,
         right: 16,
         display: 'flex',
-        gap: 2,
+        flexWrap: 'wrap',
+        justifyContent: 'flex-end',
+        maxWidth: 'calc(100vw - 32px)',
+        gap: 4,
         zIndex: 10,
         pointerEvents: 'none',
       }}

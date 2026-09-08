@@ -162,6 +162,8 @@ export default function Toolbar({
         zIndex: 20,
         opacity: disabled ? 0.4 : 1,
         pointerEvents: disabled ? 'none' : 'auto',
+        overflowX: 'auto',
+        WebkitOverflowScrolling: 'touch',
       }}
     >
       {/* ── 1. Layers Menu ── */}
@@ -570,8 +572,10 @@ function PopoverPanel({ title, children, onClose, width = 240, alignRight = fals
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
         padding: 12,
-        minWidth: width,
-        maxWidth: Math.max(width, 320),
+        width: `min(calc(100vw - 24px), ${width}px)`,
+        maxWidth: 'calc(100vw - 24px)',
+        maxHeight: 'calc(100vh - 100px)',
+        overflowY: 'auto',
         zIndex: 30,
         display: 'flex',
         flexDirection: 'column',
