@@ -1,10 +1,11 @@
-import { LogOut } from 'lucide-react';
+import { LogOut, ArrowRight } from 'lucide-react';
 
 export default function Navbar({ 
   user, 
   onOpenAuth, 
   onSignOut,
-  onNavigateHome
+  onNavigateHome,
+  onOpenApp
 }) {
   const getInitials = (name) => {
     if (!name) return 'U';
@@ -50,6 +51,16 @@ export default function Navbar({
             </>
           ) : (
             <div className="flex items-center gap-3">
+              {onOpenApp && (
+                <button
+                  onClick={onOpenApp}
+                  className="text-sm font-medium px-4 py-2 rounded-full bg-blue-600 text-white hover:bg-blue-500 transition-all duration-300 shadow-sm cursor-pointer focus:outline-none flex items-center gap-1.5"
+                >
+                  <span>Launch Workspace</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+
               <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-slate-900/60 border border-slate-800/80" style={{ WebkitBackdropFilter: 'blur(12px)', backdropFilter: 'blur(12px)' }}>
                 <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-200 text-xs font-medium">
                   {getInitials(user.name)}
@@ -62,6 +73,7 @@ export default function Navbar({
               <button
                 onClick={onSignOut}
                 title="Sign out / Return home"
+                aria-label="Sign out"
                 className="p-2 rounded-full text-slate-400 hover:text-slate-200 hover:bg-slate-900/60 transition-colors duration-300 cursor-pointer focus:outline-none"
               >
                 <LogOut className="w-4 h-4" />

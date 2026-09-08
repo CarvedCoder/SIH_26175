@@ -118,9 +118,9 @@ Future: upgrade to SSE when backend supports it
 
 ---
 
-## D09 — Auth removed
+## D09 — Landing & Auth Integration
 
-The spec (§39) explicitly bans unnecessary authentication. AuthPage, login-form, signup-form are archived in `src/components/_archived/`. App goes directly from landing → upload.
+The initial hero section with interactive WebGL visualizer (`LandingHero`) and top navigation (`Navbar`) serves as the entry landing experience. Users can click to authenticate via `AuthPage` (incorporating `LoginForm` and `SignupForm` with social providers and back-navigation). Upon authentication, the app directs straight to the full DepthWizard workspace (`AppRoutes` with `Home`, `Processing`, `ResultDashboard`, and `TerrainWorkspace`), with session persistence and header profile/sign-out controls.
 
 ---
 

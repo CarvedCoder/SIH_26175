@@ -10,9 +10,10 @@
  * Spec: §4 Home/Landing navigation structure
  */
 import { useEffect, useState, useCallback } from 'react';
-import { X, HelpCircle, Info, Keyboard, Menu } from 'lucide-react';
+import { X, HelpCircle, Info, Keyboard, Menu, LogOut } from 'lucide-react';
 import { checkHealth } from '../../api/client.js';
 import { useApp, AppState } from '../../store/appStore.jsx';
+import { useAuth } from '../../store/authContext.jsx';
 import RecentProjects from './RecentProjects.jsx';
 
 /** Maps to DESIGN.md status dot semantics */
@@ -76,6 +77,22 @@ function NavItem({ label, active, onClick, disabled }) {
 
 export default function Header({ onNavigate }) {
   const { state, actions } = useApp();
+  const auth = useAuth();
+  const user = auth?.user;
+  const logout = auth?.logout;
+  const setView = auth?.setView;
+
+  const getInitials = (name) => {
+    if (!name) return 'U';
+    return name
+      .split(' ')
+      .filter(Boolean)
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
   const [health, setHealth] = useState({ status: STATUS.checking, version: null });
 
   const probe = useCallback(async () => {
@@ -210,6 +227,15 @@ export default function Header({ onNavigate }) {
               onNavigate?.('help');
             }}
           />
+          <NavItem
+            label="Overview"
+            active={false}
+            onClick={() => {
+              setRecentOpen(false);
+              setAboutOpen(false);
+              setView?.('landing');
+            }}
+          />
         </nav>
 
         {/* Right: status & mobile toggle (Column 3 — right aligned) */}
@@ -239,6 +265,71 @@ export default function Header({ onNavigate }) {
                 : '…'}
             </span>
           </div>
+
+          {/* User profile & sign out */}
+          {user && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 10, borderLeft: '1px solid var(--dw-rim)' }}>
+              <div
+                title={user.email || user.name}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 7,
+                  padding: '3px 8px',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  background: 'var(--dw-surface)',
+                  border: '1px solid var(--dw-rim)',
+                }}
+              >
+                <div style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: '50%',
+                  background: 'var(--dw-accent)',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}>
+                  {getInitials(user.name)}
+                </div>
+                <span className="dw-desktop-only" style={{
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: 'var(--dw-fg)',
+                  maxWidth: 110,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {user.name}
+                </span>
+              </div>
+              <button
+                onClick={logout}
+                title="Sign out & return to landing"
+                aria-label="Sign out"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--dw-fg-muted)',
+                  cursor: 'pointer',
+                  padding: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  transition: 'color 150ms ease',
+                }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--dw-fg)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--dw-fg-muted)'}
+              >
+                <LogOut size={16} strokeWidth={1.5} />
+              </button>
+            </div>
+          )}
 
           {/* Mobile hamburger menu toggle */}
           <button
@@ -352,6 +443,48 @@ export default function Header({ onNavigate }) {
           >
             Help / About
           </button>
+          <button
+            onClick={() => {
+              setMobileMenuOpen(false);
+              setView?.('landing');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              textAlign: 'left',
+              padding: '10px 0',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 15,
+              color: 'var(--dw-fg-muted)',
+              cursor: 'pointer',
+            }}
+          >
+            Overview / Landing
+          </button>
+          {user && (
+            <button
+              onClick={() => {
+                setMobileMenuOpen(false);
+                logout?.();
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                textAlign: 'left',
+                padding: '10px 0',
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 15,
+                color: 'var(--dw-fault)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <LogOut size={16} strokeWidth={1.5} />
+              Sign Out ({user.name})
+            </button>
+          )}
         </div>
       )}
 
