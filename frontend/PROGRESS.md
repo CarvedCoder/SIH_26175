@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 complete.
-> **In Progress:** Task 18.1 — Global error boundary (`src/components/common/ErrorBoundary.jsx`)
-> **Next:** Task 18.2 — API error mapping (`error.code` → human message with what/why/what-next)
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 complete.
+> **In Progress:** Task 19.1 — Polish & Performance: GPU resource disposal and frustum culling (§20, §32)
+> **Next:** Task 19.2 — Fog toggle, prefers-reduced-motion, and keyboard focus audit
 
 ---
 
@@ -179,10 +179,10 @@
 
 ## Phase 18 — Error Handling & Empty States (§6, §31, §38, §69)
 
-- [ ] **18.1** Global error boundary — catches render errors; shows structured recovery message
-- [ ] **18.2** API error mapping — `error.code` → human message with what/why/what-next
-- [ ] **18.3** Partial-result states — correct messaging for each input type (PNG/JPG / GeoTIFF without reference / GeoTIFF + DEM)
-- [ ] **18.4** Backend offline — status dot turns red; show "Backend unreachable" inline; UI stays usable for demo replay
+- [x] **18.1** Global error boundary — catches render errors; shows structured recovery message
+- [x] **18.2** API error mapping — `error.code` → human message with what/why/what-next
+- [x] **18.3** Partial-result states — correct messaging for each input type (PNG/JPG / GeoTIFF without reference / GeoTIFF + DEM)
+- [x] **18.4** Backend offline — status dot turns red; show "Backend unreachable" inline; UI stays usable for demo replay
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 17 complete; Phase 18 starting*
+*Last updated: 2026-09-08 — Phase 18 complete; Phase 19 starting*

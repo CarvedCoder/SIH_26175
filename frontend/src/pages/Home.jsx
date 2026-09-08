@@ -18,6 +18,7 @@ import UploadZone from '../components/Upload/UploadZone.jsx';
 import FileInfo from '../components/Upload/FileInfo.jsx';
 import ProcessingPath from '../components/Upload/ProcessingPath.jsx';
 import RecentProjects from '../components/common/RecentProjects.jsx';
+import ApiErrorAlert from '../components/common/ApiErrorAlert.jsx';
 import { useApp, AppState } from '../store/appStore.jsx';
 import { startProcessing } from '../api/processing.js';
 
@@ -250,48 +251,10 @@ export default function Home() {
           )}
         </div>
 
-        {/* Error state */}
+        {/* Error state (§31 Rule 6, §69) */}
         {state.status === AppState.FAILED && state.error && (
-          <div
-            role="alert"
-            style={{
-              marginTop: 32,
-              width: '100%',
-              maxWidth: 560,
-              padding: '16px 20px',
-              background: 'rgba(239,68,68,0.07)',
-              border: '1px solid rgba(239,68,68,0.25)',
-              borderRadius: 'var(--dw-radius)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-            }}
-          >
-            <p style={{ fontFamily: 'var(--dw-font-data)', fontSize: 12, color: 'var(--dw-fault)', margin: 0, letterSpacing: '0.04em' }}>
-              {state.error.code}
-            </p>
-            <p style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg)', margin: 0 }}>
-              {state.error.message}
-            </p>
-            {state.error.recoverable && (
-              <button
-                onClick={() => useApp().actions.retry?.()}
-                style={{
-                  alignSelf: 'flex-start',
-                  marginTop: 4,
-                  background: 'none',
-                  border: '1px solid var(--dw-rim)',
-                  borderRadius: 'var(--dw-radius-sm)',
-                  padding: '5px 12px',
-                  fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 12,
-                  color: 'var(--dw-fg)',
-                  cursor: 'pointer',
-                }}
-              >
-                Try again
-              </button>
-            )}
+          <div style={{ marginTop: 32, width: '100%', maxWidth: 560 }}>
+            <ApiErrorAlert error={state.error} />
           </div>
         )}
       </main>

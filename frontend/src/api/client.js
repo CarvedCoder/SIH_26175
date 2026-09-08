@@ -36,10 +36,21 @@ async function throwApiError(res) {
  */
 export async function apiFetch(path, options = {}) {
   const url = `${BASE_URL}${path}`;
-  const res = await fetch(url, {
-    headers: { 'Accept': 'application/json', ...options.headers },
-    ...options,
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { 'Accept': 'application/json', ...options.headers },
+      ...options,
+    });
+  } catch (netErr) {
+    throw {
+      code: 'NETWORK_ERROR',
+      message: `Backend unreachable at ${BASE_URL}. Ensure the FastAPI server is running.`,
+      recoverable: true,
+      details: { error: netErr?.message },
+      status: 0,
+    };
+  }
 
   if (!res.ok) await throwApiError(res);
 
