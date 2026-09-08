@@ -79,6 +79,7 @@ export default function Toolbar({
   const [wireframe, setWireframe]       = useState(false);
   const [contours, setContours]         = useState(false);
   const [contourInterval, setContourInterval] = useState(5);
+  const [fog, setFog]                   = useState(false);
 
   const isAbsolute = state.results?.elevation_mode === 'absolute';
   const unitLabel  = isAbsolute ? 'm' : 'scene-units';
@@ -111,10 +112,12 @@ export default function Toolbar({
     terrainRef.current?.setExaggeration(1.5);
     terrainRef.current?.setWireframe(false);
     terrainRef.current?.setContours(false, 5);
+    terrainRef.current?.setFog?.(false);
     setExaggeration(1.5);
     setWireframe(false);
     setContours(false);
     setContourInterval(5);
+    setFog(false);
     onSetCameraMode('orbit');
     onSelectTool('none');
     setOpenMenu(null);
@@ -144,6 +147,12 @@ export default function Toolbar({
     if (contours) {
       terrainRef.current?.setContours(true, safe);
     }
+  }
+
+  function handleFogToggle() {
+    const next = !fog;
+    setFog(next);
+    terrainRef.current?.setFog?.(next);
   }
 
   return (
@@ -202,7 +211,7 @@ export default function Toolbar({
         label="Terrain"
         icon={Mountain}
         isOpen={openMenu === 'terrain'}
-        isActive={wireframe || contours || exaggeration !== 1.5}
+        isActive={wireframe || contours || fog || exaggeration !== 1.5}
         onToggle={() => toggleMenu('terrain')}
       />
 
@@ -470,6 +479,31 @@ export default function Toolbar({
                   />
                 </div>
               )}
+            </div>
+
+            {/* Fog Toggle (§20, task 19.4) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>
+                Atmospheric Fog
+              </span>
+              <button
+                onClick={handleFogToggle}
+                aria-pressed={fog}
+                style={{
+                  height: 24,
+                  padding: '0 8px',
+                  background: fog ? 'var(--dw-surface)' : 'none',
+                  border: fog ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 11,
+                  color: fog ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+              >
+                {fog ? 'Enabled' : 'Disabled'}
+              </button>
             </div>
           </div>
         </PopoverPanel>

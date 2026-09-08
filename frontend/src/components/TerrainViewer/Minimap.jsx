@@ -143,9 +143,17 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
       const camWorld = getCameraPos();
       const target = worldToCanvas(camWorld.x, camWorld.z);
 
-      // ─ 6.2: Lerp marker position (instrument-needle feel) ─
-      markerPos.current.x += (target.x - markerPos.current.x) * MARKER_LERP;
-      markerPos.current.y += (target.y - markerPos.current.y) * MARKER_LERP;
+      // ─ 6.2: Marker position (lerp for instrument-needle feel, instant on reduced motion §32) ─
+      const prefersReducedMotion = typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+
+      if (prefersReducedMotion) {
+        markerPos.current.x = target.x;
+        markerPos.current.y = target.y;
+      } else {
+        markerPos.current.x += (target.x - markerPos.current.x) * MARKER_LERP;
+        markerPos.current.y += (target.y - markerPos.current.y) * MARKER_LERP;
+      }
       const mx = markerPos.current.x;
       const my = markerPos.current.y;
 

@@ -54,6 +54,7 @@ const VERT = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vNormal;
   varying float vHeight;         // normalised [0,1] for colormap fallback
+  varying float vViewDist;       // distance from camera for depth fog (§20, task 19.4)
 
   void main() {
     vUv = uv;
@@ -67,8 +68,11 @@ const VERT = /* glsl */ `
     vec3 pos = position;
     pos.y = mix(0.0, displaced, uProgress);
 
+    vec4 viewPos = modelViewMatrix * vec4(pos, 1.0);
+    vViewDist = -viewPos.z;
+
     vNormal = normalize(normalMatrix * normal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+    gl_Position = projectionMatrix * viewPos;
   }
 `;
 
@@ -81,6 +85,7 @@ const VERT = /* glsl */ `
  *     1 = Greyscale (depth)
  *     2 = Viridis (DSM, slope)
  *     3 = Diverging red-blue (error map)
+ * - Atmospheric depth fog (§20)
  * - No neon, no bloom (DESIGN.md anti-patterns)
  */
 const FRAG = /* glsl */ `
@@ -96,10 +101,13 @@ const FRAG = /* glsl */ `
   uniform float uContourInterval;
   uniform float uElevationSpan;
   uniform float uMinElevation;
+  uniform float uFogEnabled;     // 0=off, 1=on (§20, task 19.4)
+  uniform vec3 uFogColor;        // matches background [0.028, 0.035, 0.055]
 
   varying vec2 vUv;
   varying vec3 vNormal;
   varying float vHeight;
+  varying float vViewDist;
 
   // Viridis colormap polynomial approximation
   vec3 viridis(float t) {
@@ -177,6 +185,12 @@ const FRAG = /* glsl */ `
       // Subtle crisp cartographic line
       vec3 contourColor = vec3(0.06, 0.09, 0.14);
       shadow = mix(shadow, contourColor, clamp(contour * 0.45 + majorContour * 0.35, 0.0, 0.85));
+    }
+
+    // Optional atmospheric depth fog (§20, task 19.4)
+    if (uFogEnabled > 0.5) {
+      float fogFactor = clamp((vViewDist - 1.2) / 6.0, 0.0, 0.85);
+      shadow = mix(shadow, uFogColor, fogFactor);
     }
 
     gl_FragColor = vec4(shadow, 1.0);
@@ -352,6 +366,162 @@ function computeNormals(position, index, normal, wSegs, hSegs) {
   }
 }
 
+/**
+ * Build a PlaneGeometry tile representing a subsection of the terrain [uMin, uMax] x [vMin, vMax].
+ * Calculates local bounding box and bounding sphere for OGL frustum culling (§32, task 19.1).
+ *
+ * @param {WebGLRenderingContext} gl
+ * @param {Float32Array} heightData
+ * @param {number} hmWidth
+ * @param {number} hmHeight
+ * @param {number} segs
+ * @param {number} heightScale
+ * @param {number} exaggeration
+ * @param {number} tx - tile x index (0..numTiles-1)
+ * @param {number} ty - tile y index (0..numTiles-1)
+ * @param {number} [numTiles=2]
+ * @returns {Geometry}
+ */
+function buildTerrainTileGeometry(gl, heightData, hmWidth, hmHeight, segs, heightScale, exaggeration, tx, ty, numTiles = 2) {
+  const uMin = tx / numTiles;
+  const uMax = (tx + 1) / numTiles;
+  const vMin = ty / numTiles;
+  const vMax = (ty + 1) / numTiles;
+
+  const wSegs = segs;
+  const hSegs = segs;
+  const num = (wSegs + 1) * (hSegs + 1);
+  const numIndices = wSegs * hSegs * 6;
+
+  const position = new Float32Array(num * 3);
+  const normal   = new Float32Array(num * 3);
+  const uv       = new Float32Array(num * 2);
+  const index    = numIndices > 65536 ? new Uint32Array(numIndices) : new Uint16Array(numIndices);
+
+  let i = 0;
+  for (let iy = 0; iy <= hSegs; iy++) {
+    const fracY = iy / hSegs;
+    const v = vMin + fracY * (vMax - vMin);
+    for (let ix = 0; ix <= wSegs; ix++, i++) {
+      const fracX = ix / wSegs;
+      const u = uMin + fracX * (uMax - uMin);
+
+      const x = (u - 0.5) * 2; // [-1, 1]
+      const z = (v - 0.5) * 2; // [-1, 1]
+
+      const px = Math.min(Math.max(Math.round(u * (hmWidth - 1)), 0), hmWidth - 1);
+      const py = Math.min(Math.max(Math.round(v * (hmHeight - 1)), 0), hmHeight - 1);
+      const h  = heightData[py * hmWidth + px] * heightScale * exaggeration;
+
+      position[i * 3]     = x;
+      position[i * 3 + 1] = h;
+      position[i * 3 + 2] = z;
+
+      normal[i * 3]     = 0;
+      normal[i * 3 + 1] = 1;
+      normal[i * 3 + 2] = 0;
+
+      uv[i * 2]     = u;
+      uv[i * 2 + 1] = 1 - v;
+    }
+  }
+
+  let ii = 0;
+  for (let iy = 0; iy < hSegs; iy++) {
+    for (let ix = 0; ix < wSegs; ix++) {
+      const a = ix + iy * (wSegs + 1);
+      const b = ix + (iy + 1) * (wSegs + 1);
+      const c = ix + (iy + 1) * (wSegs + 1) + 1;
+      const d = ix + iy * (wSegs + 1) + 1;
+      index[ii * 6]     = a;
+      index[ii * 6 + 1] = b;
+      index[ii * 6 + 2] = d;
+      index[ii * 6 + 3] = b;
+      index[ii * 6 + 4] = c;
+      index[ii * 6 + 5] = d;
+      ii++;
+    }
+  }
+
+  computeNormals(position, index, normal, wSegs, hSegs);
+
+  const geo = new Geometry(gl, {
+    position: { size: 3, data: position },
+    normal:   { size: 3, data: normal },
+    uv:       { size: 2, data: uv },
+    index:    { data: index },
+  });
+
+  // Calculate local bounding sphere for frustum culling
+  geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+  if (geo.bounds) {
+    geo.bounds.radius += Math.max(0.5, heightScale * 2.5);
+  }
+
+  return geo;
+}
+
+/**
+ * Build a flat tile geometry placeholder with bounding sphere for frustum culling.
+ */
+function buildFlatTileGeometry(gl, segs, tx, ty, numTiles = 2) {
+  const uMin = tx / numTiles;
+  const uMax = (tx + 1) / numTiles;
+  const vMin = ty / numTiles;
+  const vMax = (ty + 1) / numTiles;
+
+  const num = (segs + 1) ** 2;
+  const numIdx = segs * segs * 6;
+
+  const position = new Float32Array(num * 3);
+  const normal   = new Float32Array(num * 3);
+  const uv       = new Float32Array(num * 2);
+  const index    = numIdx > 65536 ? new Uint32Array(numIdx) : new Uint16Array(numIdx);
+
+  let i = 0;
+  for (let iy = 0; iy <= segs; iy++) {
+    const fracY = iy / segs;
+    const v = vMin + fracY * (vMax - vMin);
+    for (let ix = 0; ix <= segs; ix++, i++) {
+      const fracX = ix / segs;
+      const u = uMin + fracX * (uMax - uMin);
+      position[i * 3]     = (u - 0.5) * 2;
+      position[i * 3 + 1] = 0;
+      position[i * 3 + 2] = (v - 0.5) * 2;
+      normal[i * 3 + 1]   = 1;
+      uv[i * 2]           = u;
+      uv[i * 2 + 1]       = 1 - v;
+    }
+  }
+
+  let ii = 0;
+  for (let iy = 0; iy < segs; iy++) {
+    for (let ix = 0; ix < segs; ix++) {
+      const a = ix + iy * (segs + 1);
+      const b = ix + (iy + 1) * (segs + 1);
+      const c = ix + (iy + 1) * (segs + 1) + 1;
+      const d = ix + iy * (segs + 1) + 1;
+      index[ii * 6] = a; index[ii * 6 + 1] = b; index[ii * 6 + 2] = d;
+      index[ii * 6 + 3] = b; index[ii * 6 + 4] = c; index[ii * 6 + 5] = d;
+      ii++;
+    }
+  }
+
+  const geo = new Geometry(gl, {
+    position: { size: 3, data: position },
+    normal:   { size: 3, data: normal },
+    uv:       { size: 2, data: uv },
+    index:    { data: index },
+  });
+
+  geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+  if (geo.bounds) geo.bounds.radius += 0.5;
+
+  return geo;
+}
+
 /* ─── Component ──────────────────────────────────────────────────────────── */
 
 /**
@@ -370,11 +540,14 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     orbit: null,
     program: null,
     mesh: null,
+    tiles: [],                  // tile meshes for frustum culling (§32, task 19.1)
+    activeTextures: new Set(),  // tracked GPU textures for clean disposal (§32, task 19.2)
     rafId: null,
     exaggeration: 1.5,
     wireframe: false,
-    progress: 0,         // progressive reveal lerp target
-    progressCurrent: 0,  // current interpolated value
+    fogEnabled: false,          // atmospheric fog toggle (§20, task 19.4)
+    progress: 0,                // progressive reveal lerp target
+    progressCurrent: 0,         // current interpolated value
     heightData: null,
     hmWidth: 0,
     hmHeight: 0,
@@ -403,11 +576,23 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     setWireframe(v) {
       const g = glRef.current;
       g.wireframe = v;
-      if (g.mesh) {
-        const gl = g.renderer?.gl;
-        if (gl) {
+      const gl = g.renderer?.gl;
+      if (gl) {
+        if (g.tiles && g.tiles.length > 0) {
+          g.tiles.forEach(m => {
+            m.mode = v ? gl.LINES : gl.TRIANGLES;
+          });
+        } else if (g.mesh) {
           g.mesh.mode = v ? gl.LINES : gl.TRIANGLES;
         }
+      }
+    },
+    /** Atmospheric fog toggle (§20, task 19.4) */
+    setFog(v) {
+      const g = glRef.current;
+      g.fogEnabled = !!v;
+      if (g.program?.uniforms?.uFogEnabled) {
+        g.program.uniforms.uFogEnabled.value = v ? 1.0 : 0.0;
       }
     },
     resetCamera() {
@@ -442,7 +627,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     captureSnapshot() {
       const g = glRef.current;
       if (g.renderer && g.scene && g.camera) {
-        g.renderer.render({ scene: g.scene, camera: g.camera });
+        g.renderer.render({ scene: g.scene, camera: g.camera, frustumCull: true });
       }
       const canvas = canvasRef.current;
       if (!canvas) return null;
@@ -456,6 +641,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     /**
      * Swap the terrain texture to a new image URL (layer switch, task 8.2).
      * Camera and minimap state are preserved — only the texture changes.
+     * Cleans up replaced texture from GPU memory (§32, task 19.2).
      * @param {string} url - new texture URL
      * @param {number} colormapMode - 0=rgb, 1=greyscale, 2=viridis, 3=diverging
      */
@@ -475,6 +661,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       img.crossOrigin = 'anonymous';
       img.onload = () => {
         if (g.disposed) return;
+        const oldTex = g.program.uniforms.uTexture?.value;
         const tex = new Texture(gl, {
           image: img,
           minFilter: gl.LINEAR_MIPMAP_LINEAR,
@@ -485,9 +672,30 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           flipY: true,
         });
         tex.needsUpdate = true;
+        g.activeTextures.add(tex);
+
         if (g.program.uniforms.uTexture) {
           g.program.uniforms.uTexture.value = tex;
         }
+
+        // Clean up old texture from GPU memory (§32)
+        if (oldTex && oldTex?.texture && gl) {
+          gl.deleteTexture(oldTex.texture);
+          g.activeTextures.delete(oldTex);
+        }
+
+        // Check prefers-reduced-motion (task 19.5, §32)
+        const prefersReducedMotion = typeof window !== 'undefined' &&
+          window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+
+        if (prefersReducedMotion) {
+          if (g.program.uniforms.uTextureReady) {
+            g.program.uniforms.uTextureReady.value = 1.0;
+          }
+          g.textureReady = 1;
+          return;
+        }
+
         // Animate cross-fade: ramp textureReady from 0→1 over 250ms
         const start = performance.now();
         function fadeIn() {
@@ -525,7 +733,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         }
       }
     },
-    /** Sample elevation from heightmap at normalised coordinates [0, 1] */
+    /** Sample elevation from heightmap at normalised coordinates [0, 1] — client-side memory only (§32, task 19.3) */
     sampleElevation(nx, nz) {
       const g = glRef.current;
       if (!g.heightData || !g.hmWidth || !g.hmHeight) return null;
@@ -645,6 +853,8 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       wrapT: gl.CLAMP_TO_EDGE,
       generateMipmaps: true,
     });
+    g.activeTextures.add(hmTex);
+    g.activeTextures.add(rgbTex);
 
     const program = new Program(gl, {
       vertex: VERT,
@@ -664,6 +874,8 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         uContourInterval: { value: g.contourInterval },
         uElevationSpan:   { value: g.elevationSpan },
         uMinElevation:    { value: g.minElevation },
+        uFogEnabled:      { value: g.fogEnabled ? 1.0 : 0.0 },
+        uFogColor:        { value: [0.028, 0.035, 0.055] },
       },
       transparent: false,
       depthTest: true,
@@ -671,19 +883,18 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     });
     g.program = program;
 
-    // ── 4.7: Low-resolution flat plane as placeholder ──
-    const loGeo = new Geometry(gl, {
-      position: { size: 3, data: new Float32Array([(LO_SEGS + 1) ** 2 * 3]) },
-      normal:   { size: 3, data: new Float32Array([(LO_SEGS + 1) ** 2 * 3]) },
-      uv:       { size: 2, data: new Float32Array([(LO_SEGS + 1) ** 2 * 2]) },
-      index:    { data: new Uint16Array([LO_SEGS ** 2 * 6]) },
-    });
-
-    // Build a flat LO_SEGS×LO_SEGS plane (no height) immediately
-    const flatGeo = buildFlatPlane(gl, LO_SEGS);
-    const mesh = new Mesh(gl, { geometry: flatGeo, program });
-    mesh.setParent(scene);
-    g.mesh = mesh;
+    // ── 4.7 + 19.1: Low-resolution flat plane tiles as placeholder with frustum culling ──
+    const tiles = [];
+    for (let ty = 0; ty < 2; ty++) {
+      for (let tx = 0; tx < 2; tx++) {
+        const flatGeo = buildFlatTileGeometry(gl, LO_SEGS / 2, tx, ty, 2);
+        const tileMesh = new Mesh(gl, { geometry: flatGeo, program, frustumCulled: true });
+        tileMesh.setParent(scene);
+        tiles.push(tileMesh);
+      }
+    }
+    g.tiles = tiles;
+    g.mesh = tiles[0];
     g.segs = LO_SEGS;
 
     // ── Render loop ──
@@ -695,8 +906,16 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       const dt = Math.min((time - lastTime) / 1000, 0.1);
       lastTime = time;
 
-      // Smooth progress reveal (task 4.7 — 600ms lerp)
-      if (g.progressCurrent < g.progress) {
+      // Progressive reveal (smooth 600ms lerp, instant on reduced motion §32, task 19.5)
+      const prefersReducedMotion = typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+
+      if (prefersReducedMotion) {
+        g.progressCurrent = g.progress;
+        if (program.uniforms.uProgress) {
+          program.uniforms.uProgress.value = g.progress;
+        }
+      } else if (g.progressCurrent < g.progress) {
         g.progressCurrent = Math.min(g.progressCurrent + dt * (1 / 0.6), g.progress);
         if (program.uniforms.uProgress) {
           program.uniforms.uProgress.value = g.progressCurrent;
@@ -708,7 +927,8 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       if (g.cameraMode === 'first-person' && typeof g.fpTick === 'function') {
         g.fpTick(dt);
       }
-      renderer.render({ scene, camera });
+      // Frustum culling enabled (§32, task 19.1)
+      renderer.render({ scene, camera, frustumCull: true });
     }
     g.rafId = requestAnimationFrame(render);
 
@@ -718,16 +938,31 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
 
     // ── 4.2 + 4.3: Fetch terrain data from API ──
     const sceneId = state.scene.scene_id;
-    loadTerrainData(gl, g, program, mesh, scene, sceneId, actions);
+    loadTerrainData(gl, g, program, scene, sceneId, actions);
 
     return () => {
       g.disposed = true;
       cancelAnimationFrame(g.rafId);
       ro.disconnect();
-      // GPU disposal (§D06)
-      flatGeo.remove?.();
+      // Orbit listener cleanup
+      orbit.remove?.();
+      // GPU disposal (§D06, §32, task 19.2)
+      if (g.tiles) {
+        g.tiles.forEach(m => {
+          m.geometry?.remove?.();
+          m.setParent(null);
+        });
+        g.tiles = [];
+      }
+      if (g.activeTextures) {
+        g.activeTextures.forEach(t => {
+          if (t?.texture && gl) {
+            gl.deleteTexture(t.texture);
+          }
+        });
+        g.activeTextures.clear();
+      }
       program.remove?.();
-      // Don't call renderer dispose — canvas still in DOM during unmount
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.scene?.scene_id]);
@@ -752,7 +987,7 @@ export default TerrainCanvas;
 
 /* ─── Async terrain data loader ────────────────────────────────────────── */
 
-async function loadTerrainData(gl, g, program, mesh, scene, sceneId, actions) {
+async function loadTerrainData(gl, g, program, scene, sceneId, actions) {
   try {
     // Fetch terrain metadata
     const terrainMeta = await getTerrain(sceneId);
@@ -785,8 +1020,9 @@ async function loadTerrainData(gl, g, program, mesh, scene, sceneId, actions) {
     g.hmHeight    = height;
 
     // Upload heightmap as GL texture (full resolution)
+    const oldHmTex = program.uniforms.uHeightmap?.value;
     const hmTex = new Texture(gl, {
-      image: { data: new Uint8Array(data.length * 4), width, height }, // placeholder size
+      image: { data: new Uint8Array(data.length * 4), width, height },
       width,
       height,
       internalFormat: gl.R8 ?? gl.LUMINANCE,
@@ -805,25 +1041,39 @@ async function loadTerrainData(gl, g, program, mesh, scene, sceneId, actions) {
     for (let i = 0; i < data.length; i++) uint8[i] = Math.round(data[i] * 255);
     hmTex.image = { data: uint8, width, height };
     hmTex.needsUpdate = true;
+    g.activeTextures.add(hmTex);
     program.uniforms.uHeightmap.value = hmTex;
 
-    // ── 4.7 — Low-res mesh with actual height data ──
-    const loGeo = buildTerrainGeometry(gl, data, width, height, LO_SEGS, hs, g.exaggeration);
-    const oldGeo = mesh.geometry;
-    mesh.geometry = loGeo;
-    oldGeo?.remove?.();
+    if (oldHmTex && oldHmTex?.texture && gl) {
+      gl.deleteTexture(oldHmTex.texture);
+      g.activeTextures.delete(oldHmTex);
+    }
+
+    // ── 4.7 + 19.1 — Low-res 2x2 tile meshes with actual height data & bounding spheres ──
+    g.tiles.forEach((m, idx) => {
+      const tx = idx % 2;
+      const ty = Math.floor(idx / 2);
+      const loGeo = buildTerrainTileGeometry(gl, data, width, height, LO_SEGS / 2, hs, g.exaggeration, tx, ty, 2);
+      const oldGeo = m.geometry;
+      m.geometry = loGeo;
+      oldGeo?.remove?.();
+    });
     g.progress = 1.0; // start progressive reveal
 
     // Mark terrain ready in state machine
     actions.terrainReady(terrainMeta);
 
-    // ── 4.7 — High-res swap (async, after state machine transitions) ──
+    // ── 4.7 + 19.1 — High-res 2x2 tile swap (async, after state machine transitions) ──
     setTimeout(async () => {
       if (g.disposed) return;
-      const hiGeo = buildTerrainGeometry(gl, data, width, height, HI_SEGS, hs, g.exaggeration);
-      const lo = mesh.geometry;
-      mesh.geometry = hiGeo;
-      lo?.remove?.();
+      g.tiles.forEach((m, idx) => {
+        const tx = idx % 2;
+        const ty = Math.floor(idx / 2);
+        const hiGeo = buildTerrainTileGeometry(gl, data, width, height, HI_SEGS / 2, hs, g.exaggeration, tx, ty, 2);
+        const oldGeo = m.geometry;
+        m.geometry = hiGeo;
+        oldGeo?.remove?.();
+      });
       g.segs = HI_SEGS;
     }, 100);
 
@@ -833,6 +1083,7 @@ async function loadTerrainData(gl, g, program, mesh, scene, sceneId, actions) {
       img.crossOrigin = 'anonymous';
       img.onload = () => {
         if (g.disposed) return;
+        const oldTex = program.uniforms.uTexture?.value;
         const tex = new Texture(gl, {
           image: img,
           minFilter: gl.LINEAR_MIPMAP_LINEAR,
@@ -843,9 +1094,15 @@ async function loadTerrainData(gl, g, program, mesh, scene, sceneId, actions) {
           flipY: true,
         });
         tex.needsUpdate = true;
+        g.activeTextures.add(tex);
         program.uniforms.uTexture.value = tex;
         program.uniforms.uTextureReady.value = 1.0;
         g.textureReady = 1;
+
+        if (oldTex && oldTex?.texture && gl) {
+          gl.deleteTexture(oldTex.texture);
+          g.activeTextures.delete(oldTex);
+        }
       };
       img.src = texture_url;
     }

@@ -2,9 +2,9 @@
 
 ## Current Status
 
-> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 complete.
-> **In Progress:** Task 19.1 — Polish & Performance: GPU resource disposal and frustum culling (§20, §32)
-> **Next:** Task 19.2 — Fog toggle, prefers-reduced-motion, and keyboard focus audit
+> **Done:** Phase 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 complete.
+> **In Progress:** Phase 20 — Demo Readiness (§33, §40, §82)
+> **Next:** End-to-end WOW demo verification, acceptance criteria audit, and final packaging
 
 ---
 
@@ -188,12 +188,12 @@
 
 ## Phase 19 — Polish & Performance (§20, §32)
 
-- [ ] **19.1** Frustum culling — skip rendering tiles outside camera view frustum
-- [ ] **19.2** GPU resource disposal — dispose geometry + textures on scene change or unmount
-- [ ] **19.3** Throttled elevation reads — client-side heightmap sampling; no HTTP request per mouse event
-- [ ] **19.4** Optional fog toggle for depth perception (§20)
-- [ ] **19.5** `prefers-reduced-motion` — all transitions collapse to instant
-- [ ] **19.6** Keyboard focus styles — visible on all interactive elements; test with Tab navigation
+- [x] **19.1** Frustum culling — skip rendering tiles outside camera view frustum (2x2 tile meshes with local bounding spheres)
+- [x] **19.2** GPU resource disposal — dispose geometry + textures on scene change or unmount (`gl.deleteTexture`, `geometry.remove`, `orbit.remove`)
+- [x] **19.3** Throttled elevation reads — client-side heightmap sampling; no HTTP request per mouse event
+- [x] **19.4** Optional fog toggle for depth perception (§20) (shader depth fog + toolbar toggle)
+- [x] **19.5** `prefers-reduced-motion` — all transitions collapse to instant (CSS media query + instant JS reveals/snaps)
+- [x] **19.6** Keyboard focus styles — visible on all interactive elements; test with Tab navigation (`:focus-visible` with `--dw-accent` outline)
 
 ---
 
@@ -205,4 +205,4 @@
 
 ---
 
-*Last updated: 2026-09-08 — Phase 18 complete; Phase 19 starting*
+*Last updated: 2026-09-08 — Phase 19 complete; Phase 20 starting*

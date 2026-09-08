@@ -258,3 +258,31 @@
     display: none !important;
   }
 }
+
+/* Accessible keyboard focus visible across all interactive elements (Task 19.6, §32) */
+:focus-visible {
+  outline: 2px solid var(--dw-accent) !important;
+  outline-offset: 2px !important;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--dw-accent) !important;
+  outline-offset: 2px !important;
+}
+
+/* Prefers-reduced-motion: collapse all transitions and animations to instant (Task 19.5, §32) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
