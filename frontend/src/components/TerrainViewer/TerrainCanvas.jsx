@@ -104,6 +104,11 @@ const FRAG = /* glsl */ `
   uniform float uMinElevation;
   uniform float uFogEnabled;     // 0=off, 1=on (§20, task 19.4)
   uniform vec3 uFogColor;        // matches background [0.028, 0.035, 0.055]
+  // Solid-mesh rendering (no imagery draped on the surface):
+  uniform vec3 uSolidColor;      // surface colour when no texture layer is active
+  uniform vec3 uMeshColor;       // mesh grid line colour
+  uniform float uMeshEnabled;    // 0=off, 1=on
+  uniform float uMeshDensity;    // grid cells across the full terrain
 
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -133,12 +138,8 @@ const FRAG = /* glsl */ `
   }
 
   void main() {
-    // Height-based fallback colour (greyscale elevation tint) until texture loads
-    vec3 heightColor = mix(
-      vec3(0.08, 0.12, 0.16),
-      vec3(0.55, 0.62, 0.70),
-      vHeight
-    );
+    // Solid surface colour until a texture layer is explicitly selected
+    vec3 heightColor = uSolidColor;
 
     vec4 texSample = texture2D(uTexture, vUv);
     vec3 texColor  = texSample.rgb;
@@ -161,8 +162,17 @@ const FRAG = /* glsl */ `
       baseColor = texColor;
     }
 
-    // Blend: fallback → mapped colour based on texture readiness
+    // Blend: solid surface → mapped colour based on texture readiness
     baseColor = mix(heightColor, baseColor, uTextureReady);
+
+    // Mesh grid overlay (surface-space quad grid — reads like the wireframe
+    // of the terrain mesh, works in every layer mode)
+    if (uMeshEnabled > 0.5) {
+      vec2 f = fract(vUv * uMeshDensity);
+      vec2 d = min(f, 1.0 - f);           // distance to nearest gridline, cell units
+      float line = 1.0 - smoothstep(0.015, 0.05, min(d.x, d.y));
+      baseColor = mix(baseColor, uMeshColor, line * 0.55);
+    }
 
     // Diffuse lighting
     float diff = max(dot(vNormal, uSunDir), 0.0);
@@ -206,8 +216,11 @@ const FRAG = /* glsl */ `
 const LO_SEGS = 64;
 const HI_SEGS = 256;
 
-/** Default camera position (orbit target = origin) */
-const DEFAULT_CAMERA_POS = [0, 1.2, 2.5];
+/** Default camera pose — a 3/4 map view above the tallest peaks
+ * (max height = maxAGL x exaggeration ≈ 2.25), slightly off-axis so the
+ * terrain reads as 3D rather than corner-on */
+const DEFAULT_CAMERA_POS = [1.6, 3.3, 2.0];
+const DEFAULT_ORBIT_TARGET = [0, 0.4, 0];
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 
@@ -547,7 +560,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     activeTextures: new Set(),  // tracked GPU textures for clean disposal (§32, task 19.2)
     rafId: null,
     exaggeration: 1.5,
-    wireframe: false,
+    wireframe: true,            // solid surface + mesh grid is the default view
     fogEnabled: false,          // atmospheric fog toggle (§20, task 19.4)
     progress: 0,                // progressive reveal lerp target
     progressCurrent: 0,         // current interpolated value
@@ -577,17 +590,24 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       }
     },
     setWireframe(v) {
+      // Mesh overlay is a shader grid on the surface (the old
+      // mesh.mode = gl.LINES hack drew triangle indices as line segments —
+      // garbage geometry). The grid works in every layer mode.
       const g = glRef.current;
       g.wireframe = v;
-      const gl = g.renderer?.gl;
-      if (gl) {
-        if (g.tiles && g.tiles.length > 0) {
-          g.tiles.forEach(m => {
-            m.mode = v ? gl.LINES : gl.TRIANGLES;
-          });
-        } else if (g.mesh) {
-          g.mesh.mode = v ? gl.LINES : gl.TRIANGLES;
-        }
+      if (g.program?.uniforms?.uMeshEnabled) {
+        g.program.uniforms.uMeshEnabled.value = v ? 1.0 : 0.0;
+      }
+    },
+    /** Return to the default solid shaded surface + mesh view */
+    setSolidView() {
+      const g = glRef.current;
+      g.textureReady = 0;
+      if (g.program?.uniforms?.uTextureReady) {
+        g.program.uniforms.uTextureReady.value = 0.0;
+      }
+      if (g.program?.uniforms?.uColormapMode) {
+        g.program.uniforms.uColormapMode.value = 0.0;
       }
     },
     /** Atmospheric fog toggle (§20, task 19.4) */
@@ -602,7 +622,11 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       const g = glRef.current;
       if (g.camera && g.orbit) {
         g.camera.position.set(...DEFAULT_CAMERA_POS);
-        g.orbit.target.set(0, 0, 0);
+        g.orbit.target.set(...DEFAULT_ORBIT_TARGET);
+        // Orbit derives its internal spherical from the position ONLY here —
+        // without forcePosition() the next update() snaps the camera back to
+        // the pre-reset view.
+        g.orbit.forcePosition?.();
       }
       g.cameraMode = 'orbit';
       if (g.orbit) g.orbit.enabled = true;
@@ -821,7 +845,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       element: canvas,
       // Orbit expects a Vec3 (it calls target.add() while panning) — a
       // plain object threw every frame and killed the render loop.
-      target: new Vec3(0, 0, 0),
+      target: new Vec3(...DEFAULT_ORBIT_TARGET),
       ease: 0.08,
       inertia: 0.7,
       enablePan: true,
@@ -885,6 +909,11 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         uMinElevation:    { value: g.minElevation },
         uFogEnabled:      { value: g.fogEnabled ? 1.0 : 0.0 },
         uFogColor:        { value: [0.028, 0.035, 0.055] },
+        // Solid-mesh defaults: shaded solid surface with a visible mesh
+        uSolidColor:   { value: [0.60, 0.57, 0.50] },
+        uMeshColor:    { value: [0.13, 0.16, 0.15] },
+        uMeshEnabled:  { value: g.wireframe ? 1.0 : 0.0 },
+        uMeshDensity:  { value: 48.0 },
       },
       transparent: false,
       depthTest: true,
@@ -1011,7 +1040,7 @@ async function loadTerrainData(gl, g, program, scene, sceneId, actions) {
       max_elevation: terrainMeta?.max_elevation,
     });
 
-    const { heightmap_url, texture_url, height_scale, min_elevation, max_elevation } = terrainMeta;
+    const { heightmap_url, height_scale, min_elevation, max_elevation } = terrainMeta;
 
     // Normalise height scale: if backend gives absolute, we store it; else default to 1
     const hs = typeof height_scale === 'number' && height_scale > 0 ? height_scale : 1.0;
@@ -1094,35 +1123,9 @@ async function loadTerrainData(gl, g, program, scene, sceneId, actions) {
       g.segs = HI_SEGS;
     }, 100);
 
-    // ── 4.3: Load RGB/depth texture ──
-    if (texture_url) {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        if (g.disposed) return;
-        const oldTex = program.uniforms.uTexture?.value;
-        const tex = new Texture(gl, {
-          image: img,
-          minFilter: gl.LINEAR_MIPMAP_LINEAR,
-          magFilter: gl.LINEAR,
-          wrapS: gl.CLAMP_TO_EDGE,
-          wrapT: gl.CLAMP_TO_EDGE,
-          generateMipmaps: true,
-          flipY: true,
-        });
-        tex.needsUpdate = true;
-        g.activeTextures.add(tex);
-        program.uniforms.uTexture.value = tex;
-        program.uniforms.uTextureReady.value = 1.0;
-        g.textureReady = 1;
-
-        if (oldTex && oldTex?.texture && gl) {
-          gl.deleteTexture(oldTex.texture);
-          g.activeTextures.delete(oldTex);
-        }
-      };
-      img.src = resolveAssetUrl(texture_url);
-    }
+    // ── 4.3: default view is the SOLID shaded surface — imagery is only
+    // draped when the user explicitly picks a texture layer (RGB/Depth/…)
+    // from the Layers panel.
   } catch (err) {
     console.error('[terrain] failed to load terrain data:', err);
     if (!g.disposed) {
