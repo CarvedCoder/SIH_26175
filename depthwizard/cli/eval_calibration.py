@@ -485,7 +485,13 @@ def run(args) -> int:
             f"[error] checkpoint not found: {ckpt_path} — run `model.py train` first."
         )
         return 1
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    # weights_only=True: the training payload is a state dict + primitives
+    # (verified against the train command's save block) — the restricted
+    # loader refuses pickle payloads instead of executing them.
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
+    from depthwizard.tifops import validate_checkpoint_payload
+
+    validate_checkpoint_payload(ckpt)
     use_rgb = bool(ckpt["use_rgb"])
     # in_ch: prefer the EXPLICIT field stored by train (covers every
     # variant: 1/2/4/5 legacy + 7/8/10/11 sem); fall back to the frozen

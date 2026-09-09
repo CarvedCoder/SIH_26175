@@ -65,12 +65,67 @@ def resolve_torch_device(device: Optional[str]) -> str:
     return device
 
 
+def sha256_file(path: Path | str) -> str:
+    """SHA-256 hex digest of a file (checkpoint integrity verification)."""
+    import hashlib
+
+    h = hashlib.sha256()
+    with Path(path).open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def validate_checkpoint_payload(ckpt: Any) -> None:
+    """Fail fast on unexpected checkpoint contents.
+
+    The training contract (see module docstring) is a plain dict of
+    primitives + a state_dict. Anything else — arbitrary objects, missing
+    required keys, non-tensor model weights — is rejected BEFORE any value
+    is trusted, so a planted/corrupted checkpoint cannot smuggle payloads
+    past the restricted loader.
+    """
+    from torch import Tensor
+
+    required = ("model_state", "use_rgb", "widths", "affine_init", "epoch")
+    if not isinstance(ckpt, dict):
+        raise ValueError(
+            f"checkpoint payload must be a dict, got {type(ckpt).__name__}"
+        )
+    missing = [k for k in required if k not in ckpt]
+    if missing:
+        raise ValueError(
+            f"checkpoint is missing required keys: {missing} — not a "
+            "CalibrationNet best.pt produced by `python model.py train`."
+        )
+    state = ckpt["model_state"]
+    if not isinstance(state, dict) or not all(
+        isinstance(k, str) and isinstance(v, Tensor) for k, v in state.items()
+    ):
+        raise ValueError(
+            "checkpoint 'model_state' must be a mapping of parameter name "
+            "-> torch.Tensor."
+        )
+    if not isinstance(ckpt["widths"], (list, tuple)) or not all(
+        isinstance(w, int) for w in ckpt["widths"]
+    ):
+        raise ValueError("checkpoint 'widths' must be a list of ints.")
+    affine = ckpt["affine_init"]
+    if not isinstance(affine, dict) or not {"a", "b"} <= set(affine):
+        raise ValueError("checkpoint 'affine_init' must contain 'a' and 'b'.")
+
+
 def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
     """Rebuild the flagship CalibrationNet from a training checkpoint.
 
     Mirrors the exact construction used by the ``evaluate`` command (09):
     in_ch from the ablation flags, widths, affine-init biases, clamp_min.
     Any new field defaults exactly like 09 does — never invent values.
+
+    Security: the checkpoint is loaded with ``weights_only=True`` (the
+    training payload is state-dict + primitives, which satisfies the
+    restricted loader) and schema-validated before any value is used.
+    A pickle payload or malformed checkpoint raises instead of executing.
     """
     import torch
 
@@ -82,7 +137,8 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
             f"(`python model.py train`) or pass --checkpoint."
         )
 
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
+    validate_checkpoint_payload(ckpt)
 
     from .calibration_net import CalibrationNet, derive_in_ch
 

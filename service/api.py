@@ -1,4 +1,14 @@
-"""DepthWizard inference service — the backend half of the webapp bridge.
+"""LEGACY — DepthWizard stateless inference service. NOT the deployed app.
+
+This was the original serving bridge (stateless POST /predict). The canonical
+production/development backend is now ``backend.app.main:app`` (the
+scene/job-oriented /api/v1 contract the frontend uses), and Docker deploys
+THAT app — see Dockerfile / docker-compose.yml.
+
+This module is kept for the manual ``python model.py serve`` smoke-test door
+and the tools/e2e_bridge_check.py contract check. It shares the certified
+inference path (depthwizard.inference.run_inference) with the canonical
+backend, so the forward pass cannot drift. Do not add new features here.
 
 Endpoints:
     GET  /health    -> liveness + model/device/config provenance
@@ -9,12 +19,7 @@ Endpoints:
                          mode        (optional) auto|crop|resize|tiles
                        -> scene payload JSON (see depthwizard.inference.
 
-The service calls ``depthwizard.inference.run_inference`` — the SAME code
-path as ``python model.py infer``. It never re-implements preprocessing, so
-the webapp can never drift from the certified CLI forward pass.
-
 Run (dev):   python model.py serve --port 8000
-Run (prod):  uvicorn service.api:app --host 0.0.0.0 --port 8000
 
 Environment overrides (all optional; configs/infer.yaml is the base):
     DW_ROOT        repo root (default: parent of this package's parent)
@@ -31,6 +36,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -127,6 +133,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Inference concurrency guard: torch forward passes are thread-safe but
+# running N of them simultaneously on one device just degrades latency.
+_predict_semaphore = threading.Semaphore(
+    max(1, int(os.environ.get("DW_MAX_CONCURRENCY", "1")))
+)
+
 _predictor_state = {"last_used": None}  # diagnostics only
 
 
@@ -149,12 +161,16 @@ def health() -> dict:
 
 
 @app.post("/predict")
-async def predict(
+def predict(
     image: UploadFile = File(...),
     anchor_dem: Optional[UploadFile] = File(None),
     ground_elev: Optional[float] = Form(None),
     mode: str = Form("auto"),
 ) -> JSONResponse:
+    """Stateless prediction. Deliberately a SYNC def: FastAPI runs sync
+    handlers in its threadpool, so long torch inference can never block the
+    event loop (the audit's C3 finding — the previous async def stalled ALL
+    request handling, including health checks, for the full inference)."""
     t0 = time.perf_counter()
     ckpt = _ckpt_path()
     if not ckpt.exists():
@@ -190,20 +206,21 @@ async def predict(
                 shutil.copyfileobj(anchor_dem.file, f)
 
         out_dir = _out_root() / req_id
-        payload = run_inference(
-            img_path,
-            ckpt,
-            out_dir=out_dir,
-            device=_device(),
-            mode=mode,
-            dn_path=None,
-            cache_dir=_cache_dir(),
-            live_backbone=_live(),
-            backbone_id=_backbone_id(),
-            anchor_dem=dem_path,
-            ground_elev=ground_elev,
-            write_files=True,
-        )
+        with _predict_semaphore:
+            payload = run_inference(
+                img_path,
+                ckpt,
+                out_dir=out_dir,
+                device=_device(),
+                mode=mode,
+                dn_path=None,
+                cache_dir=_cache_dir(),
+                live_backbone=_live(),
+                backbone_id=_backbone_id(),
+                anchor_dem=dem_path,
+                ground_elev=ground_elev,
+                write_files=True,
+            )
         payload["request_id"] = req_id
         payload["service_elapsed_sec"] = round(time.perf_counter() - t0, 2)
         _predictor_state["last_used"] = req_id
