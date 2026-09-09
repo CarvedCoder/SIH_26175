@@ -26,6 +26,8 @@ V2-Large-hf, which silently mismatched cached vs live Dn distributions
 
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 from PIL import Image
 from transformers import PreTrainedModel
@@ -50,6 +52,10 @@ class DepthAnythingBackbone:
         self.device = device
         self.fp16 = fp16 and device.startswith("cuda")
         self._model: PreTrainedModel | None = None
+        # First-use race guard: without this, two concurrent raw_depth calls
+        # can both observe _model is None and both run from_pretrained,
+        # double-allocating (GPU) memory and racing the assignment.
+        self._load_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     @property
@@ -57,18 +63,25 @@ class DepthAnythingBackbone:
         return self._model is not None
 
     def load(self):
-        """Download + load the model (idempotent)."""
-        if self._model is not None:
-            return self
-        import torch
-        from transformers import AutoModelForDepthEstimation
+        """Download + load the model (idempotent, thread-safe).
 
-        self._torch = torch
-        model = AutoModelForDepthEstimation.from_pretrained(self.model_id)
-        model.to(self.device).eval()
-        if self.fp16:
-            model.half()
-        return self
+        Only ONE from_pretrained call ever happens: the lock is held for
+        the whole initialization and re-checked inside, so concurrent first
+        calls block until the winner finishes and then reuse the model.
+        """
+        with self._load_lock:
+            if self._model is not None:
+                return self
+            import torch
+            from transformers import AutoModelForDepthEstimation
+
+            self._torch = torch
+            model = AutoModelForDepthEstimation.from_pretrained(self.model_id)
+            model.to(self.device).eval()
+            if self.fp16:
+                model.half()
+            self._model = model
+            return self
 
     # ------------------------------------------------------------------
     def preprocess(self, rgb_u8: np.ndarray):
@@ -105,6 +118,7 @@ class DepthAnythingBackbone:
 
 
 _DEFAULT: DepthAnythingBackbone | None = None
+_DEFAULT_LOCK = threading.Lock()
 
 
 def get_backbone(
@@ -112,6 +126,7 @@ def get_backbone(
 ) -> DepthAnythingBackbone:
     """Process-wide shared backbone instance (loads on first raw_depth call)."""
     global _DEFAULT
-    if _DEFAULT is None or _DEFAULT.model_id != model_id:
-        _DEFAULT = DepthAnythingBackbone(model_id=model_id, device=device)
-    return _DEFAULT
+    with _DEFAULT_LOCK:
+        if _DEFAULT is None or _DEFAULT.model_id != model_id:
+            _DEFAULT = DepthAnythingBackbone(model_id=model_id, device=device)
+        return _DEFAULT
