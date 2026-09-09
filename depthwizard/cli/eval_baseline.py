@@ -29,8 +29,13 @@ import numpy as np
 
 from depthwizard.cli.args import add_config_arg, load_config
 from depthwizard.dataset import DFC2019Config, discover_and_split
-from depthwizard.geo import (depth_npy_candidates, dump_json, load_json,
-                             parse_stem, read_tile)
+from depthwizard.geo import (
+    depth_npy_candidates,
+    dump_json,
+    load_json,
+    parse_stem,
+    read_tile,
+)
 from depthwizard.metrics import height_metrics, mean_std_over_tiles
 from depthwizard.normalize import clean_agl, minmax_normalize, valid_target_mask
 from depthwizard.streaming import PooledStats
@@ -48,7 +53,8 @@ def _find_depth_npy(cache_dir: Path, stem: str) -> Path:
     if f is None:
         raise FileNotFoundError(
             f"depth cache miss for '{stem}': none of {cands} — run the "
-            "depth command first.")
+            "depth command first."
+        )
     return f
 
 
@@ -83,8 +89,9 @@ def evaluate_split(ds, a: float, b: float, cache_dir: Path):
         "per_tile": per_tile,
         "pooled": pooled_stats.to_metrics(),
         "per_tile_summary": mean_std_over_tiles(per_tile),
-        "by_city": {city: stats.to_metrics()
-                    for city, stats in sorted(city_stats.items())},
+        "by_city": {
+            city: stats.to_metrics() for city, stats in sorted(city_stats.items())
+        },
     }
 
 
@@ -112,12 +119,14 @@ def _stratify_test(ds, a, b, cache_dir):
 
         del raw, dn, data, agl, cls, pred
 
-    return {f"cls_{cid}": stats.to_metrics()
-            for cid, stats in sorted(class_stats.items())}
+    return {
+        f"cls_{cid}": stats.to_metrics() for cid, stats in sorted(class_stats.items())
+    }
 
 
 def _quicklook_error(stem, rgb, dn, pred, agl, out_png: Path):
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -133,7 +142,8 @@ def _quicklook_error(stem, rgb, dn, pred, agl, out_png: Path):
     for ax, (img, cmap, title) in zip(axes, panels):
         im = ax.imshow(img, cmap=cmap)
         ax.set_title(f"{title} {stem}", fontsize=9)
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
         if cmap:
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -142,12 +152,20 @@ def _quicklook_error(stem, rgb, dn, pred, agl, out_png: Path):
 
 
 def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    p = sub.add_parser(NAME, help=HELP, description=__doc__,
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = sub.add_parser(
+        NAME,
+        help=HELP,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     add_config_arg(p, "configs/phase1.yaml")
     p.add_argument("--stratify-cls", action="store_true")
-    p.add_argument("--error-maps", type=int, default=4,
-                   help="error quicklooks rendered for first N test tiles")
+    p.add_argument(
+        "--error-maps",
+        type=int,
+        default=4,
+        help="error quicklooks rendered for first N test tiles",
+    )
     p.add_argument("--baseline-json", type=Path, default=None)
     return p
 
@@ -157,24 +175,34 @@ def run(args) -> int:
     paths = cfg["paths"]
 
     bl_path = args.baseline_json or (
-        Path(paths["outputs_dir"]) / "baseline" / "global_affine.json")
+        Path(paths["outputs_dir"]) / "baseline" / "global_affine.json"
+    )
     if not bl_path.exists():
-        print(f"[error] baseline not found at {bl_path} — run `model.py fit-baseline` first.")
+        print(
+            f"[error] baseline not found at {bl_path} — run `model.py fit-baseline` first."
+        )
         return 1
     bl = load_json(bl_path)
     a, b = bl["a"], bl["b"]
-    print(f"[i] baseline: H = {a:.6f} * Dn + {b:.6f} "
-          f"({bl['kind']}, fit on {bl.get('fit_split')})")
+    print(
+        f"[i] baseline: H = {a:.6f} * Dn + {b:.6f} "
+        f"({bl['kind']}, fit on {bl.get('fit_split')})"
+    )
 
-    cache_dir = next((d for d in Path(paths["depth_cache_dir"]).iterdir()
-                      if d.is_dir()), None)
+    cache_dir = next(
+        (d for d in Path(paths["depth_cache_dir"]).iterdir() if d.is_dir()), None
+    )
     if cache_dir is None:
         print("[error] no depth cache found — run `model.py depth` first.")
         return 1
 
     ds_cfg = DFC2019Config(
-        rgb_dir=Path(paths["rgb_dir"]), truth_dir=Path(paths["truth_dir"]),
-        depth_cache_dir=cache_dir, load_depth=True, crop_size=None)
+        rgb_dir=Path(paths["rgb_dir"]),
+        truth_dir=Path(paths["truth_dir"]),
+        depth_cache_dir=cache_dir,
+        load_depth=True,
+        crop_size=None,
+    )
     ds = discover_and_split(ds_cfg, Path(paths["splits_json"]))
 
     report = {"baseline": bl, "splits": {}}
@@ -186,17 +214,22 @@ def run(args) -> int:
             "by_city": res["by_city"],
         }
         m = res["pooled"]
-        print(f"[{split}] pooled: MAE={m['mae']:.3f} m  RMSE={m['rmse']:.3f} m  "
-              f"r={m['pearson_r']:.3f}  neg_frac={m['neg_frac_pred']:.3f}  "
-              f"n={m['n']:,}")
+        print(
+            f"[{split}] pooled: MAE={m['mae']:.3f} m  RMSE={m['rmse']:.3f} m  "
+            f"r={m['pearson_r']:.3f}  neg_frac={m['neg_frac_pred']:.3f}  "
+            f"n={m['n']:,}"
+        )
 
     if args.stratify_cls:
         report["test_stratified_by_raw_cls"] = _stratify_test(
-            ds["test"], a, b, cache_dir)
-        print("[i] test stratified by raw CLS ids: "
-              f"{list(report['test_stratified_by_raw_cls'])} "
-              "(legend VERIFIED: pubgeo/dfc2019 — 2 Ground, 5 Trees, "
-              "6 Buildings, 9 Water, 17 Bridge, 65 void)")
+            ds["test"], a, b, cache_dir
+        )
+        print(
+            "[i] test stratified by raw CLS ids: "
+            f"{list(report['test_stratified_by_raw_cls'])} "
+            "(legend VERIFIED: pubgeo/dfc2019 — 2 Ground, 5 Trees, "
+            "6 Buildings, 9 Water, 17 Bridge, 65 void)"
+        )
 
     out_dir = Path(paths["outputs_dir"]) / "baseline"
     n_maps = min(args.error_maps, len(ds["test"].tiles))
@@ -206,8 +239,9 @@ def run(args) -> int:
         data = read_tile(t)
         pred = (a * dn + b).astype(np.float32)
         agl = clean_agl(data["agl"])
-        _quicklook_error(t.stem, data["rgb"], dn, pred, agl,
-                         out_dir / "error_maps" / f"{t.stem}.png")
+        _quicklook_error(
+            t.stem, data["rgb"], dn, pred, agl, out_dir / "error_maps" / f"{t.stem}.png"
+        )
         del raw, dn, data, pred, agl
     if n_maps:
         print(f"[i] {n_maps} error quicklooks -> {out_dir / 'error_maps'}")
@@ -215,35 +249,56 @@ def run(args) -> int:
     dump_json(report, out_dir / "eval_results.json")
 
     lines = [
-        "# Global affine baseline — evaluation", "",
-        (f"- Model: `H = {bl['a']:.6f} · Dn + {bl['b']:.6f}` "
-         f"({bl['kind']}, fitted on **{bl.get('fit_split')}** only, "
-         f"stride={bl.get('stride')})"),
-        f"- Baseline file: `{bl_path}`", "",
+        "# Global affine baseline — evaluation",
+        "",
+        (
+            f"- Model: `H = {bl['a']:.6f} · Dn + {bl['b']:.6f}` "
+            f"({bl['kind']}, fitted on **{bl.get('fit_split')}** only, "
+            f"stride={bl.get('stride')})"
+        ),
+        f"- Baseline file: `{bl_path}`",
+        "",
         "| split | MAE (m) | RMSE (m) | bias (m) | Pearson r | neg frac | pixels |",
         "|---|---|---|---|---|---|---|",
     ]
     for split in ("train", "val", "test"):
         m = report["splits"][split]["pooled"]
-        lines.append(f"| {split} | {m['mae']:.3f} | {m['rmse']:.3f} "
-                     f"| {m['bias']:+.3f} | {m['pearson_r']:.3f} "
-                     f"| {m['neg_frac_pred']:.3f} | {m['n']:,} |")
-    lines += ["", "## Per-city (pooled)", "",
-              "| split | city | MAE | RMSE | r |", "|---|---|---|---|---|"]
+        lines.append(
+            f"| {split} | {m['mae']:.3f} | {m['rmse']:.3f} "
+            f"| {m['bias']:+.3f} | {m['pearson_r']:.3f} "
+            f"| {m['neg_frac_pred']:.3f} | {m['n']:,} |"
+        )
+    lines += [
+        "",
+        "## Per-city (pooled)",
+        "",
+        "| split | city | MAE | RMSE | r |",
+        "|---|---|---|---|---|",
+    ]
     for split in ("train", "val", "test"):
         for city, m in report["splits"][split].get("by_city", {}).items():
-            lines.append(f"| {split} | {city} | {m['mae']:.3f} | {m['rmse']:.3f} "
-                         f"| {m['pearson_r']:.3f} |")
+            lines.append(
+                f"| {split} | {city} | {m['mae']:.3f} | {m['rmse']:.3f} "
+                f"| {m['pearson_r']:.3f} |"
+            )
     strat = report.get("test_stratified_by_raw_cls")
     if strat:
-        lines += ["", "## Test split, stratified by RAW class id (meanings UNVERIFIED)",
-                  "", "| class id | MAE | RMSE | pixels |", "|---|---|---|---|"]
+        lines += [
+            "",
+            "## Test split, stratified by RAW class id (meanings UNVERIFIED)",
+            "",
+            "| class id | MAE | RMSE | pixels |",
+            "|---|---|---|---|",
+        ]
         for key, m in strat.items():
             lines.append(f"| {key} | {m['mae']:.3f} | {m['rmse']:.3f} | {m['n']:,} |")
-    lines += ["", "_Interpretation guardrails: Dn is relative (not metric); the "
-              "affine baseline is expected to oversmooth and to produce negative "
-              "predictions on low ground; its purpose is to be the number every "
-              "later phase must beat._"]
+    lines += [
+        "",
+        "_Interpretation guardrails: Dn is relative (not metric); the "
+        "affine baseline is expected to oversmooth and to produce negative "
+        "predictions on low ground; its purpose is to be the number every "
+        "later phase must beat._",
+    ]
     (out_dir / "eval_report.md").write_text("\n".join(lines), encoding="utf-8")
     print(f"-> {out_dir / 'eval_report.md'}")
     return 0

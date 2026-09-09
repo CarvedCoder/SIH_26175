@@ -21,9 +21,9 @@ from typing import Dict, Iterable, List, Optional, Sequence
 import numpy as np
 
 
-def height_metrics(pred: np.ndarray,
-                   target: np.ndarray,
-                   valid_mask: Optional[np.ndarray] = None) -> Dict[str, float]:
+def height_metrics(
+    pred: np.ndarray, target: np.ndarray, valid_mask: Optional[np.ndarray] = None
+) -> Dict[str, float]:
     """Metric dict for one tile or one stitched scene. Scalars NaN-safe.
 
     pred / target : [H,W] float arrays (metres)
@@ -40,9 +40,15 @@ def height_metrics(pred: np.ndarray,
         raise ValueError(f"mask shape mismatch {mask.shape} vs {t.shape}")
 
     if mask.sum() == 0:
-        return {"n": 0, "mae": float("nan"), "rmse": float("nan"),
-                "medae": float("nan"), "bias": float("nan"), "pearson_r": float("nan"),
-                "neg_frac_pred": float("nan")}
+        return {
+            "n": 0,
+            "mae": float("nan"),
+            "rmse": float("nan"),
+            "medae": float("nan"),
+            "bias": float("nan"),
+            "pearson_r": float("nan"),
+            "neg_frac_pred": float("nan"),
+        }
 
     d = p[mask] - t[mask]
     ad = np.abs(d)
@@ -57,17 +63,19 @@ def height_metrics(pred: np.ndarray,
     return {
         "n": n,
         "mae": float(ad.mean()),
-        "rmse": float(np.sqrt((d ** 2).mean())),
+        "rmse": float(np.sqrt((d**2).mean())),
         "medae": float(np.median(ad)),
-        "bias": float(d.mean()),                      # >0 = model overestimates
+        "bias": float(d.mean()),  # >0 = model overestimates
         "pearson_r": r,
-        "neg_frac_pred": float((tp < 0).mean()),      # fraction of predicted heights < 0
+        "neg_frac_pred": float((tp < 0).mean()),  # fraction of predicted heights < 0
     }
 
 
-def pooled_metrics(pixels_pred: Iterable[np.ndarray],
-                   pixels_target: Iterable[np.ndarray],
-                   pixels_mask: Optional[Sequence[np.ndarray]] = None) -> Dict[str, float]:
+def pooled_metrics(
+    pixels_pred: Iterable[np.ndarray],
+    pixels_target: Iterable[np.ndarray],
+    pixels_mask: Optional[Sequence[np.ndarray]] = None,
+) -> Dict[str, float]:
     """Pooled metrics over an iterable of per-tile arrays (memory-light:
     accumulates sums, never stores everything)."""
     s_abs = s_sq = s_d = 0.0
@@ -80,17 +88,22 @@ def pooled_metrics(pixels_pred: Iterable[np.ndarray],
         pf = np.asarray(p, dtype=np.float64)[m]
         tf = np.asarray(t, dtype=np.float64)[m]
         d = pf - tf
-        s_abs += np.abs(d).sum(); s_sq += (d ** 2).sum(); s_d += d.sum()
-        s_x += pf.sum(); s_y += tf.sum()
-        s_xx += (pf ** 2).sum(); s_yy += (tf ** 2).sum(); s_xy += (pf * tf).sum()
+        s_abs += np.abs(d).sum()
+        s_sq += (d**2).sum()
+        s_d += d.sum()
+        s_x += pf.sum()
+        s_y += tf.sum()
+        s_xx += (pf**2).sum()
+        s_yy += (tf**2).sum()
+        s_xy += (pf * tf).sum()
         neg += int((pf < 0).sum())
         n += pf.size
     if n == 0:
         return height_metrics(np.zeros(1), np.zeros(1), np.zeros(1, dtype=bool))
     mean_x, mean_y = s_x / n, s_y / n
     cov = s_xy / n - mean_x * mean_y
-    var_x = s_xx / n - mean_x ** 2
-    var_y = s_yy / n - mean_y ** 2
+    var_x = s_xx / n - mean_x**2
+    var_y = s_yy / n - mean_y**2
     r = float(cov / np.sqrt(var_x * var_y)) if var_x > 0 and var_y > 0 else float("nan")
     return {
         "n": n,
@@ -115,8 +128,9 @@ def mean_std_over_tiles(metric_dicts: List[Dict[str, float]]) -> Dict[str, float
     return out
 
 
-def stratified_by_class(pred: np.ndarray, target: np.ndarray,
-                        cls: np.ndarray, class_ids: List[int]) -> Dict[str, Dict[str, float]]:
+def stratified_by_class(
+    pred: np.ndarray, target: np.ndarray, cls: np.ndarray, class_ids: List[int]
+) -> Dict[str, Dict[str, float]]:
     """Metrics per raw CLS id. NOTE: keys are raw ids (e.g. 'cls_65') on
     purpose — do NOT rename to 'building'/'water' until the DFC2019 class
     table has been verified from the dataset documentation."""
@@ -129,19 +143,25 @@ def stratified_by_class(pred: np.ndarray, target: np.ndarray,
 
 
 def format_metric_row(name: str, m: Dict[str, float]) -> str:
-    return (f"| {name} | {m.get('mae', float('nan')):.3f} | {m.get('rmse', float('nan')):.3f} "
-            f"| {m.get('medae', float('nan')):.3f} | {m.get('bias', float('nan')):+.3f} "
-            f"| {m.get('pearson_r', float('nan')):.3f} | {m.get('neg_frac_pred', float('nan')):.3f} "
-            f"| {m.get('n', 0):,} |")
+    return (
+        f"| {name} | {m.get('mae', float('nan')):.3f} | {m.get('rmse', float('nan')):.3f} "
+        f"| {m.get('medae', float('nan')):.3f} | {m.get('bias', float('nan')):+.3f} "
+        f"| {m.get('pearson_r', float('nan')):.3f} | {m.get('neg_frac_pred', float('nan')):.3f} "
+        f"| {m.get('n', 0):,} |"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Phase 5 extensions (GAMUS integration) — additive, nothing above changes.
 # ---------------------------------------------------------------------------
 
-def slope_error(pred: np.ndarray, target: np.ndarray,
-                gsd_m: Optional[float] = None,
-                valid_mask: Optional[np.ndarray] = None) -> Optional[Dict[str, float]]:
+
+def slope_error(
+    pred: np.ndarray,
+    target: np.ndarray,
+    gsd_m: Optional[float] = None,
+    valid_mask: Optional[np.ndarray] = None,
+) -> Optional[Dict[str, float]]:
     """Mean absolute error of SLOPE ANGLE (degrees), central differences.
 
     slope(x) = atan( sqrt(dy^2 + dx^2) ) with gradients taken in METRES via
@@ -159,8 +179,8 @@ def slope_error(pred: np.ndarray, target: np.ndarray,
         raise ValueError(f"slope_error shape mismatch {p.shape} vs {t.shape}")
     gy_p, gx_p = np.gradient(p, gsd_m, gsd_m)
     gy_t, gx_t = np.gradient(t, gsd_m, gsd_m)
-    sp = np.degrees(np.arctan(np.sqrt(gy_p ** 2 + gx_p ** 2)))
-    st = np.degrees(np.arctan(np.sqrt(gy_t ** 2 + gx_t ** 2)))
+    sp = np.degrees(np.arctan(np.sqrt(gy_p**2 + gx_p**2)))
+    st = np.degrees(np.arctan(np.sqrt(gy_t**2 + gx_t**2)))
     mask = valid_mask if valid_mask is not None else np.isfinite(t)
     mask = np.asarray(mask, dtype=bool)
     # gradient edge pixels: exclude the 1-px border (undefined central diff)
@@ -170,13 +190,17 @@ def slope_error(pred: np.ndarray, target: np.ndarray,
     d = (sp - st)[mask]
     if d.size == 0:
         return None
-    return {"n": int(d.size), "slope_mae_deg": float(np.abs(d).mean()),
-            "slope_rmse_deg": float(np.sqrt((d ** 2).mean())),
-            "slope_bias_deg": float(d.mean())}
+    return {
+        "n": int(d.size),
+        "slope_mae_deg": float(np.abs(d).mean()),
+        "slope_rmse_deg": float(np.sqrt((d**2).mean())),
+        "slope_bias_deg": float(d.mean()),
+    }
 
 
-def building_metrics(pred: np.ndarray, target: np.ndarray,
-                     building_mask: np.ndarray) -> Dict[str, float]:
+def building_metrics(
+    pred: np.ndarray, target: np.ndarray, building_mask: np.ndarray
+) -> Dict[str, float]:
     """Height metrics restricted to BUILDING pixels (project class 0).
 
     ``building_mask`` comes from the VERIFIED dataset legend mapped to the
@@ -190,9 +214,9 @@ def building_metrics(pred: np.ndarray, target: np.ndarray,
     return height_metrics(pred, target, m)
 
 
-def stratified_by_project_class(pred: np.ndarray, target: np.ndarray,
-                                project_onehot: np.ndarray,
-                                class_names=None) -> Dict[str, Dict[str, float]]:
+def stratified_by_project_class(
+    pred: np.ndarray, target: np.ndarray, project_onehot: np.ndarray, class_names=None
+) -> Dict[str, Dict[str, float]]:
     """Metrics per PROJECT class (building/vegetation/road/water/ground/
     other), from the one-hot layer + its ignore handling.
 
@@ -201,6 +225,7 @@ def stratified_by_project_class(pred: np.ndarray, target: np.ndarray,
     """
     if class_names is None:
         from depthwizard.datasets.semantics import PROJECT_CLASSES
+
         class_names = PROJECT_CLASSES
     out: Dict[str, Dict[str, float]] = {}
     onehot = np.asarray(project_onehot)

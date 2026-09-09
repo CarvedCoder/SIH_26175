@@ -44,7 +44,7 @@ from torch.utils.data import Dataset
 
 from .semantics import semantic_layers
 from .transforms import joint_crop, joint_flip_rot
-from ..dataset import IMAGENET_MEAN, IMAGENET_STD           # same constants
+from ..dataset import IMAGENET_MEAN, IMAGENET_STD  # same constants
 from ..normalize import clean_agl
 
 
@@ -57,11 +57,12 @@ class AdapterConfig:
     load_semantics / seed / _rng). Dataset-source fields live on the
     adapter's own config subclass (see gamus.GAMUSConfig).
     """
-    crop_size: Optional[int] = None          # None = full tile
+
+    crop_size: Optional[int] = None  # None = full tile
     augment: bool = False
     clamp_agl_min: float = 0.0
-    load_depth: bool = True                  # False -> dn None (pre-cache runs)
-    load_semantics: bool = True              # False -> no sem layers
+    load_depth: bool = True  # False -> dn None (pre-cache runs)
+    load_semantics: bool = True  # False -> no sem layers
     seed: int = 42
     _rng: Optional[random.Random] = field(default=None, repr=False, compare=False)
 
@@ -91,6 +92,7 @@ def collate_dict_none_safe(batch):
     defined.
     """
     from torch.utils.data import default_collate
+
     first = batch[0]
     if not isinstance(first, dict):
         return default_collate(batch)
@@ -102,7 +104,7 @@ def collate_dict_none_safe(batch):
                 keys.append(k)
     for k in keys:
         if k == "meta":
-            out[k] = [b.get("meta") for b in batch]     # bookkeeping list
+            out[k] = [b.get("meta") for b in batch]  # bookkeeping list
             continue
         vals = [b.get(k) for b in batch]
         if all(v is None for v in vals):
@@ -132,12 +134,14 @@ class BaseDepthDataset(Dataset):
     """
 
     dataset_name: ClassVar[str] = "base"
-    sem_legend: ClassVar[Optional[str]] = None   # semantics.py dataset key
+    sem_legend: ClassVar[Optional[str]] = None  # semantics.py dataset key
 
     def __init__(self, samples: List[Any], cfg: AdapterConfig):
         if len(samples) == 0:
-            raise ValueError("Empty sample list — check discovery/manifest "
-                             "before constructing a dataset.")
+            raise ValueError(
+                "Empty sample list — check discovery/manifest "
+                "before constructing a dataset."
+            )
         self.samples = samples
         self.cfg = cfg
 
@@ -181,51 +185,73 @@ class BaseDepthDataset(Dataset):
             k_, do_h, do_v = joint_flip_rot(layers, rng)
 
         # ---- tensorize (identical conventions to the frozen DFC path) ----
-        rgb_t = torch.from_numpy(
-            ((layers["rgb"].astype(np.float32) / 255.0) - IMAGENET_MEAN)
-            / IMAGENET_STD
-        ).permute(2, 0, 1).contiguous()                       # [3,H,W]
-        agl_t = torch.from_numpy(
-            clean_agl(layers["agl"], self.cfg.clamp_agl_min)
-        )[None, ...]                                          # [1,H,W]
-        cls_t = torch.from_numpy(
-            np.ascontiguousarray(layers["cls"]).astype(np.int64)
-        )[None, ...]                                          # [1,H,W] raw ids
-        dn_t = (torch.from_numpy(
-                    np.ascontiguousarray(layers["dn"]).astype(np.float32)
-                )[None, ...]
-                if "dn" in layers else None)
-        dem_t = (torch.from_numpy(
-                    np.ascontiguousarray(layers["dem"]).astype(np.float32)
-                )[None, ...]
-                if "dem" in layers else None)
+        rgb_t = (
+            torch.from_numpy(
+                ((layers["rgb"].astype(np.float32) / 255.0) - IMAGENET_MEAN)
+                / IMAGENET_STD
+            )
+            .permute(2, 0, 1)
+            .contiguous()
+        )  # [3,H,W]
+        agl_t = torch.from_numpy(clean_agl(layers["agl"], self.cfg.clamp_agl_min))[
+            None, ...
+        ]  # [1,H,W]
+        cls_t = torch.from_numpy(np.ascontiguousarray(layers["cls"]).astype(np.int64))[
+            None, ...
+        ]  # [1,H,W] raw ids
+        dn_t = (
+            torch.from_numpy(np.ascontiguousarray(layers["dn"]).astype(np.float32))[
+                None, ...
+            ]
+            if "dn" in layers
+            else None
+        )
+        dem_t = (
+            torch.from_numpy(np.ascontiguousarray(layers["dem"]).astype(np.float32))[
+                None, ...
+            ]
+            if "dem" in layers
+            else None
+        )
 
         # ---- semantic layers from the TRANSFORMED raw cls ----
         sem_t = ign_t = None
         if self.cfg.load_semantics and self.sem_legend is not None:
             onehot, ignore, unmapped = semantic_layers(
-                cls_t[0].numpy(), self.sem_legend)
-            sem_t = torch.from_numpy(onehot)                  # [K,H,W] f32
-            ign_t = torch.from_numpy(
-                np.ascontiguousarray(ignore))[None, ...]      # [1,H,W] bool
+                cls_t[0].numpy(), self.sem_legend
+            )
+            sem_t = torch.from_numpy(onehot)  # [K,H,W] f32
+            ign_t = torch.from_numpy(np.ascontiguousarray(ignore))[
+                None, ...
+            ]  # [1,H,W] bool
             meta_in["sem_legend"] = self.sem_legend
             if unmapped:
                 meta_in["sem_unmapped_ids"] = unmapped
 
         sid = meta_in.get("sample_id") or meta_in.get("stem")
-        meta = dict(meta_in)                                  # adapter extras
-        meta.update({
-            "stem": sid,                                      # DFC-compat key
-            "h": agl_t.shape[1], "w": agl_t.shape[2],
-            "y0": y0, "x0": x0, "rot90": k_,
-            "flip_h": do_h, "flip_v": do_v,
-            "dem_tag": arrs.get("dem_tag"),
-            "dataset": self.dataset_name,
-            "sample_id": sid,
-        })
+        meta = dict(meta_in)  # adapter extras
+        meta.update(
+            {
+                "stem": sid,  # DFC-compat key
+                "h": agl_t.shape[1],
+                "w": agl_t.shape[2],
+                "y0": y0,
+                "x0": x0,
+                "rot90": k_,
+                "flip_h": do_h,
+                "flip_v": do_v,
+                "dem_tag": arrs.get("dem_tag"),
+                "dataset": self.dataset_name,
+                "sample_id": sid,
+            }
+        )
         return {
-            "rgb": rgb_t, "agl": agl_t, "cls": cls_t,
-            "dn": dn_t, "dem": dem_t,
-            "sem_onehot": sem_t, "sem_ignore": ign_t,
+            "rgb": rgb_t,
+            "agl": agl_t,
+            "cls": cls_t,
+            "dn": dn_t,
+            "dem": dem_t,
+            "sem_onehot": sem_t,
+            "sem_ignore": ign_t,
             "meta": meta,
         }

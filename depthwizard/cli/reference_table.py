@@ -28,7 +28,7 @@ HELP = "merge baseline + dummies into the frozen reference card / gates"
 
 DOC_HINTS = {
     "missing": "run the producing command first "
-               "(fit-baseline/eval-baseline for baseline, dummies for dummies)."
+    "(fit-baseline/eval-baseline for baseline, dummies for dummies)."
 }
 
 
@@ -38,8 +38,12 @@ def _finite(x: float) -> float | None:
 
 
 def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    p = sub.add_parser(NAME, help=HELP, description=__doc__,
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = sub.add_parser(
+        NAME,
+        help=HELP,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     add_config_arg(p, "configs/phase1.yaml")
     return p
 
@@ -61,7 +65,7 @@ def run(args) -> int:
     du = load_json(dummy_json)
 
     # ---- collect per-split numbers --------------------------------------
-    rows = []            # (predictor, split, mae, rmse, r)
+    rows = []  # (predictor, split, mae, rmse, r)
     for split in ("train", "val", "test"):
         p = ev["splits"][split]["pooled"]
         rows.append(("global_affine", split, p["mae"], p["rmse"], p["pearson_r"]))
@@ -77,24 +81,30 @@ def run(args) -> int:
         best_rmse = min(dummies, key=lambda r: r[3])
         affine = next(r for r in rows if r[0] == "global_affine" and r[1] == split)
         floors[split] = {
-            "mae_predictor": best_mae[0], "mae": best_mae[2],
-            "rmse_predictor": best_rmse[0], "rmse": best_rmse[3],
-            "affine_mae": affine[2], "affine_rmse": affine[3],
+            "mae_predictor": best_mae[0],
+            "mae": best_mae[2],
+            "rmse_predictor": best_rmse[0],
+            "rmse": best_rmse[3],
+            "affine_mae": affine[2],
+            "affine_rmse": affine[3],
             "affine_beats_floor_mae": affine[2] < best_mae[2],
             "affine_beats_floor_rmse": affine[3] < best_rmse[3],
             # Phase-2 gates (project decisions, derived from measured floors):
-            "gate_must_mae": best_mae[2],            # any improvement counts
-            "gate_target_mae": round(0.8 * best_mae[2], 3),   # decisive win
+            "gate_must_mae": best_mae[2],  # any improvement counts
+            "gate_target_mae": round(0.8 * best_mae[2], 3),  # decisive win
             "gate_must_rmse": best_rmse[3],
             "gate_target_rmse": round(0.9 * best_rmse[3], 3),
         }
 
     # ---- markdown card ---------------------------------------------------
     def fmt(x):
-        return "—" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x:.3f}"
+        return (
+            "—" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x:.3f}"
+        )
 
     lines = [
-        "# Reference card — Phase 1 (FROZEN)", "",
+        "# Reference card — Phase 1 (FROZEN)",
+        "",
         f"- splits.json: `{paths['splits_json']}`",
         f"- affine: `H = {bl['a']:.6f} · Dn + {bl['b']:.6f}` (lstsq, train-only fit)",
         f"- constants (train-only fit): mean = {du['constants']['train_mean']:.3f} m, "
@@ -112,22 +122,31 @@ def run(args) -> int:
             star = " ← MAE floor"
         elif name == f["rmse_predictor"] and f["rmse"] == rmse:
             star = " ← RMSE floor"
-        lines.append(f"| {name} | {split} | {fmt(mae)} | {fmt(rmse)} | {fmt(r)} |{star}")
+        lines.append(
+            f"| {name} | {split} | {fmt(mae)} | {fmt(rmse)} | {fmt(r)} |{star}"
+        )
 
-    lines += ["", "## Affine vs the floor (out-of-sample honesty check)", "",
-              "| split | affine MAE vs floor | affine RMSE vs floor |", "|---|---|---|"]
+    lines += [
+        "",
+        "## Affine vs the floor (out-of-sample honesty check)",
+        "",
+        "| split | affine MAE vs floor | affine RMSE vs floor |",
+        "|---|---|---|",
+    ]
     for split in ("train", "val", "test"):
         f = floors[split]
         lines.append(
             f"| {split} | {f['affine_mae']:.3f} vs {f['mae']:.3f} ({f['mae_predictor']}) "
             f"{'OK' if f['affine_beats_floor_mae'] else '**LOSES**'} "
             f"| {f['affine_rmse']:.3f} vs {f['rmse']:.3f} ({f['rmse_predictor']}) "
-            f"{'OK' if f['affine_beats_floor_rmse'] else '**LOSES**'} |")
+            f"{'OK' if f['affine_beats_floor_rmse'] else '**LOSES**'} |"
+        )
 
     f = floors["val"]
     lines += [
         "",
-        "## Phase-2 gates (binding, derived from measured floors)", "",
+        "## Phase-2 gates (binding, derived from measured floors)",
+        "",
         f"- MUST: val MAE < {f['gate_must_mae']:.3f} m AND val RMSE < {f['gate_must_rmse']:.3f} m",
         f"- TARGET (decisive): val MAE <= {f['gate_target_mae']:.3f} m, val RMSE <= {f['gate_target_rmse']:.3f} m",
         f"- Test-split reference at gate time: MAE {floors['test']['mae']:.3f}, RMSE {floors['test']['rmse']:.3f}",
@@ -146,9 +165,15 @@ def run(args) -> int:
         "affine": {"a": bl["a"], "b": bl["b"]},
         "constants": du["constants"],
         "rows": [
-            {"predictor": n, "split": s, "mae": _finite(m), "rmse": _finite(r),
-             "pearson_r": _finite(rr)}
-            for n, s, m, r, rr in rows],
+            {
+                "predictor": n,
+                "split": s,
+                "mae": _finite(m),
+                "rmse": _finite(r),
+                "pearson_r": _finite(rr),
+            }
+            for n, s, m, r, rr in rows
+        ],
         "floors_and_gates": floors,
     }
     dump_json(payload, out_dir / "reference_card.json")

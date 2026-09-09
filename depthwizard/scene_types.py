@@ -31,8 +31,13 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-SCENE_TYPES: Tuple[str, ...] = ("urban", "sparse-suburban", "forest",
-                                "hilly-high-relief", "flat")
+SCENE_TYPES: Tuple[str, ...] = (
+    "urban",
+    "sparse-suburban",
+    "forest",
+    "hilly-high-relief",
+    "flat",
+)
 
 # Documented thresholds (see module docstring).
 URBAN_BUILDING_SHARE = 0.15
@@ -49,12 +54,12 @@ def classify_scene(agl: np.ndarray, cls: np.ndarray, dataset: str) -> str:
                           legend via datasets.semantics)
     dataset "dfc2019" | "gamus"
     """
-    from depthwizard.datasets.semantics import (PROJECT_CLASS_TO_INDEX,
-                                                semantic_layers)
+    from depthwizard.datasets.semantics import PROJECT_CLASS_TO_INDEX, semantic_layers
+
     onehot, _ignore, _unmapped = semantic_layers(cls, dataset)
     total = onehot.sum() + 0.0
     if total <= 0:
-        return "flat"                       # no labeled pixels -> degenerate
+        return "flat"  # no labeled pixels -> degenerate
     building_share = float(onehot[PROJECT_CLASS_TO_INDEX["building"]].sum()) / total
     vegetation_share = float(onehot[PROJECT_CLASS_TO_INDEX["vegetation"]].sum()) / total
     a = np.asarray(agl, dtype=np.float64)
@@ -76,8 +81,9 @@ def classify_scene(agl: np.ndarray, cls: np.ndarray, dataset: str) -> str:
     return "flat"
 
 
-def stratify_by_scene_type(per_tile_metrics: List[Dict],
-                           scene_types: List[str]) -> Dict[str, Dict[str, float]]:
+def stratify_by_scene_type(
+    per_tile_metrics: List[Dict], scene_types: List[str]
+) -> Dict[str, Dict[str, float]]:
     """Mean of per-tile metric dicts grouped by scene-type label.
 
     Returns {scene_type: {metric_name_mean...}} (only types with >= 1 tile;
@@ -88,9 +94,7 @@ def stratify_by_scene_type(per_tile_metrics: List[Dict],
         groups[st].append(m)
     out: Dict[str, Dict[str, float]] = {}
     for st, lst in groups.items():
-        keys = [k for k in lst[0]
-                if isinstance(lst[0][k], (int, float)) and k != "n"]
-        out[st] = {f"{k}_mean": float(np.nanmean([d[k] for d in lst]))
-                   for k in keys}
+        keys = [k for k in lst[0] if isinstance(lst[0][k], (int, float)) and k != "n"]
+        out[st] = {f"{k}_mean": float(np.nanmean([d[k] for d in lst])) for k in keys}
         out[st]["n_tiles"] = len(lst)
     return out

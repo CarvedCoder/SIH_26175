@@ -90,9 +90,10 @@ def _cache_dir() -> Optional[Path]:
 def _backbone_id() -> str:
     # Phase 0.2: default aligned to ViT-B (matches the training cache; was
     # V2-Large-hf before — mismatched cached-vs-live Dn distributions, risk R9).
-    return os.environ.get("DW_BACKBONE",
-                          _infer_cfg().get("backbone",
-                                           "depth-anything/Depth-Anything-V2-Base-hf"))
+    return os.environ.get(
+        "DW_BACKBONE",
+        _infer_cfg().get("backbone", "depth-anything/Depth-Anything-V2-Base-hf"),
+    )
 
 
 def _live() -> bool:
@@ -115,7 +116,7 @@ def _out_root() -> Path:
 app = FastAPI(
     title="DepthWizard Inference Service",
     description="Backend bridge for the DepthWizard webapp. Same code path "
-                "as `python model.py infer`.",
+    "as `python model.py infer`.",
     version="2.0.0",
 )
 
@@ -126,7 +127,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_predictor_state = {"last_used": None}   # diagnostics only
+_predictor_state = {"last_used": None}  # diagnostics only
 
 
 @app.get("/health")
@@ -148,16 +149,19 @@ def health() -> dict:
 
 
 @app.post("/predict")
-async def predict(image: UploadFile = File(...),
-                  anchor_dem: Optional[UploadFile] = File(None),
-                  ground_elev: Optional[float] = Form(None),
-                  mode: str = Form("auto")) -> JSONResponse:
+async def predict(
+    image: UploadFile = File(...),
+    anchor_dem: Optional[UploadFile] = File(None),
+    ground_elev: Optional[float] = Form(None),
+    mode: str = Form("auto"),
+) -> JSONResponse:
     t0 = time.perf_counter()
     ckpt = _ckpt_path()
     if not ckpt.exists():
         raise HTTPException(
             status_code=503,
-            detail=f"checkpoint missing: {ckpt} — train one or set DW_CKPT")
+            detail=f"checkpoint missing: {ckpt} — train one or set DW_CKPT",
+        )
 
     if mode not in ("auto", "crop", "resize", "tiles"):
         raise HTTPException(status_code=400, detail=f"bad mode '{mode}'")
@@ -170,6 +174,7 @@ async def predict(image: UploadFile = File(...),
         # the depth-cache lookup by stem still works for dataset tiles
         # (e.g. uploading JAX_004_006_RGB.tif hits JAX_004_006.npy).
         import re as _re
+
         orig_stem = Path(image.filename or "upload").stem or "upload"
         safe_stem = _re.sub(r"[^A-Za-z0-9_\-]", "_", orig_stem)[:80]
         suffix = Path(image.filename or "upload.png").suffix or ".png"
@@ -205,7 +210,7 @@ async def predict(image: UploadFile = File(...),
         return JSONResponse(payload)
     except HTTPException:
         raise
-    except ValueError as e:                       # honest user errors
+    except ValueError as e:  # honest user errors
         raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))

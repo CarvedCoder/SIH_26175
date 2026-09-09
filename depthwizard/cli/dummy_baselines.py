@@ -33,7 +33,7 @@ from depthwizard.streaming import PooledStats
 NAME = "dummies"
 HELP = "constant-predictor floors (zero / train-mean / train-median)"
 
-STRIDE = 4   # subsampling for the constant fit (exactness is irrelevant here)
+STRIDE = 4  # subsampling for the constant fit (exactness is irrelevant here)
 
 
 def sweep_train_constants(ds_train, cfg_stride: int = STRIDE):
@@ -57,7 +57,7 @@ def sweep_train_constants(ds_train, cfg_stride: int = STRIDE):
         raise RuntimeError("No valid AGL pixels found in TRAIN split.")
 
     mean_value = total_sum / total_n
-    median_values = np.concatenate(median_chunks)     # 4x-subsampled only
+    median_values = np.concatenate(median_chunks)  # 4x-subsampled only
     median_value = float(np.median(median_values))
     return float(mean_value), median_value
 
@@ -77,14 +77,20 @@ def eval_constant(ds, c: float, name: str):
 
     pooled = pooled_stats.to_metrics()
     pooled["n_tiles"] = len(ds.tiles)
-    print(f"  {name:12s}  MAE {pooled['mae']:.3f}  RMSE {pooled['rmse']:.3f}  "
-          f"bias {pooled['bias']:+.3f}  r {pooled['pearson_r']:.3f}")
+    print(
+        f"  {name:12s}  MAE {pooled['mae']:.3f}  RMSE {pooled['rmse']:.3f}  "
+        f"bias {pooled['bias']:+.3f}  r {pooled['pearson_r']:.3f}"
+    )
     return pooled, per_tile
 
 
 def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    p = sub.add_parser(NAME, help=HELP, description=__doc__,
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = sub.add_parser(
+        NAME,
+        help=HELP,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     add_config_arg(p, "configs/phase1.yaml")
     return p
 
@@ -95,10 +101,14 @@ def run(args) -> int:
     clamp = full_cfg["dataset"]["clamp_agl_min"]
 
     datasets = discover_and_split(
-        DFC2019Config(rgb_dir=Path(paths["rgb_dir"]),
-                      truth_dir=Path(paths["truth_dir"]),
-                      load_depth=False, clamp_agl_min=clamp),
-        Path(paths["splits_json"]))
+        DFC2019Config(
+            rgb_dir=Path(paths["rgb_dir"]),
+            truth_dir=Path(paths["truth_dir"]),
+            load_depth=False,
+            clamp_agl_min=clamp,
+        ),
+        Path(paths["splits_json"]),
+    )
 
     print("[1/2] fitting constants on TRAIN only ...")
     mean_c, med_c = sweep_train_constants(datasets["train"])
@@ -121,25 +131,33 @@ def run(args) -> int:
         "splits_json": str(paths["splits_json"]),
         "results": results,
         "note": "Reference floor. A model that cannot beat train_median MAE "
-                "has learned nothing useful.",
+        "has learned nothing useful.",
     }
     out_dir = Path(paths["outputs_dir"]) / "dummy_baselines"
     dump_json(payload, out_dir / "dummy_baselines.json")
 
     lines = [
-        "# Dummy baselines (constant predictors) — the floor", "",
-        (f"- constants (fitted on train): zero = 0.0, mean = {mean_c:.3f} m, "
-         f"median = {med_c:.3f} m"),
+        "# Dummy baselines (constant predictors) — the floor",
+        "",
+        (
+            f"- constants (fitted on train): zero = 0.0, mean = {mean_c:.3f} m, "
+            f"median = {med_c:.3f} m"
+        ),
         "",
         "| predictor | split | MAE (m) | RMSE (m) | bias (m) | r |",
     ]
     for name in constants:
         for split in ("train", "val", "test"):
             m = results[name][split]["pooled"]
-            lines.append(f"| {name} | {split} | {m['mae']:.3f} | {m['rmse']:.3f} "
-                         f"| {m['bias']:+.3f} | {m['pearson_r']:.3f} |")
-    lines += ["", "_These require no depth input at all. Quote them next to the "
-              "global-affine baseline; any learned model must beat both._"]
+            lines.append(
+                f"| {name} | {split} | {m['mae']:.3f} | {m['rmse']:.3f} "
+                f"| {m['bias']:+.3f} | {m['pearson_r']:.3f} |"
+            )
+    lines += [
+        "",
+        "_These require no depth input at all. Quote them next to the "
+        "global-affine baseline; any learned model must beat both._",
+    ]
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "dummy_baselines.md").write_text("\n".join(lines), encoding="utf-8")
     print(f"-> {out_dir / 'dummy_baselines.md'}")

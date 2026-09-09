@@ -47,10 +47,9 @@ from .anchoring import resample_dem_to_tile  # noqa: F401  (public re-export)
 SYNTHETIC_DEM_TAG = "SYNTHETIC-DEM-PROXY"
 
 
-def synth_dem_from_agl(agl: np.ndarray,
-                       sigma_m: float = 8.0,
-                       *,
-                       gsd_m: Optional[float] = None) -> np.ndarray:
+def synth_dem_from_agl(
+    agl: np.ndarray, sigma_m: float = 8.0, *, gsd_m: Optional[float] = None
+) -> np.ndarray:
     """Synthesise a "ground" prior from an AGL field, for training-time
     ablation ONLY when real SRTM/DTM alignment is not available.
 
@@ -96,7 +95,8 @@ def synth_dem_from_agl(agl: np.ndarray,
     """
     if agl.ndim != 2:
         raise ValueError(
-            f"synth_dem_from_agl expects a 2-D AGL array, got shape {agl.shape}")
+            f"synth_dem_from_agl expects a 2-D AGL array, got shape {agl.shape}"
+        )
     if sigma_m <= 0:
         raise ValueError(f"sigma_m must be > 0, got {sigma_m}")
 
@@ -121,7 +121,7 @@ def synth_dem_from_agl(agl: np.ndarray,
     # Separable 1-D Gaussian (mathematically equivalent to the 2-D kernel,
     # ~K x faster — matters when training tiles are 1024^2).
     coords = np.arange(ks, dtype=np.float64) - radius
-    g1d = np.exp(-(coords ** 2) / (2 * sigma_px ** 2))
+    g1d = np.exp(-(coords**2) / (2 * sigma_px**2))
     s = float(g1d.sum())
     if s > 0:
         g1d /= s
@@ -131,6 +131,7 @@ def synth_dem_from_agl(agl: np.ndarray,
     # joint-transform edge mode, so the proxy is consistent with how AGL
     # itself is cropped/augmented).
     from scipy.ndimage import convolve1d
+
     out = convolve1d(agl.astype(np.float32), g1d, axis=0, mode="reflect")
     out = convolve1d(out, g1d, axis=1, mode="reflect")
     return out.astype(np.float32)

@@ -99,7 +99,8 @@ def _verify_stats_gate(mcfg: dict, source_names: List[str]) -> dict:
             "normalization must be verified BEFORE mixing GAMUS with "
             "DFC2019 (binding user constraint). Run `python model.py stats` "
             "for both datasets, review the report, set 'verified: true' in "
-            "it, then point dataset.verified_stats at that JSON file.")
+            "it, then point dataset.verified_stats at that JSON file."
+        )
     p = Path(stats_path)
     if not p.exists():
         raise FileNotFoundError(f"verified_stats artifact not found: {p}")
@@ -109,20 +110,28 @@ def _verify_stats_gate(mcfg: dict, source_names: List[str]) -> dict:
             f"{p}: stats artifact exists but 'verified' is not true — a "
             "human must review the per-dataset statistics before mixing. "
             "(Constraint: do not mix GAMUS and DFC2019 until per-dataset "
-            "statistics and normalization are verified.)")
+            "statistics and normalization are verified.)"
+        )
     covered = set(stats.get("datasets", {}).keys())
     missing = [n for n in source_names if n not in covered]
     if missing:
         raise ValueError(
             f"stats artifact {p} does not cover dataset(s) {missing} — "
-            f"covered: {sorted(covered)}. Re-run `model.py stats` for them.")
+            f"covered: {sorted(covered)}. Re-run `model.py stats` for them."
+        )
     return stats
 
 
-def build_mixed_datasets(mcfg: dict, *, crop_size=None, augment: bool = False,
-                          load_depth: bool = True, depth_cache_dir=None,
-                          clamp_agl_min: float = 0.0,
-                          seed: int = 42) -> Dict[str, "MixedDataset"]:
+def build_mixed_datasets(
+    mcfg: dict,
+    *,
+    crop_size=None,
+    augment: bool = False,
+    load_depth: bool = True,
+    depth_cache_dir=None,
+    clamp_agl_min: float = 0.0,
+    seed: int = 42,
+) -> Dict[str, "MixedDataset"]:
     """{split: MixedDataset} from a mixed dataset config.
 
     Config:
@@ -150,10 +159,15 @@ def build_mixed_datasets(mcfg: dict, *, crop_size=None, augment: bool = False,
     weights: Dict[str, list] = {}
     for src in sources:
         sub_cfg = {"dataset": dict(src), "paths": {}}
-        dss = build_datasets(sub_cfg, crop_size=crop_size, augment=augment,
-                             load_depth=load_depth,
-                             depth_cache_dir=depth_cache_dir,
-                             clamp_agl_min=clamp_agl_min, seed=seed)
+        dss = build_datasets(
+            sub_cfg,
+            crop_size=crop_size,
+            augment=augment,
+            load_depth=load_depth,
+            depth_cache_dir=depth_cache_dir,
+            clamp_agl_min=clamp_agl_min,
+            seed=seed,
+        )
         for split, ds in dss.items():
             per_split_datasets.setdefault(split, []).append(ds)
             weights.setdefault(split, []).append(float(src.get("weight", 1.0)))
