@@ -29,8 +29,18 @@ class TerrainService:
         return self.get_output_dir(scene_id) / "dsm.tif"
 
     def terrain_available(self, scene_id: str) -> bool:
-        """Return whether a generated DSM is available."""
+        """Return whether the georeferenced DSM raster is available."""
         return self.get_dsm_path(scene_id).is_file()
+
+    def depth_available(self, scene_id: str) -> bool:
+        """Return whether the numerical DSM array is available.
+
+        Non-georeferenced scenes produce dsm.npy WITHOUT a dsm.tif, so
+        point products (elevation/measurements) must gate on this, not on
+        the raster."""
+        from backend.app.services.result_service import result_service
+
+        return result_service.get_result_files(scene_id).get("depth") is not None
 
     def _read_dsm_metadata(self, path: Path) -> dict:
         """Read the spatial metadata required by the terrain API."""

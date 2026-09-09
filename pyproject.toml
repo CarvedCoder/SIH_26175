@@ -30,5 +30,11 @@ dev = [
     "httpx>=0.27", # FastAPI TestClient transport
 ]
 
+[tool.uv]
+# The repo runs from the source tree (no package build/install); uv
+# manages dependencies only. Keeps `uv sync --frozen` usable in Docker
+# without a setuptools flat-layout package build.
+package = false
+
 [tool.pytest.ini_options]
 testpaths = ["model_tests", "tests", "backend_tests"]

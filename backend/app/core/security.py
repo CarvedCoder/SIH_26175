@@ -17,7 +17,7 @@ import hmac
 
 from fastapi import Request
 
-from backend.app.core.config import settings
+from backend.app.core.config import get_settings
 from backend.app.core.errors import Unauthorized
 from backend.app.core.logging import logger
 
@@ -25,15 +25,16 @@ API_KEY_HEADER = "X-API-Key"
 
 
 def auth_enabled() -> bool:
-    return settings.api_key is not None
+    return get_settings().api_key is not None
 
 
 async def require_api_key(request: Request) -> None:
     """FastAPI dependency enforcing the API-key boundary."""
-    if settings.api_key is None:
+    api_key = get_settings().api_key
+    if api_key is None:
         return
 
     provided = request.headers.get(API_KEY_HEADER)
-    if provided is None or not hmac.compare_digest(provided, settings.api_key):
+    if provided is None or not hmac.compare_digest(provided, api_key):
         logger.info("rejected request: missing/invalid API key path=%s", request.url.path)
         raise Unauthorized()

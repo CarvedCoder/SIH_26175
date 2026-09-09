@@ -43,6 +43,20 @@ def _require_results(scene_id: str) -> None:
         )
 
 
+def _require_depth(scene_id: str) -> None:
+    """Point products work off the numerical DSM array (which exists for
+    non-georeferenced scenes too)."""
+    _require_scene(scene_id)
+    if not terrain_service.depth_available(scene_id):
+        raise AppError(
+            status_code=404,
+            code="RESULTS_NOT_FOUND",
+            message="No depth results exist for this scene yet — process it first.",
+            details={"scene_id": scene_id},
+            recoverable=True,
+        )
+
+
 @router.get("/{scene_id}/terrain", response_model=TerrainResponse)
 async def get_scene_terrain(scene_id: str):
     """Return the normalized terrain representation for a scene."""
@@ -62,7 +76,7 @@ async def get_scene_terrain_tiles(
     tile_size: int = Query(default=256, ge=32, le=1024),
 ):
     """Return the tile grid over the scene's terrain."""
-    _require_results(scene_id)
+    _require_depth(scene_id)
     tiles = terrain_service.terrain_tiles(scene_id, tile_size=tile_size)
     return TerrainTilesResponse(
         scene_id=scene_id,
@@ -76,9 +90,9 @@ async def get_scene_terrain_tiles(
 @router.get("/{scene_id}/minimap", response_model=ArtifactUrlResponse)
 async def get_scene_minimap(scene_id: str):
     """Return a small overview image of the predicted terrain."""
-    _require_results(scene_id)
+    _require_depth(scene_id)
     try:
-        path = terrain_service.get_minimap_path(scene_id)
+        terrain_service.get_minimap_path(scene_id)
     except FileNotFoundError:
         raise AppError(
             status_code=404,
@@ -100,7 +114,7 @@ async def get_scene_elevation(
     y: int = Query(..., ge=0),
 ):
     """Point elevation probe on the predicted DSM."""
-    _require_results(scene_id)
+    _require_depth(scene_id)
     try:
         elevation = terrain_service.sample_elevation(scene_id, x, y)
     except ValueError as exc:
@@ -120,7 +134,7 @@ async def get_scene_elevation(
 )
 async def measure_height(scene_id: str, request: HeightMeasureRequest):
     """Vertical delta between two points sampled from the predicted DSM."""
-    _require_results(scene_id)
+    _require_depth(scene_id)
     try:
         result = terrain_service.measure_height(
             scene_id,
@@ -144,7 +158,7 @@ async def measure_slope(scene_id: str, request: SlopeMeasureRequest):
     """Slope between two points. Non-georeferenced scenes get an honest
     refusal (null slope, gsd_available=false) — pixel-space slopes are not
     metric and are never guessed."""
-    _require_results(scene_id)
+    _require_depth(scene_id)
     try:
         result = terrain_service.measure_slope(
             scene_id,

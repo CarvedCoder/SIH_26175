@@ -16,7 +16,6 @@ from fastapi import APIRouter, BackgroundTasks
 
 from backend.app.api.routes.scenes import _require_scene
 from backend.app.core.errors import AppError, SceneBusy
-from backend.app.core.logging import logger
 from backend.app.jobs.manager import job_manager
 from backend.app.schemas.job import (
     CancelResponse,
@@ -47,9 +46,8 @@ def _run_processing(job_id: str, scene_id: str, request: ProcessRequest) -> None
             ground_elev=request.ground_elev,
         )
     except Exception as exc:
-        # ProcessingService already recorded the typed job error; re-raise
-        # details are logged there. Nothing further to do here.
-        logger.debug("background job %s ended with %s", job_id, type(exc).__name__)
+        # record the typed job error; full detail is logged server-side
+        processing_service.record_failure(job_id, exc)
 
 
 def _run_refinement(job_id: str, scene_id: str, request: RefineRequest) -> None:
@@ -65,7 +63,7 @@ def _run_refinement(job_id: str, scene_id: str, request: RefineRequest) -> None:
             ),
         )
     except Exception as exc:
-        logger.debug("background job %s ended with %s", job_id, type(exc).__name__)
+        processing_service.record_failure(job_id, exc)
 
 
 @router.post("/api/v1/scenes/{scene_id}/process", response_model=ProcessAccepted)

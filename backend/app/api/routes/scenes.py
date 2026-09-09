@@ -24,7 +24,7 @@ from pathlib import Path
 import rasterio
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from backend.app.core.config import settings
+from backend.app.core.config import get_settings
 from backend.app.core.errors import AppError, InvalidSceneId, SceneNotFound
 from backend.app.core.logging import logger
 from backend.app.core.paths import (
@@ -47,7 +47,10 @@ from backend.app.schemas.scene import (
     SceneStatus,
     SceneSummary,
 )
-from backend.app.schemas.validation import ValidationCheckResponse
+from backend.app.schemas.validation import (
+    ValidationCheckResponse,
+    ValidationDimensions,
+)
 from backend.app.services.result_service import result_service
 
 router = APIRouter(
@@ -220,7 +223,7 @@ async def create_scene(
         )
 
     declared_length = file.size
-    if declared_length is not None and declared_length > settings.max_upload_bytes:
+    if declared_length is not None and declared_length > get_settings().max_upload_bytes:
         raise HTTPException(
             status_code=413,
             detail="Uploaded file exceeds the maximum allowed size.",
@@ -240,7 +243,7 @@ async def create_scene(
             with staging_path.open("wb") as destination:
                 while chunk := await file.read(_UPLOAD_CHUNK):
                     received += len(chunk)
-                    if received > settings.max_upload_bytes:
+                    if received > get_settings().max_upload_bytes:
                         raise HTTPException(
                             status_code=413,
                             detail="Uploaded file exceeds the maximum allowed size.",
@@ -382,7 +385,7 @@ async def validate_scene(scene_id: str):
         valid=not issues,
         issues=issues,
         georeferenced=metadata["georeferenced"],
-        dimensions=SceneDimensions(
+        dimensions=ValidationDimensions(
             width=metadata["width"],
             height=metadata["height"],
             channels=metadata["channels"],

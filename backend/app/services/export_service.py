@@ -15,11 +15,13 @@ class ExportFileNotFound(FileNotFoundError):
 # ---------------------------------------------------------------------------
 
 _EXPORT_CANDIDATES: dict[str, list[str]] = {
+    # The pipeline's numerical array product is dsm.npy (mirrors the
+    # result_service allowlist: "depth" = dsm.npy).
     "depth": [
+        "dsm.npy",
+        "depth.npy",
         "depth.tif",
         "depth.png",
-        "depth.npy",
-        "depth.npz",
     ],
     "dsm": [
         "dsm.tif",
@@ -27,12 +29,13 @@ _EXPORT_CANDIDATES: dict[str, list[str]] = {
         "dsm.npy",
         "dsm.png",
     ],
+    # No separate terrain raster is produced yet; the georeferenced DSM
+    # raster IS the terrain product (fallbacks are honest, existing files).
     "terrain": [
         "terrain.tif",
-        "terrain.tiff",
         "terrain.png",
-        "heightmap.png",
-        "heightmap.npy",
+        "dsm.tif",
+        "minimap.png",
     ],
     "validation": [
         "validation.json",
