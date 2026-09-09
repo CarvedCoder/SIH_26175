@@ -31,6 +31,7 @@ from backend.app.core.paths import (
     get_scene_raw_dir,
 )
 from backend.app.jobs.manager import job_manager
+from depthwizard.inference import run_inference
 
 # Module-level guard shared by ALL jobs in this process: never run more
 # than DW_MAX_CONCURRENT_JOBS torch forwards simultaneously.
@@ -169,8 +170,6 @@ class ProcessingService:
                 )
                 return {"cancelled": True}
 
-            from depthwizard.inference import run_inference
-
             payload = run_inference(
                 input_path=input_path,
                 ckpt_path=checkpoint,
@@ -228,7 +227,6 @@ class ProcessingService:
         )
 
         import rasterio
-        from depthwizard.inference import run_inference
 
         with rasterio.open(input_path) as ds:
             width, height = ds.width, ds.height

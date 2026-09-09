@@ -1,0 +1,14 @@
+# Keep the build context small and secrets out of the image.
+.git
+.venv
+**/__pycache__
+**/*.pyc
+data/
+outputs/
+frontend/node_modules
+frontend/dist
+*.zip
+.pytest_cache
+.ruff_cache
+.codex
+.agents
