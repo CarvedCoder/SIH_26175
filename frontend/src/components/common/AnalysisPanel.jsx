@@ -480,8 +480,8 @@ export default function AnalysisPanel({
                     <DataRow
                       label="Resolution"
                       value={
-                        state.scene?.width && state.scene?.height
-                          ? `${state.scene.width} × ${state.scene.height}`
+                        state.scene?.dimensions?.width && state.scene?.dimensions?.height
+                          ? `${state.scene.dimensions.width} × ${state.scene.dimensions.height}`
                           : '4096 × 4096'
                       }
                     />

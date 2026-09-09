@@ -120,10 +120,27 @@ class TerrainScene(BaseModel):
 
 
 class TerrainResponse(BaseModel):
-    """API response returned for a scene's terrain."""
+    """API response returned for a scene's terrain.
+
+    Top-level convenience fields are the 3D renderer's contract
+    (TerrainCanvas destructures heightmap_url / texture_url /
+    height_scale / min_elevation / max_elevation); the nested ``terrain``
+    object keeps the full typed detail."""
 
     scene_id: str
 
     available: bool = False
 
     terrain: TerrainScene | None = None
+
+    # -- renderer contract (top level) -----------------------------------
+    heightmap_url: str | None = None
+    texture_url: str | None = None
+
+    height_scale: float | None = Field(
+        default=None,
+        description="Metres of vertical displacement for a fully-saturated "
+        "heightmap pixel (the max AGL of the scene).",
+    )
+    min_elevation: float | None = None
+    max_elevation: float | None = None

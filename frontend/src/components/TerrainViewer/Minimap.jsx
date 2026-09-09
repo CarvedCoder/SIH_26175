@@ -24,6 +24,7 @@
  * Spec §8, §57, §58.
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { resolveAssetUrl } from '../../api/client.js';
 import { Map, Minus } from 'lucide-react';
 
 /** Minimap canvas size */
@@ -53,12 +54,13 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
 
   /* ── Load background image ─────────────────────────────────────────── */
   useEffect(() => {
-    if (!minimapMeta?.image_url) return;
+    const imageUrl = resolveAssetUrl(minimapMeta?.url ?? minimapMeta?.image_url ?? null);
+    if (!imageUrl) return;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => { bgRef.current = img; };
-    img.src = minimapMeta.image_url;
-  }, [minimapMeta?.image_url]);
+    img.src = imageUrl;
+  }, [minimapMeta?.url, minimapMeta?.image_url]);
 
   /* ── World → canvas coordinate mapping (task 6.5) ─────────────────── */
   /**

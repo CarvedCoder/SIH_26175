@@ -20,11 +20,12 @@
  */
 import { useEffect, useRef, useImperativeHandle, forwardRef, useCallback } from 'react';
 import {
-  Renderer, Camera, Transform, Geometry, Program, Mesh, Texture,
+  Renderer, Camera, Transform, Geometry, Program, Mesh, Texture, Vec3,
 } from 'ogl';
 import { Orbit } from 'ogl/src/extras/Orbit.js';
 import { useApp } from '../../store/appStore.jsx';
 import { getTerrain } from '../../api/terrain.js';
+import { resolveAssetUrl } from '../../api/client.js';
 
 /* ─── Shader source ─────────────────────────────────────────────────────── */
 
@@ -171,16 +172,18 @@ const FRAG = /* glsl */ `
     vec3 shadow = mix(vec3(0.04, 0.07, 0.12), lit, clamp(diff + uAmbient, 0.0, 1.0));
 
     // Optional contour lines (§21)
+    // NOTE: no fwidth() here — it requires the OES_standard_derivatives
+    // extension in WebGL 1, and its absence failed the WHOLE shader compile
+    // (black canvas). Line width is a fixed fraction of the interval instead.
     if (uContoursEnabled > 0.5 && uContourInterval > 0.001) {
       float elev = vHeight * uElevationSpan + uMinElevation;
       float lineDist = abs(fract(elev / uContourInterval - 0.5) - 0.5) * uContourInterval;
-      float fw = max(fwidth(elev), 0.0001);
-      float contour = 1.0 - smoothstep(0.0, fw * 1.5, lineDist);
+      float contour = 1.0 - smoothstep(0.0, uContourInterval * 0.06, lineDist);
 
       // Major index contour every 5 intervals
       float majorInterval = uContourInterval * 5.0;
       float majorDist = abs(fract(elev / majorInterval - 0.5) - 0.5) * majorInterval;
-      float majorContour = 1.0 - smoothstep(0.0, fw * 2.2, majorDist);
+      float majorContour = 1.0 - smoothstep(0.0, majorInterval * 0.03, majorDist);
 
       // Subtle crisp cartographic line
       vec3 contourColor = vec3(0.06, 0.09, 0.14);
@@ -215,7 +218,7 @@ const DEFAULT_CAMERA_POS = [0, 1.2, 2.5];
  * @returns {Promise<{ data: Float32Array, width: number, height: number }>}
  */
 async function decodeHeightmap(url) {
-  const res = await fetch(url);
+  const res = await fetch(resolveAssetUrl(url));
   const blob = await res.blob();
   const bitmap = await createImageBitmap(blob);
 
@@ -646,6 +649,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
      * @param {number} colormapMode - 0=rgb, 1=greyscale, 2=viridis, 3=diverging
      */
     setLayerTexture(url, colormapMode = 0) {
+      url = resolveAssetUrl(url);
       const g = glRef.current;
       if (!g.renderer || !g.program) return;
       const gl = g.renderer.gl;
@@ -815,7 +819,9 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     // Orbit controller (task 5.1 lives here, basic setup; full camera system in Phase 5)
     const orbit = new Orbit(camera, {
       element: canvas,
-      target: { x: 0, y: 0, z: 0 },
+      // Orbit expects a Vec3 (it calls target.add() while panning) — a
+      // plain object threw every frame and killed the render loop.
+      target: new Vec3(0, 0, 0),
       ease: 0.08,
       inertia: 0.7,
       enablePan: true,
@@ -834,8 +840,11 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     // ── 4.2: Create placeholder program + 1×1 black heightmap ──
     // We create a 1px black texture so the program compiles immediately
     const blackPixel = new Uint8Array([0, 0, 0, 255]);
+    // ogl expects image to be a RAW ArrayBufferView (data texture) or a DOM
+    // image — a three.js-style {data,width,height} object fails texImage2D
+    // overload resolution and killed the whole render loop.
     const hmTex = new Texture(gl, {
-      image: { data: blackPixel, width: 1, height: 1 },
+      image: blackPixel,
       width: 1, height: 1,
       minFilter: gl.LINEAR,
       magFilter: gl.LINEAR,
@@ -845,7 +854,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     });
 
     const rgbTex = new Texture(gl, {
-      image: { data: blackPixel, width: 1, height: 1 },
+      image: blackPixel,
       width: 1, height: 1,
       minFilter: gl.LINEAR_MIPMAP_LINEAR,
       magFilter: gl.LINEAR,
@@ -990,8 +999,17 @@ export default TerrainCanvas;
 async function loadTerrainData(gl, g, program, scene, sceneId, actions) {
   try {
     // Fetch terrain metadata
+    console.info('[terrain] loading terrain for', sceneId);
     const terrainMeta = await getTerrain(sceneId);
     if (g.disposed) return;
+
+    console.info('[terrain] metadata loaded:', {
+      heightmap_url: terrainMeta?.heightmap_url,
+      texture_url:   terrainMeta?.texture_url,
+      height_scale:  terrainMeta?.height_scale,
+      min_elevation: terrainMeta?.min_elevation,
+      max_elevation: terrainMeta?.max_elevation,
+    });
 
     const { heightmap_url, texture_url, height_scale, min_elevation, max_elevation } = terrainMeta;
 
@@ -1019,10 +1037,15 @@ async function loadTerrainData(gl, g, program, scene, sceneId, actions) {
     g.hmWidth     = width;
     g.hmHeight    = height;
 
-    // Upload heightmap as GL texture (full resolution)
+    // Upload heightmap as GL texture (full resolution). The data is the
+    // normalized [0,1] height in a single 8-bit channel — a RAW Uint8Array
+    // view (R8/RED in WebGL2, LUMINANCE in WebGL1).
+    const uint8 = new Uint8Array(data.length);
+    for (let i = 0; i < data.length; i++) uint8[i] = Math.round(data[i] * 255);
+
     const oldHmTex = program.uniforms.uHeightmap?.value;
     const hmTex = new Texture(gl, {
-      image: { data: new Uint8Array(data.length * 4), width, height },
+      image: uint8,
       width,
       height,
       internalFormat: gl.R8 ?? gl.LUMINANCE,
@@ -1035,12 +1058,6 @@ async function loadTerrainData(gl, g, program, scene, sceneId, actions) {
       flipY: false,
       generateMipmaps: false,
     });
-
-    // Write the actual 8-bit data
-    const uint8 = new Uint8Array(data.length);
-    for (let i = 0; i < data.length; i++) uint8[i] = Math.round(data[i] * 255);
-    hmTex.image = { data: uint8, width, height };
-    hmTex.needsUpdate = true;
     g.activeTextures.add(hmTex);
     program.uniforms.uHeightmap.value = hmTex;
 
@@ -1104,9 +1121,10 @@ async function loadTerrainData(gl, g, program, scene, sceneId, actions) {
           g.activeTextures.delete(oldTex);
         }
       };
-      img.src = texture_url;
+      img.src = resolveAssetUrl(texture_url);
     }
   } catch (err) {
+    console.error('[terrain] failed to load terrain data:', err);
     if (!g.disposed) {
       actions.terrainFail({
         code: err.code ?? 'TERRAIN_LOAD_ERROR',
