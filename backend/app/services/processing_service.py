@@ -89,37 +89,67 @@ class ProcessingService:
 
     # -- deterministic input ------------------------------------------------
 
+    # Designated upload names in deterministic check order (the upload route
+    # stores the validated raster as input.<original extension>; PNG/JPG
+    # are first-class inputs alongside GeoTIFF).
+    _DESIGNATED_INPUTS = (
+        "input.tif",
+        "input.tiff",
+        "input.png",
+        "input.jpg",
+        "input.jpeg",
+    )
+    _RASTER_SUFFIXES = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+
+    def find_scene_input(self, scene_id: str) -> Path | None:
+        """Return the scene's designated input raster, or None.
+
+        Determinism rule (audit M9): pick by exact known filename — never
+        by iteration order.
+        """
+        input_dir = get_scene_raw_dir(scene_id)
+
+        if not input_dir.exists():
+            return None
+
+        for name in self._DESIGNATED_INPUTS:
+            candidate = input_dir / name
+            if candidate.is_file():
+                return candidate
+
+        return None
+
     def resolve_scene_input(self, scene_id: str) -> Path:
         """Return the ONE input raster of a scene, deterministically.
 
-        Determinism rule (audit M9): pick by explicit known filename
-        (`input.tif`, written at upload) when present; otherwise require
-        exactly one raster — several rasters with no designated input is an
-        ambiguous scene and is REJECTED, never resolved by iteration order.
+        Falls back to the single-raster rule: several images with no
+        designated input is an ambiguous scene and is REJECTED, never
+        resolved by iteration order.
         """
+        designated = self.find_scene_input(scene_id)
+        if designated is not None:
+            return designated
+
         input_dir = get_scene_raw_dir(scene_id)
 
         if not input_dir.exists():
             raise FileNotFoundError(f"Scene '{scene_id}' has no stored input.")
 
-        designated = input_dir / "input.tif"
-        if designated.is_file():
-            return designated
-
         rasters = sorted(
             path
             for path in input_dir.iterdir()
-            if path.is_file() and path.suffix.lower() in {".tif", ".tiff"}
+            if path.is_file() and path.suffix.lower() in self._RASTER_SUFFIXES
         )
 
         if not rasters:
             raise FileNotFoundError(
-                f"No GeoTIFF input found for scene '{scene_id}'."
+                f"No image input found for scene '{scene_id}'."
             )
         if len(rasters) > 1:
             raise SceneInputError(
-                f"Scene '{scene_id}' contains multiple rasters with no "
-                "designated input; rename exactly one to input.tif."
+                f"Scene '{scene_id}' contains multiple images with no "
+                "designated input; rename exactly one to input.tif "
+                "(or input.png / input.jpg)."
             )
 
         return rasters[0]
