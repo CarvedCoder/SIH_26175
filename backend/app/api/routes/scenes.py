@@ -10,9 +10,9 @@ Upload safety (audit C4/M3/S7):
     * every failure path cleans up its temp files.
 
 Determinism (audit M9): the validated raster is stored under the exact
-name ``input.tif`` and its inspected metadata is persisted in
-``scene.json``, so every later reader sees the same file and metadata —
-no unsorted iterdir, no per-request re-inspection.
+name ``input.<ext>`` (its original extension) and its inspected metadata
+is persisted in ``scene.json``, so every later reader sees the same file
+and metadata — no unsorted iterdir, no per-request re-inspection.
 """
 
 from __future__ import annotations
@@ -58,10 +58,19 @@ router = APIRouter(
     tags=["Scenes"],
 )
 
-ALLOWED_EXTENSIONS = {".tif", ".tiff"}
-DESIGNATED_INPUT_NAME = "input.tif"
+# PNG/JPG are first-class inputs (the frontend advertises them): rasterio
+# reads them via the GDAL PNG/JPEG drivers, and the certified inference
+# path (read_image) consumes any rasterio-readable RGB raster.
+ALLOWED_EXTENSIONS = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+GEOTIFF_EXTENSIONS = {".tif", ".tiff"}
 SCENE_METADATA_NAME = "scene.json"
 _UPLOAD_CHUNK = 1024 * 1024
+
+
+def designated_input_name(extension: str) -> str:
+    """Exact filename the validated upload is stored under — determinism
+    contract of the processing service (input.<original extension>)."""
+    return f"input{extension}"
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +98,7 @@ def _inspect_raster(path: Path) -> dict:
                 "width": dataset.width,
                 "height": dataset.height,
                 "channels": dataset.count,
-                "format": "GeoTIFF",
+                "format": dataset.driver,  # GTiff | PNG | JPEG — honest
                 "georeferenced": georeferenced,
                 "crs": crs.to_string() if crs else None,
                 "min_x": bounds.left,
@@ -108,7 +117,7 @@ def _inspect_raster(path: Path) -> dict:
         logger.exception("raster inspection failed for scene upload")
         raise HTTPException(
             status_code=400,
-            detail="The uploaded file could not be parsed as a GeoTIFF raster.",
+            detail="The uploaded file could not be parsed as a supported image raster (PNG, JPEG, or GeoTIFF).",
         )
 
 
@@ -219,7 +228,8 @@ async def create_scene(
     if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail="Unsupported file format. Currently supported formats: .tif and .tiff",
+            detail="Unsupported file format. Supported formats: "
+            ".png, .jpg, .jpeg, .tif, .tiff",
         )
 
     declared_length = file.size
@@ -255,9 +265,10 @@ async def create_scene(
         # 2) validate content BEFORE committing any permanent state
         metadata = _inspect_raster(staging_path)
 
-        # 3) commit: atomically move the validated raster into place
+        # 3) commit: atomically move the validated raster into place,
+        #    under the designated input.<ext> name (determinism contract)
         scene_dir.mkdir(parents=True, exist_ok=True)
-        atomic_destination = scene_dir / DESIGNATED_INPUT_NAME
+        atomic_destination = scene_dir / designated_input_name(extension)
         staging_path.replace(atomic_destination)
         _store_scene_metadata(scene_id, original_filename, metadata)
 
@@ -364,8 +375,10 @@ async def validate_scene(scene_id: str):
     """Re-check a scene's stored input raster without processing it."""
     _require_scene(scene_id)
 
-    input_path = get_scene_raw_dir(scene_id) / DESIGNATED_INPUT_NAME
-    if not input_path.is_file():
+    from backend.app.services.processing_service import processing_service
+
+    input_path = processing_service.find_scene_input(scene_id)
+    if input_path is None:
         return ValidationCheckResponse(
             scene_id=scene_id, valid=False, issues=["Scene input raster is missing."]
         )

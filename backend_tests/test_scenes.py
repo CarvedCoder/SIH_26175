@@ -169,3 +169,131 @@ def test_scene_input_resolution_is_deterministic(client, uploaded_scene):
     first = processing_service.resolve_scene_input(scene_id)
     second = processing_service.resolve_scene_input(scene_id)
     assert first == second == raw_dir / "input.tif"
+
+
+# ---------------------------------------------------------------------------
+# PNG / JPG inputs (first-class, matching the frontend's advertised formats)
+# ---------------------------------------------------------------------------
+
+def _png_bytes(width=512, height=384, mode="RGB"):
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new(mode, (width, height), color=(30, 90, 160)).save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+
+def _jpeg_bytes(width=400, height=300):
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), color=(120, 40, 90)).save(
+        buffer, format="JPEG"
+    )
+    buffer.seek(0)
+    return buffer
+
+
+def test_upload_png_scene(client):
+    response = client.post(
+        "/api/v1/scenes",
+        files={"file": ("ortho.png", _png_bytes(), "image/png")},
+    )
+    assert response.status_code == 200, response.text
+    scene = response.json()
+    assert scene["scene_id"].startswith("scene_")
+    assert scene["format"] == "PNG"
+    # PNG has no CRS: honest relative-elevation scene
+    assert scene["georeference"]["available"] is False
+    assert scene["processing_path"] == "relative"
+    assert scene["capabilities"]["absolute_elevation"] is False
+
+    stored = client.get(f"/api/v1/scenes/{scene['scene_id']}").json()
+    assert stored["format"] == "PNG"
+    assert stored["dimensions"] == {"width": 512, "height": 384, "channels": 3}
+
+
+def test_upload_jpeg_scene(client):
+    response = client.post(
+        "/api/v1/scenes",
+        files={"file": ("ortho.jpg", _jpeg_bytes(), "image/jpeg")},
+    )
+    assert response.status_code == 200, response.text
+    scene = response.json()
+    assert scene["format"] == "JPEG"
+    assert scene["dimensions"]["width"] == 400
+
+
+def test_upload_fake_png_rejected(client):
+    """A .png that is not an image: rejected by the raster parse gate."""
+    response = client.post(
+        "/api/v1/scenes",
+        files={"file": ("fake.png", io.BytesIO(b"not an image"), "image/png")},
+    )
+    assert response.status_code == 400
+
+
+def test_png_scene_processes_end_to_end(client, mock_inference):
+    """PNG scenes run the SAME certified inference path and produce the
+    same result contract (non-georeferenced: no dsm.tif, honest stats)."""
+    upload = client.post(
+        "/api/v1/scenes",
+        files={"file": ("ortho.png", _png_bytes(), "image/png")},
+    ).json()
+    scene_id = upload["scene_id"]
+
+    job = client.post(f"/api/v1/scenes/{scene_id}/process", json={}).json()
+    status = client.get(f"/api/v1/jobs/{job['job_id']}").json()
+    assert status["status"] == "completed", status
+
+    # the pipeline received the stored PNG input
+    assert mock_inference[0][0].name == "input.png"
+
+    results = client.get(f"/api/v1/scenes/{scene_id}/results").json()
+    assert results["job_id"] == job["job_id"]
+    assert results["depth"]["available"] is True
+    assert results["dsm"]["available"] is False  # no CRS -> no dsm.tif
+
+    # point products work off the depth array
+    elevation = client.get(f"/api/v1/scenes/{scene_id}/elevation?x=5&y=5")
+    assert elevation.status_code == 200
+
+    # slope is honestly refused (no GSD)
+    slope = client.post(
+        f"/api/v1/scenes/{scene_id}/measure/slope",
+        json={"point_a": {"x": 0, "y": 0}, "point_b": {"x": 10, "y": 0}},
+    ).json()
+    assert slope["gsd_available"] is False
+    assert slope["slope_degrees"] is None
+
+
+def test_png_input_resolution_deterministic(client):
+    from backend.app.core.paths import get_scene_raw_dir
+    from backend.app.services.processing_service import processing_service
+
+    upload = client.post(
+        "/api/v1/scenes",
+        files={"file": ("ortho.png", _png_bytes(), "image/png")},
+    ).json()
+    scene_id = upload["scene_id"]
+
+    first = processing_service.resolve_scene_input(scene_id)
+    second = processing_service.resolve_scene_input(scene_id)
+    assert first == second == get_scene_raw_dir(scene_id) / "input.png"
+
+
+def test_upload_rejects_unsupported_image_types(client):
+    """Formats rasterio's contract doesn't cover for this product (e.g.
+    webp) stay rejected with the honest message."""
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 64)).save(buffer, format="WEBP")
+    buffer.seek(0)
+    response = client.post(
+        "/api/v1/scenes",
+        files={"file": ("pic.webp", buffer, "image/webp")},
+    )
+    assert response.status_code == 400
+    assert "webp" in response.json()["error"]["message"].lower() or "format" in response.json()["error"]["message"].lower()
