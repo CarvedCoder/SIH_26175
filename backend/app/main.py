@@ -17,3 +17,4 @@ def startup_event() -> None:
 
 
 app.include_router(api_router)
+

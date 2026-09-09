@@ -30,8 +30,12 @@ import argparse
 import json
 from pathlib import Path
 
-from depthwizard.cli.args import (add_config_arg, add_device_arg,
-                                  load_config, resolve_device)
+from depthwizard.cli.args import (
+    add_config_arg,
+    add_device_arg,
+    load_config,
+    resolve_device,
+)
 from depthwizard.inference import run_inference
 
 NAME = "infer"
@@ -39,34 +43,58 @@ HELP = "image -> AGL/DSM with the flagship (demo path, supports Track-2 anchorin
 
 
 def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    p = sub.add_parser(NAME, help=HELP, description=__doc__,
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = sub.add_parser(
+        NAME,
+        help=HELP,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     add_config_arg(p, "configs/infer.yaml")
-    p.add_argument("--checkpoint", default=None,
-                   help="override ckpt path (default: configs/infer.yaml)")
+    p.add_argument(
+        "--checkpoint",
+        default=None,
+        help="override ckpt path (default: configs/infer.yaml)",
+    )
     p.add_argument("--input", required=True, help="PNG / JPG / TIF image")
-    p.add_argument("--out", default=None,
-                   help="output dir (default: outputs/infer/<stem>)")
-    p.add_argument("--mode", choices=["auto", "crop", "resize", "tiles"],
-                   default=None)
+    p.add_argument(
+        "--out", default=None, help="output dir (default: outputs/infer/<stem>)"
+    )
+    p.add_argument("--mode", choices=["auto", "crop", "resize", "tiles"], default=None)
     add_device_arg(p)
-    p.add_argument("--dn", default=None,
-                   help="matching raw Dn .npy; default: depth cache lookup, "
-                        "then LIVE Depth-Anything-V2")
-    p.add_argument("--cache-dir", default=None,
-                   help="depth cache dir override")
-    p.add_argument("--no-live", action="store_true",
-                   help="never run the live DAv2 backbone (fail if no cache)")
-    p.add_argument("--backbone", default=None,
-                   help="live backbone model id (default from config)")
-    p.add_argument("--anchor-dem", default=None,
-                   help="DEM/DTM raster for absolute DSM (Track 2)")
-    p.add_argument("--ground-elev", type=float, default=None,
-                   help="constant ground elevation datum (metres)")
-    p.add_argument("--json-out", default=None,
-                   help="write the webapp scene payload to this JSON path")
-    p.add_argument("--no-write", action="store_true",
-                   help="skip writing dsm/preview files (payload only)")
+    p.add_argument(
+        "--dn",
+        default=None,
+        help="matching raw Dn .npy; default: depth cache lookup, "
+        "then LIVE Depth-Anything-V2",
+    )
+    p.add_argument("--cache-dir", default=None, help="depth cache dir override")
+    p.add_argument(
+        "--no-live",
+        action="store_true",
+        help="never run the live DAv2 backbone (fail if no cache)",
+    )
+    p.add_argument(
+        "--backbone", default=None, help="live backbone model id (default from config)"
+    )
+    p.add_argument(
+        "--anchor-dem", default=None, help="DEM/DTM raster for absolute DSM (Track 2)"
+    )
+    p.add_argument(
+        "--ground-elev",
+        type=float,
+        default=None,
+        help="constant ground elevation datum (metres)",
+    )
+    p.add_argument(
+        "--json-out",
+        default=None,
+        help="write the webapp scene payload to this JSON path",
+    )
+    p.add_argument(
+        "--no-write",
+        action="store_true",
+        help="skip writing dsm/preview files (payload only)",
+    )
     return p
 
 
@@ -75,22 +103,36 @@ def run(args) -> int:
     paths = cfg.get("paths", {})
     icfg = cfg.get("infer", {})
 
-    ckpt = args.checkpoint or icfg.get("checkpoint") or \
-        str(Path(paths.get("outputs_dir", "outputs")) / "calib_net" / "rgb_cos" / "best.pt")
+    ckpt = (
+        args.checkpoint
+        or icfg.get("checkpoint")
+        or str(
+            Path(paths.get("outputs_dir", "outputs"))
+            / "calib_net"
+            / "rgb_cos"
+            / "best.pt"
+        )
+    )
     if not Path(ckpt).exists():
-        print(f"[error] checkpoint not found: {ckpt}\n"
-              f"        train one (`python model.py train --out-tag rgb_cos`) or "
-              f"pass --checkpoint.")
+        print(
+            f"[error] checkpoint not found: {ckpt}\n"
+            f"        train one (`python model.py train --out-tag rgb_cos`) or "
+            f"pass --checkpoint."
+        )
         return 1
 
     device = resolve_device(args.device or icfg.get("device", "auto"))
     mode = args.mode or icfg.get("mode", "auto")
     cache_dir = args.cache_dir or paths.get("depth_cache_dir")
-    backbone_id = args.backbone or icfg.get("backbone",
-                                            "depth-anything/Depth-Anything-V2-Base-hf")
+    backbone_id = args.backbone or icfg.get(
+        "backbone", "depth-anything/Depth-Anything-V2-Base-hf"
+    )
     input_path = Path(args.input)
-    out_dir = Path(args.out) if args.out else \
-        Path(paths.get("outputs_dir", "outputs")) / "infer" / input_path.stem
+    out_dir = (
+        Path(args.out)
+        if args.out
+        else Path(paths.get("outputs_dir", "outputs")) / "infer" / input_path.stem
+    )
 
     payload = run_inference(
         input_path,

@@ -34,8 +34,9 @@ class DFC2019Adapter(DFC2019Dataset):
     dataset_name = "dfc2019"
     sem_legend = "dfc2019"
 
-    def __init__(self, tiles: List[TilePaths], config: DFC2019Config,
-                 load_semantics: bool = True):
+    def __init__(
+        self, tiles: List[TilePaths], config: DFC2019Config, load_semantics: bool = True
+    ):
         super().__init__(tiles, config)
         self.load_semantics = bool(load_semantics)
 
@@ -44,9 +45,10 @@ class DFC2019Adapter(DFC2019Dataset):
         if self.load_semantics:
             cls_np = s["cls"][0].numpy()
             onehot, ignore, unmapped = semantic_layers(cls_np, self.sem_legend)
-            s["sem_onehot"] = torch.from_numpy(onehot)       # [6,H,W] f32
-            s["sem_ignore"] = torch.from_numpy(
-                np.ascontiguousarray(ignore))[None, ...]     # [1,H,W] bool
+            s["sem_onehot"] = torch.from_numpy(onehot)  # [6,H,W] f32
+            s["sem_ignore"] = torch.from_numpy(np.ascontiguousarray(ignore))[
+                None, ...
+            ]  # [1,H,W] bool
             s["meta"]["sem_legend"] = self.sem_legend
             if unmapped:
                 s["meta"]["sem_unmapped_ids"] = unmapped
@@ -56,15 +58,17 @@ class DFC2019Adapter(DFC2019Dataset):
         return s
 
 
-def discover_and_split_adapter(config: DFC2019Config, splits_json,
-                               load_semantics: bool = True):
+def discover_and_split_adapter(
+    config: DFC2019Config, splits_json, load_semantics: bool = True
+):
     """discover_and_split, but returning DFC2019Adapter datasets.
 
     Reuses the frozen tile/split logic from depthwizard.dataset (single
     source of truth for DFC discovery) — no duplication.
     """
     from ..dataset import discover_and_split
-    out = discover_and_split(config, splits_json,
-                             dataset_class=DFC2019Adapter,
-                             load_semantics=load_semantics)
+
+    out = discover_and_split(
+        config, splits_json, dataset_class=DFC2019Adapter, load_semantics=load_semantics
+    )
     return out

@@ -40,6 +40,27 @@ RGB_SUFFIXES = ("_RGB.tif", "_RGB.tiff", "_RGB.TIF")
 AGL_SUFFIXES = ("_AGL.tif", "_AGL.tiff", "_AGL.TIF")
 CLS_SUFFIXES = ("_CLS.tif", "_CLS.tiff", "_CLS.TIF")
 
+from typing import TypedDict
+import numpy as np
+
+
+class TileMeta(TypedDict):
+    stem: str
+    height: int
+    width: int
+    rgb_crs: str | None
+    agl_crs: str | None
+    cls_crs: str | None
+    rgb_transform: list[float] | None
+    agl_transform: list[float] | None
+
+
+class TileData(TypedDict):
+    rgb: np.ndarray
+    agl: np.ndarray
+    cls: np.ndarray
+    meta: TileMeta
+
 
 @dataclass
 class TilePaths:
@@ -51,8 +72,12 @@ class TilePaths:
     cls: Path
 
     def to_dict(self) -> Dict[str, str]:
-        return {"stem": self.stem, "rgb": str(self.rgb),
-                "agl": str(self.agl), "cls": str(self.cls)}
+        return {
+            "stem": self.stem,
+            "rgb": str(self.rgb),
+            "agl": str(self.agl),
+            "cls": str(self.cls),
+        }
 
 
 def parse_stem(stem: str) -> Tuple[str, int, int]:
@@ -82,7 +107,9 @@ def _index_dir(directory: Path, suffixes) -> Dict[str, Path]:
     return out
 
 
-def discover_tiles(rgb_dir: Path | str, truth_dir: Path | str) -> Tuple[List[TilePaths], List[str]]:
+def discover_tiles(
+    rgb_dir: Path | str, truth_dir: Path | str
+) -> Tuple[List[TilePaths], List[str]]:
     """Discover RGB/AGL/CLS triples by filename stem.
 
     Returns (tiles, problems). ``problems`` is a list of human-readable
@@ -101,14 +128,17 @@ def discover_tiles(rgb_dir: Path | str, truth_dir: Path | str) -> Tuple[List[Til
         problems.append(f"Truth without RGB pair: {stem}")
 
     common = sorted(set(rgb_idx) & set(agl_idx) & set(cls_idx))
-    tiles = [TilePaths(stem=s, rgb=rgb_idx[s], agl=agl_idx[s], cls=cls_idx[s])
-             for s in common]
+    tiles = [
+        TilePaths(stem=s, rgb=rgb_idx[s], agl=agl_idx[s], cls=cls_idx[s])
+        for s in common
+    ]
     return tiles, problems
 
 
 # ---------------------------------------------------------------------------
 # Reading
 # ---------------------------------------------------------------------------
+
 
 def is_georeferenced(profile: dict) -> Tuple[bool, str]:
     """True iff the raster carries a CRS (identity transform alone does not
@@ -223,41 +253,46 @@ def read_raster(path: Path | str) -> Tuple[np.ndarray, dict]:
     return arr, profile
 
 
-def read_tile(paths: TilePaths) -> Dict[str, np.ndarray]:
-    """Read one aligned triple into canonical layouts:
-        rgb: uint8  [H,W,3]   (band order taken as stored; DFC2019 RGB is R,G,B)
-        agl: float32 [H,W]    raw values, INCLUDING any small negatives
-        cls: int32   [H,W]    raw class ids, unmodified
-    Raises ValueError immediately if the three grids differ in shape —
-    that is an alignment failure, not something to broadcast away.
-    """
+def read_tile(paths: TilePaths) -> TileData:
     rgb, rgb_prof = read_raster(paths.rgb)
     agl, agl_prof = read_raster(paths.agl)
     cls, cls_prof = read_raster(paths.cls)
 
     if rgb.shape[0] < 3:
-        raise ValueError(f"{paths.stem}: RGB raster has {rgb.shape[0]} bands, expected >=3")
-    rgb = rgb[:3].transpose(1, 2, 0)          # -> [H,W,3]
-    agl = agl[0] if agl.ndim == 3 else agl     # single band -> [H,W]
+        raise ValueError(
+            f"{paths.stem}: RGB raster has {rgb.shape[0]} bands, expected >=3"
+        )
+
+    rgb = rgb[:3].transpose(1, 2, 0)
+    agl = agl[0] if agl.ndim == 3 else agl
     cls = cls[0] if cls.ndim == 3 else cls
 
     h, w = rgb.shape[:2]
+
     if agl.shape != (h, w) or cls.shape != (h, w):
         raise ValueError(
-            f"{paths.stem}: grid mismatch rgb{rgb.shape[:2]} agl{agl.shape} "
-            f"cls{cls.shape} — files are NOT pixel-aligned; do not proceed."
+            f"{paths.stem}: grid mismatch "
+            f"rgb{rgb.shape[:2]} agl{agl.shape} cls{cls.shape} "
+            f"— files are NOT pixel-aligned; do not proceed."
         )
+
     return {
         "rgb": np.ascontiguousarray(rgb, dtype=np.uint8),
         "agl": np.ascontiguousarray(agl, dtype=np.float32),
         "cls": np.ascontiguousarray(cls, dtype=np.int32),
         "meta": {
             "stem": paths.stem,
-            "height": int(h), "width": int(w),
-            "rgb_crs": rgb_prof.get("crs_str"), "agl_crs": agl_prof.get("crs_str"),
+            "height": int(h),
+            "width": int(w),
+            "rgb_crs": rgb_prof.get("crs_str"),
+            "agl_crs": agl_prof.get("crs_str"),
             "cls_crs": cls_prof.get("crs_str"),
-            "rgb_transform": [list(rgb_prof["transform"])[:6] if rgb_prof.get("transform") else None][0],
-            "agl_transform": [list(agl_prof["transform"])[:6] if agl_prof.get("transform") else None][0],
+            "rgb_transform": (
+                list(rgb_prof["transform"])[:6] if rgb_prof.get("transform") else None
+            ),
+            "agl_transform": (
+                list(agl_prof["transform"])[:6] if agl_prof.get("transform") else None
+            ),
         },
     }
 
@@ -266,10 +301,14 @@ def read_tile(paths: TilePaths) -> Dict[str, np.ndarray]:
 # Quicklooks (visual alignment verification)
 # ---------------------------------------------------------------------------
 
-def save_quicklook(tile: Dict[str, np.ndarray], out_png: Path, cls_ids: Optional[List[int]] = None) -> None:
+
+def save_quicklook(
+    tile: TileData, out_png: Path, cls_ids: Optional[List[int]] = None
+) -> None:
     """3-panel PNG: RGB | AGL (magma) | CLS (tab20). The human eye is the
     final alignment check: rooftops in AGL must sit on rooftops in RGB."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib import colors as mcolors
@@ -282,7 +321,9 @@ def save_quicklook(tile: Dict[str, np.ndarray], out_png: Path, cls_ids: Optional
     axes[1].set_title(f"AGL  min={agl.min():.2f}  max={agl.max():.2f}")
     fig.colorbar(im1, ax=axes[1], fraction=0.046, pad=0.02)
     if cls_ids is not None and len(cls_ids) > 0:
-        cmap = mcolors.ListedColormap(plt.cm.tab20(np.linspace(0, 1, max(len(cls_ids), 2))))
+        cmap = mcolors.ListedColormap(
+            plt.cm.tab20(np.linspace(0, 1, max(len(cls_ids), 2)))
+        )
         bounds = list(cls_ids) + [max(cls_ids) + 1]
         norm = mcolors.BoundaryNorm(bounds, cmap.N)
         axes[2].imshow(cls, cmap=cmap, norm=norm, interpolation="nearest")
@@ -300,8 +341,14 @@ def save_quicklook(tile: Dict[str, np.ndarray], out_png: Path, cls_ids: Optional
 # Writing (used from Phase 8 onward, provided now so tests cover it)
 # ---------------------------------------------------------------------------
 
-def write_tif_like(path: Path | str, array: np.ndarray, like_profile: dict,
-                   nodata: Optional[float] = None, dtype: str = "float32") -> None:
+
+def write_tif_like(
+    path: Path | str,
+    array: np.ndarray,
+    like_profile: dict,
+    nodata: Optional[float] = None,
+    dtype: str = "float32",
+) -> None:
     """Write `array` [C,H,W] or [H,W] reusing the grid/CRS of `like_profile`.
     For DFC2019 Track-1 (no CRS) the output is likewise non-georeferenced —
     we never fabricate coordinates."""
@@ -310,9 +357,14 @@ def write_tif_like(path: Path | str, array: np.ndarray, like_profile: dict,
     if array.ndim == 2:
         array = array[None, ...]
     prof = {
-        "driver": "GTiff", "width": array.shape[2], "height": array.shape[1],
-        "count": array.shape[0], "dtype": dtype, "crs": like_profile.get("crs"),
-        "transform": like_profile.get("transform"), "nodata": nodata,
+        "driver": "GTiff",
+        "width": array.shape[2],
+        "height": array.shape[1],
+        "count": array.shape[0],
+        "dtype": dtype,
+        "crs": like_profile.get("crs"),
+        "transform": like_profile.get("transform"),
+        "nodata": nodata,
     }
     with rasterio.open(path, "w", **prof) as dst:
         dst.write(array.astype(dtype))
@@ -343,6 +395,7 @@ def resolve_cache_dir(root, subdir: str | None = None) -> "Path":
     Usage: resolve_cache_dir(paths["depth_cache_dir"], args.cache_subdir)
     """
     from pathlib import Path as _P
+
     root = _P(root)
     if not root.exists():
         raise FileNotFoundError(f"depth cache root not found: {root}")
@@ -352,7 +405,7 @@ def resolve_cache_dir(root, subdir: str | None = None) -> "Path":
             raise FileNotFoundError(f"--cache-subdir '{subdir}' not found under {root}")
         return d
     if list(root.glob("*.npy")):
-        return root                              # legacy flat model dir
+        return root  # legacy flat model dir
     subs = sorted(d for d in root.iterdir() if d.is_dir())
     model_subs = [d for d in subs if d.name not in DATASET_NAMESPACES]
     if subs and not model_subs:
@@ -364,7 +417,8 @@ def resolve_cache_dir(root, subdir: str | None = None) -> "Path":
         raise FileNotFoundError(f"no *.npy under {root} — run the depth command")
     raise FileNotFoundError(
         f"multiple model caches under {root}: {[d.name for d in model_subs]} — "
-        "pass cache_subdir explicitly. Never mix depths across backbones.")
+        "pass cache_subdir explicitly. Never mix depths across backbones."
+    )
 
 
 # ---------------------------------------------------------------------------
