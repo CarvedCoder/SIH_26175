@@ -29,10 +29,15 @@ HELP = "cross-check one predicted scene vs its AGL truth (frozen protocol)"
 
 
 def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    p = sub.add_parser(NAME, help=HELP, description=__doc__,
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--pred", required=True,
-                   help="predicted DSM (.npy [H,W] or single-band .tif)")
+    p = sub.add_parser(
+        NAME,
+        help=HELP,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--pred", required=True, help="predicted DSM (.npy [H,W] or single-band .tif)"
+    )
     p.add_argument("--truth", required=True, help="truth <stem>_AGL.tif")
     return p
 
@@ -50,20 +55,26 @@ def run(args) -> int:
         gt_raw = ds.read(1).astype(np.float32)
         print(f"[raw] dtype={ds.dtypes[0]}  nodata={ds.nodata}")
 
-    gt = clean_agl(gt_raw)                       # frozen protocol
+    gt = clean_agl(gt_raw)  # frozen protocol
     m = valid_target_mask(gt_raw)
 
     if dsm.shape != gt.shape:
         raise ValueError(f"pred {dsm.shape} vs truth {gt.shape} grid mismatch")
 
-    print(f"[gt]   valid {m.mean():.1%}  min {np.nanmin(gt_raw):.2f}  "
-          f"mean {np.nanmean(gt_raw):.2f}  median {np.nanmedian(gt_raw):.2f}  "
-          f"max {np.nanmax(gt_raw):.2f}")
+    print(
+        f"[gt]   valid {m.mean():.1%}  min {np.nanmin(gt_raw):.2f}  "
+        f"mean {np.nanmean(gt_raw):.2f}  median {np.nanmedian(gt_raw):.2f}  "
+        f"max {np.nanmax(gt_raw):.2f}"
+    )
     err = (dsm - gt)[m]
-    print(f"[err]  MAE {np.abs(err).mean():.3f}  medae {np.median(np.abs(err)):.3f}  "
-          f"bias {err.mean():.3f}  RMSE {np.sqrt((err**2).mean()):.3f}")
+    print(
+        f"[err]  MAE {np.abs(err).mean():.3f}  medae {np.median(np.abs(err)):.3f}  "
+        f"bias {err.mean():.3f}  RMSE {np.sqrt((err**2).mean()):.3f}"
+    )
     met = height_metrics(dsm, gt, m)
     print(f"[r]    pearson {met['pearson_r']:.3f}")
-    print(f"[sat]  pred zero-frac {(dsm <= 1e-6).mean():.3f}   "
-          f"gt AGL<=0.5m frac {(gt[m] <= 0.5).mean():.3f}")
+    print(
+        f"[sat]  pred zero-frac {(dsm <= 1e-6).mean():.3f}   "
+        f"gt AGL<=0.5m frac {(gt[m] <= 0.5).mean():.3f}"
+    )
     return 0

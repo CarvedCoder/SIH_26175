@@ -26,46 +26,85 @@ from typing import Dict, List, Optional
 # (module under depthwizard.cli, subcommand name, one-line help)
 # Canonical pipeline order.
 SPECS: List[tuple] = [
-    ("inspect_dataset", "inspect",
-     "dataset structure/alignment/class inspection + quicklooks"),
-    ("make_splits", "splits",
-     "freeze scene-level train/val/test splits (block mode default)"),
-    ("dataset_stats", "stats",
-     "per-dataset AGL/Dn statistics + normalization verification "
-     "(REQUIRED gate before mixed training)"),
-    ("precompute_depth", "depth",
-     "precompute the Depth-Anything-V2 raw depth cache (.npy per tile)"),
-    ("fit_baseline", "fit-baseline",
-     "fit the global affine baseline H = a*Dn + b (train split only)"),
-    ("eval_baseline", "eval-baseline",
-     "masked evaluation of the global affine baseline + error maps"),
-    ("dummy_baselines", "dummies",
-     "constant-predictor floors (zero / train-mean / train-median)"),
-    ("reference_table", "reference",
-     "merge baseline + dummies into the frozen reference card / gates"),
-    ("train_calibration", "train",
-     "train the spatial calibration net (U-Net affine over Dn [+RGB])"),
-    ("eval_calibration", "evaluate",
-     "CITABLE eval of the calibration net vs frozen gates (val [+test])"),
-    ("infer", "infer",
-     "image -> AGL/DSM with the flagship (demo path, supports Track-2 anchoring)"),
-    ("eval_scene", "eval-scene",
-     "predicted DSM vs truth AGL for one scene (diagnostic, NOT citable)"),
-    ("gt_check", "gt-check",
-     "cross-check one predicted scene vs its AGL truth (frozen protocol)"),
-    ("diag_rgb", "diag",
-     "tensor/init/gradient diagnostics for a pinned training run"),
-    ("serve", "serve",
-     "launch the FastAPI inference service used by the webapp"),
+    (
+        "inspect_dataset",
+        "inspect",
+        "dataset structure/alignment/class inspection + quicklooks",
+    ),
+    (
+        "make_splits",
+        "splits",
+        "freeze scene-level train/val/test splits (block mode default)",
+    ),
+    (
+        "dataset_stats",
+        "stats",
+        "per-dataset AGL/Dn statistics + normalization verification "
+        "(REQUIRED gate before mixed training)",
+    ),
+    (
+        "precompute_depth",
+        "depth",
+        "precompute the Depth-Anything-V2 raw depth cache (.npy per tile)",
+    ),
+    (
+        "fit_baseline",
+        "fit-baseline",
+        "fit the global affine baseline H = a*Dn + b (train split only)",
+    ),
+    (
+        "eval_baseline",
+        "eval-baseline",
+        "masked evaluation of the global affine baseline + error maps",
+    ),
+    (
+        "dummy_baselines",
+        "dummies",
+        "constant-predictor floors (zero / train-mean / train-median)",
+    ),
+    (
+        "reference_table",
+        "reference",
+        "merge baseline + dummies into the frozen reference card / gates",
+    ),
+    (
+        "train_calibration",
+        "train",
+        "train the spatial calibration net (U-Net affine over Dn [+RGB])",
+    ),
+    (
+        "eval_calibration",
+        "evaluate",
+        "CITABLE eval of the calibration net vs frozen gates (val [+test])",
+    ),
+    (
+        "infer",
+        "infer",
+        "image -> AGL/DSM with the flagship (demo path, supports Track-2 anchoring)",
+    ),
+    (
+        "eval_scene",
+        "eval-scene",
+        "predicted DSM vs truth AGL for one scene (diagnostic, NOT citable)",
+    ),
+    (
+        "gt_check",
+        "gt-check",
+        "cross-check one predicted scene vs its AGL truth (frozen protocol)",
+    ),
+    ("diag_rgb", "diag", "tensor/init/gradient diagnostics for a pinned training run"),
+    ("serve", "serve", "launch the FastAPI inference service used by the webapp"),
 ]
 
 COMMANDS: Dict[str, str] = {name: mod for mod, name, _h in SPECS}
 HELPS: Dict[str, str] = {name: h for _m, name, h in SPECS}
 
-_EPILOG = ("Pipeline order: inspect -> splits -> depth -> [stats: multi-"
-           "dataset verification gate] -> fit-baseline -> eval-baseline -> "
-           "dummies -> reference -> train -> evaluate -> infer | serve. "
-           "Citable numbers: `evaluate` only.")
+_EPILOG = (
+    "Pipeline order: inspect -> splits -> depth -> [stats: multi-"
+    "dataset verification gate] -> fit-baseline -> eval-baseline -> "
+    "dummies -> reference -> train -> evaluate -> infer | serve. "
+    "Citable numbers: `evaluate` only."
+)
 
 
 def load_command(name: str) -> ModuleType:
@@ -80,8 +119,9 @@ def _skeleton_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="model.py",
         description="DepthWizard (SIH26175) — single-view aerial RGB -> "
-                    "LiDAR-derived height (AGL) estimation + 3D flythrough.",
-        epilog=_EPILOG)
+        "LiDAR-derived height (AGL) estimation + 3D flythrough.",
+        epilog=_EPILOG,
+    )
     sub = ap.add_subparsers(dest="command", metavar="<command>")
     for _mod, name, help_text in SPECS:
         sub.add_parser(name, help=help_text)

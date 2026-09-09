@@ -19,8 +19,12 @@ HELP = "launch the FastAPI inference service used by the webapp"
 
 
 def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    p = sub.add_parser(NAME, help=HELP, description=__doc__,
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = sub.add_parser(
+        NAME,
+        help=HELP,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--reload", action="store_true", help="dev autoreload")
@@ -31,8 +35,9 @@ def run(args) -> int:
     import uvicorn
 
     print(f"[i] DepthWizard inference service on http://{args.host}:{args.port}")
-    print("[i] endpoints: GET /health, POST /predict (multipart: image, "
-          "anchor_dem?, ground_elev?, mode?)")
-    uvicorn.run("service.api:app", host=args.host, port=args.port,
-                reload=args.reload)
+    print(
+        "[i] endpoints: GET /health, POST /predict (multipart: image, "
+        "anchor_dem?, ground_elev?, mode?)"
+    )
+    uvicorn.run("service.api:app", host=args.host, port=args.port, reload=args.reload)
     return 0

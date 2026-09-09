@@ -54,23 +54,38 @@ from typing import List, Tuple, cast
 import numpy as np
 
 from depthwizard.backbone import INPUT_SIZE, DepthAnythingBackbone
-from depthwizard.geo import (RGB_SUFFIXES, _index_dir, depth_npy_candidates,
-                             dump_json, read_raster)
+from depthwizard.geo import (
+    RGB_SUFFIXES,
+    _index_dir,
+    depth_npy_candidates,
+    dump_json,
+    read_raster,
+)
 
 NAME = "depth"
 HELP = "precompute the Depth-Anything-V2 raw depth cache (.npy per tile)"
 
 
 def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    p = sub.add_parser(NAME, help=HELP, description=__doc__,
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--dataset", choices=("dfc2019", "gamus"),
-                   default="dfc2019",
-                   help="which dataset to precompute depth for (namespaced "
-                        "cache layout per dataset)")
-    p.add_argument("--rgb-dir", type=Path, default=None,
-                   help="DFC2019 RGB directory (required for --dataset "
-                        "dfc2019)")
+    p = sub.add_parser(
+        NAME,
+        help=HELP,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--dataset",
+        choices=("dfc2019", "gamus"),
+        default="dfc2019",
+        help="which dataset to precompute depth for (namespaced "
+        "cache layout per dataset)",
+    )
+    p.add_argument(
+        "--rgb-dir",
+        type=Path,
+        default=None,
+        help="DFC2019 RGB directory (required for --dataset dfc2019)",
+    )
     p.add_argument("--out-dir", type=Path, default=Path("outputs/depth_cache"))
     p.add_argument("--model", default="depth-anything/Depth-Anything-V2-Base-hf")
     p.add_argument("--device", default="auto", help="auto | cuda | cpu")
@@ -78,22 +93,44 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=0, help="process only first N tiles")
     p.add_argument("--overwrite", action="store_true")
     # ---- GAMUS source options (ignored for dfc2019) ----
-    p.add_argument("--gamus-source", choices=("hf", "local"), default="hf",
-                   help="GAMUS backend: hf = raw HDF5 + lazy per-file "
-                        "download (primary); local = offline/pre-downloaded "
-                        "subset directory")
-    p.add_argument("--gamus-local-root", type=Path, default=None,
-                   help="GAMUS local directory (raw official layout) when "
-                        "--gamus-source local")
-    p.add_argument("--gamus-manifest", type=Path, default=None,
-                   help="reusable GAMUS split manifest (offline index)")
-    p.add_argument("--gamus-save-manifest", type=Path, default=None,
-                   help="write the GAMUS split manifest after listing")
-    p.add_argument("--gamus-hf-cache", type=Path, default=None,
-                   help="local cache root for lazy HF downloads")
-    p.add_argument("--gamus-splits", nargs="+",
-                   default=["train", "val", "test"],
-                   help="GAMUS splits to precompute (official, verbatim)")
+    p.add_argument(
+        "--gamus-source",
+        choices=("hf", "local"),
+        default="hf",
+        help="GAMUS backend: hf = raw HDF5 + lazy per-file "
+        "download (primary); local = offline/pre-downloaded "
+        "subset directory",
+    )
+    p.add_argument(
+        "--gamus-local-root",
+        type=Path,
+        default=None,
+        help="GAMUS local directory (raw official layout) when --gamus-source local",
+    )
+    p.add_argument(
+        "--gamus-manifest",
+        type=Path,
+        default=None,
+        help="reusable GAMUS split manifest (offline index)",
+    )
+    p.add_argument(
+        "--gamus-save-manifest",
+        type=Path,
+        default=None,
+        help="write the GAMUS split manifest after listing",
+    )
+    p.add_argument(
+        "--gamus-hf-cache",
+        type=Path,
+        default=None,
+        help="local cache root for lazy HF downloads",
+    )
+    p.add_argument(
+        "--gamus-splits",
+        nargs="+",
+        default=["train", "val", "test"],
+        help="GAMUS splits to precompute (official, verbatim)",
+    )
     return p
 
 
@@ -102,7 +139,8 @@ def _dfc2019_entries(args) -> List[Tuple[str, object]]:
     if args.rgb_dir is None:
         raise SystemExit(
             "[error] --dataset dfc2019 requires --rgb-dir "
-            "(e.g. rgb_data/Train-Track1-RGB/Track1-RGB)")
+            "(e.g. rgb_data/Train-Track1-RGB/Track1-RGB)"
+        )
     index = _index_dir(args.rgb_dir, RGB_SUFFIXES)
     return [(stem, index[stem]) for stem in sorted(index)]
 
@@ -110,14 +148,16 @@ def _dfc2019_entries(args) -> List[Tuple[str, object]]:
 def _gamus_entries(args) -> List[Tuple[str, object]]:
     """(sample_id, GAMUSSample) entries for GAMUS — official splits."""
     from depthwizard.datasets.gamus import GAMUSConfig, list_gamus_samples
+
     cfg = GAMUSConfig(
         source=args.gamus_source,
         local_root=args.gamus_local_root,
         manifest=args.gamus_manifest,
         save_manifest=args.gamus_save_manifest,
         hf_cache_dir=args.gamus_hf_cache,
-        limit=args.limit,                    # deterministic per-split cap
-        splits=tuple(args.gamus_splits))
+        limit=args.limit,  # deterministic per-split cap
+        splits=tuple(args.gamus_splits),
+    )
     per_split, problems = list_gamus_samples(cfg)
     entries: List[Tuple[str, object]] = []
     if problems:
@@ -133,20 +173,27 @@ def _gamus_entries(args) -> List[Tuple[str, object]]:
     if not entries:
         raise SystemExit(
             "[error] GAMUS discovery produced no samples — check "
-            "--gamus-source/--gamus-local-root/--gamus-manifest.")
+            "--gamus-source/--gamus-local-root/--gamus-manifest."
+        )
     return entries
+
 
 def run(args) -> int:
     import torch
 
-    device = torch.device("cuda" if (args.device == "auto" and torch.cuda.is_available())
-                          else (args.device if args.device != "auto" else "cpu"))
+    device = torch.device(
+        "cuda"
+        if (args.device == "auto" and torch.cuda.is_available())
+        else (args.device if args.device != "auto" else "cpu")
+    )
     if args.dataset == "dfc2019":
         entries = _dfc2019_entries(args)
     else:
         entries = _gamus_entries(args)
-    print(f"[i] dataset={args.dataset}  {len(entries)} tiles | "
-          f"model={args.model} | device={device}")
+    print(
+        f"[i] dataset={args.dataset}  {len(entries)} tiles | "
+        f"model={args.model} | device={device}"
+    )
 
     # Different model => different cache subdir; different dataset =>
     # different namespace. Never mix backbones, never mix datasets.
@@ -155,44 +202,56 @@ def run(args) -> int:
     cache_dir = model_dir / args.dataset
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    backbone = DepthAnythingBackbone(model_id=args.model, device=str(device),
-                                     fp16=args.fp16).load()
+    backbone = DepthAnythingBackbone(
+        model_id=args.model, device=str(device), fp16=args.fp16
+    ).load()
     manifest = {
-        "model": args.model, "dataset": args.dataset,
+        "model": args.model,
+        "dataset": args.dataset,
         "input_size": INPUT_SIZE,
-        "resize": "bicubic", "resample_back": "bilinear",
+        "resize": "bicubic",
+        "resample_back": "bilinear",
         "created": datetime.now(timezone.utc).isoformat(),
         "torch": torch.__version__,
         "transformers": __import__("transformers").__version__,
         "raw_definition": "predicted_depth at native HxW (bilinear upsample "
-                          "from 518). No normalization applied on disk.",
+        "from 518). No normalization applied on disk.",
         "tiles": {},
     }
     if (cache_dir / "manifest.json").exists() and not args.overwrite:
         from depthwizard.geo import load_json
+
         old = load_json(cache_dir / "manifest.json")
         if old.get("model") != args.model:
-            print(f"[warn] existing cache was built with model '{old.get('model')}' "
-                  f"but --overwrite was not passed and subdir is shared; continuing "
-                  f"(stems are keyed per tile, mismatched entries will be refreshed).")
+            print(
+                f"[warn] existing cache was built with model '{old.get('model')}' "
+                f"but --overwrite was not passed and subdir is shared; continuing "
+                f"(stems are keyed per tile, mismatched entries will be refreshed)."
+            )
 
     def _rgb_of(sample_id: str, entry: object) -> np.ndarray:
         if args.dataset == "dfc2019":
             rgb_path = cast(Path, entry)
             rgb, _prof = read_raster(rgb_path)
-            return rgb[:3].transpose(1, 2, 0)          # [H,W,3] uint8
-        from depthwizard.datasets.gamus import (GAMUSSample, read_gamus_h5,
-                                                _resolve_sample_files)
+            return rgb[:3].transpose(1, 2, 0)  # [H,W,3] uint8
+        from depthwizard.datasets.gamus import (
+            GAMUSSample,
+            read_gamus_h5,
+            _resolve_sample_files,
+        )
+
         s = cast(GAMUSSample, entry)
         # resolve the rgb .h5 through the sample's own source config
-        return read_gamus_h5(_resolve_sample_files(_gamus_cfg_for(args),
-                                                   s)["rgb"])
+        return read_gamus_h5(_resolve_sample_files(_gamus_cfg_for(args), s)["rgb"])
 
     skipped = 0
     for i, (sample_id, entry) in enumerate(entries, 1):
         out_npy = cache_dir / f"{sample_id}.npy"
-        existing = [p for p in depth_npy_candidates(model_dir, args.dataset,
-                                                    sample_id) if p.exists()]
+        existing = [
+            p
+            for p in depth_npy_candidates(model_dir, args.dataset, sample_id)
+            if p.exists()
+        ]
         if existing and not args.overwrite:
             skipped += 1
             continue
@@ -203,15 +262,19 @@ def run(args) -> int:
 
         np.save(out_npy, pred)
         manifest["tiles"][sample_id] = {
-            "file": out_npy.name, "shape": list(pred.shape),
+            "file": out_npy.name,
+            "shape": list(pred.shape),
             "dtype": "float32",
-            "raw_min": float(pred.min()), "raw_max": float(pred.max()),
+            "raw_min": float(pred.min()),
+            "raw_max": float(pred.max()),
         }
         if i % 10 == 0 or i == len(entries):
-            print(f"  [{i}/{len(entries)}] {sample_id} raw range "
-                  f"[{pred.min():.3f}, {pred.max():.3f}]")
+            print(
+                f"  [{i}/{len(entries)}] {sample_id} raw range "
+                f"[{pred.min():.3f}, {pred.max():.3f}]"
+            )
         if i % 20 == 0 or i == len(entries):
-            dump_json(manifest, cache_dir / "manifest.json")   # crash-safe
+            dump_json(manifest, cache_dir / "manifest.json")  # crash-safe
 
     dump_json(manifest, cache_dir / "manifest.json")
     print(f"[done] new: {len(manifest['tiles'])}, skipped(existing): {skipped}")
@@ -222,10 +285,12 @@ def run(args) -> int:
 
 def _gamus_cfg_for(args):
     from depthwizard.datasets.gamus import GAMUSConfig
+
     return GAMUSConfig(
         source=args.gamus_source,
         local_root=args.gamus_local_root,
         manifest=args.gamus_manifest,
         save_manifest=args.gamus_save_manifest,
         hf_cache_dir=args.gamus_hf_cache,
-        splits=tuple(args.gamus_splits))
+        splits=tuple(args.gamus_splits),
+    )

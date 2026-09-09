@@ -30,15 +30,27 @@ HELP = "predicted DSM vs truth AGL for one scene (diagnostic, NOT citable)"
 
 
 def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    p = sub.add_parser(NAME, help=HELP, description=__doc__,
-                       formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--pred", required=True,
-                   help="predicted DSM (.tif single band, or .npy [H,W])")
-    p.add_argument("--truth", required=True,
-                   help="truth AGL GeoTIFF (clean_agl convention applied)")
-    p.add_argument("--out", type=Path, default=None,
-                   help="report json path (default: alongside --pred)")
-    add_device_arg(p)   # unused; kept out of muscle-memory typos
+    p = sub.add_parser(
+        NAME,
+        help=HELP,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--pred", required=True, help="predicted DSM (.tif single band, or .npy [H,W])"
+    )
+    p.add_argument(
+        "--truth",
+        required=True,
+        help="truth AGL GeoTIFF (clean_agl convention applied)",
+    )
+    p.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="report json path (default: alongside --pred)",
+    )
+    add_device_arg(p)  # unused; kept out of muscle-memory typos
     return p
 
 
@@ -59,8 +71,9 @@ def run(args) -> int:
         raise ValueError(
             f"grid mismatch pred{pred.shape} vs truth{truth_raw.shape} — "
             "resample the prediction onto the truth grid first; do NOT "
-            "broadcast.")
-    truth = clean_agl(truth_raw)          # same convention as `evaluate`
+            "broadcast."
+        )
+    truth = clean_agl(truth_raw)  # same convention as `evaluate`
     mask = valid_target_mask(truth_raw)
 
     m = height_metrics(pred, truth, mask)
@@ -69,20 +82,28 @@ def run(args) -> int:
         "truth_le_0.5m_frac": float((truth[mask] <= 0.5).mean()),
     }
     print(f"[scene] {pred_path.name} vs {truth_path.name}")
-    print(f"[gt]    valid {mask.mean():.1%}  min {np.nanmin(truth_raw):.2f}  "
-          f"mean {np.nanmean(truth_raw):.2f}  median {np.nanmedian(truth_raw):.2f}  "
-          f"max {np.nanmax(truth_raw):.2f}")
-    print(f"[err]   MAE {m['mae']:.3f}  medae {m['medae']:.3f}  "
-          f"bias {m['bias']:.3f}  RMSE {m['rmse']:.3f}  r {m['pearson_r']:.3f}")
-    print(f"[sat]   pred zero-frac {sat['pred_zero_frac']:.3f}   "
-          f"gt AGL<=0.5m frac {sat['truth_le_0.5m_frac']:.3f}")
+    print(
+        f"[gt]    valid {mask.mean():.1%}  min {np.nanmin(truth_raw):.2f}  "
+        f"mean {np.nanmean(truth_raw):.2f}  median {np.nanmedian(truth_raw):.2f}  "
+        f"max {np.nanmax(truth_raw):.2f}"
+    )
+    print(
+        f"[err]   MAE {m['mae']:.3f}  medae {m['medae']:.3f}  "
+        f"bias {m['bias']:.3f}  RMSE {m['rmse']:.3f}  r {m['pearson_r']:.3f}"
+    )
+    print(
+        f"[sat]   pred zero-frac {sat['pred_zero_frac']:.3f}   "
+        f"gt AGL<=0.5m frac {sat['truth_le_0.5m_frac']:.3f}"
+    )
     print("[note]  diagnostic only — citable numbers come from `evaluate`.")
 
     report = {
         "created": datetime.now(timezone.utc).isoformat(),
         "kind": "scene_diagnostic_eval",
-        "pred": str(pred_path), "truth": str(truth_path),
-        "metrics": m, "saturation": sat,
+        "pred": str(pred_path),
+        "truth": str(truth_path),
+        "metrics": m,
+        "saturation": sat,
         "citable": False,
     }
     out = args.out or (pred_path.parent / f"{pred_path.stem}_scene_eval.json")

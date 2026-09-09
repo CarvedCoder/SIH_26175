@@ -39,7 +39,7 @@ SUPPORTED_WEIGHT_KEYS = ("w_grad", "w_smooth", "w_sem", "w_conf")
 
 @dataclass
 class LossConfig:
-    main: str = "l1"                 # "l1" | "huber"
+    main: str = "l1"  # "l1" | "huber"
     huber_delta: float = 5.0
     w_grad: float = 0.0
     w_smooth: float = 0.0
@@ -55,12 +55,14 @@ class LossConfig:
             huber_delta=float(tcfg.get("huber_delta", 5.0)),
             w_grad=float(tcfg.get("w_grad", 0.0)),
             w_smooth=float(tcfg.get("w_smooth", 0.0)),
-            w_sem=float(tcfg.get("w_sem", 0.0)))
+            w_sem=float(tcfg.get("w_sem", 0.0)),
+        )
 
 
 # ---------------------------------------------------------------------------
 # Individual terms
 # ---------------------------------------------------------------------------
+
 
 def gradient_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """L1 between first-order finite-difference gradients (dy, dx).
@@ -70,8 +72,7 @@ def gradient_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     shape gymnastics). Non-finite differences (LiDAR voids) are excluded.
     """
     if pred.shape != target.shape:
-        raise ValueError(f"gradient_loss shape mismatch {pred.shape} vs "
-                         f"{target.shape}")
+        raise ValueError(f"gradient_loss shape mismatch {pred.shape} vs {target.shape}")
     dy_p = pred[..., 1:, :] - pred[..., :-1, :]
     dy_t = target[..., 1:, :] - target[..., :-1, :]
     dx_p = pred[..., :, 1:] - pred[..., :, :-1]
@@ -102,9 +103,11 @@ def edge_aware_smoothness(pred: torch.Tensor, rgb: torch.Tensor) -> torch.Tensor
     return (dy_p * torch.exp(-dy_r)).mean() + (dx_p * torch.exp(-dx_r)).mean()
 
 
-def masked_semantic_ce(sem_logits: torch.Tensor,
-                       sem_target_onehot: torch.Tensor,
-                       sem_ignore: Optional[torch.Tensor] = None) -> torch.Tensor:
+def masked_semantic_ce(
+    sem_logits: torch.Tensor,
+    sem_target_onehot: torch.Tensor,
+    sem_ignore: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
     """Cross-entropy over the K project classes.
 
     sem_logits        [N,K,H,W] (aux head output, pre-softmax)
@@ -115,7 +118,7 @@ def masked_semantic_ce(sem_logits: torch.Tensor,
     """
     if sem_logits.shape[0] != sem_target_onehot.shape[0]:
         raise ValueError("sem logits / target batch mismatch")
-    target = sem_target_onehot.argmax(dim=1)                    # [N,H,W]
+    target = sem_target_onehot.argmax(dim=1)  # [N,H,W]
     if sem_ignore is not None:
         target = target.masked_fill(sem_ignore[:, 0].bool(), 255)
     valid = target != 255
@@ -127,6 +130,7 @@ def masked_semantic_ce(sem_logits: torch.Tensor,
 # ---------------------------------------------------------------------------
 # Composite
 # ---------------------------------------------------------------------------
+
 
 class DepthLoss:
     """Composite loss; ``__call__`` returns the TOTAL tensor (backprop-able),
@@ -141,11 +145,15 @@ class DepthLoss:
             return masked_huber_loss(pred, target, self.cfg.huber_delta)
         return masked_l1_loss(pred, target)
 
-    def __call__(self, pred: torch.Tensor, target: torch.Tensor,
-                 rgb: Optional[torch.Tensor] = None,
-                 sem_logits: Optional[torch.Tensor] = None,
-                 sem_target: Optional[torch.Tensor] = None,
-                 sem_ignore: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def __call__(
+        self,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+        rgb: Optional[torch.Tensor] = None,
+        sem_logits: Optional[torch.Tensor] = None,
+        sem_target: Optional[torch.Tensor] = None,
+        sem_ignore: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         total = self.main_term(pred, target)
         parts = {"main": float(total.detach())}
         if self.cfg.w_grad > 0.0:
@@ -156,8 +164,7 @@ class DepthLoss:
             s = edge_aware_smoothness(pred, rgb)
             total = total + self.cfg.w_smooth * s
             parts["smooth"] = float(s.detach())
-        if self.cfg.w_sem > 0.0 and sem_logits is not None \
-                and sem_target is not None:
+        if self.cfg.w_sem > 0.0 and sem_logits is not None and sem_target is not None:
             c = masked_semantic_ce(sem_logits, sem_target, sem_ignore)
             total = total + self.cfg.w_sem * c
             parts["sem_ce"] = float(c.detach())
