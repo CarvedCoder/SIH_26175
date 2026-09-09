@@ -24,6 +24,8 @@ router = APIRouter(
 _EXTRA_ALLOWED_FILES = {
     "reference": ("reference.tif", "reference_dem.tif", "ref_dem.tif"),
     "minimap": ("minimap.png",),
+    "heightmap": ("heightmap.png",),
+    "rgb": ("rgb_preview.png",),
     "error-map": (
         "error_map.png",
         "validation_error_map.png",
@@ -101,3 +103,30 @@ async def get_error_map_file(scene_id: str):
     """Return the validation error-map image."""
     _require_scene(scene_id)
     return _get_result_file(scene_id, "error-map")
+
+
+@router.get("/{scene_id}/results/heightmap")
+async def get_heightmap_file(scene_id: str):
+    """Return the browser-friendly heightmap PNG (R channel = elevation)."""
+    _require_scene(scene_id)
+    from backend.app.services.terrain_service import terrain_service
+
+    # generate on demand (idempotent) so the URL is always real
+    try:
+        terrain_service.get_heightmap_path(scene_id)
+    except (FileNotFoundError, ValueError):
+        pass
+    return _get_result_file(scene_id, "heightmap")
+
+
+@router.get("/{scene_id}/results/rgb")
+async def get_rgb_file(scene_id: str):
+    """Return the RGB preview of the source imagery (texture layer)."""
+    _require_scene(scene_id)
+    from backend.app.services.terrain_service import terrain_service
+
+    try:
+        terrain_service.get_rgb_preview_path(scene_id)
+    except (FileNotFoundError, ValueError):
+        pass
+    return _get_result_file(scene_id, "rgb")

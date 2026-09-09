@@ -27,6 +27,7 @@ import ApiErrorAlert from '../components/common/ApiErrorAlert.jsx';
 import { useValidation } from '../hooks/useValidation.js';
 import { useApp } from '../store/appStore.jsx';
 import { getDepth, getDsm } from '../api/results.js';
+import { resolveAssetUrl } from '../api/client.js';
 
 /**
  * @typedef {'idle'|'loading'|'done'|'error'} FetchState
@@ -85,16 +86,16 @@ export default function ResultDashboard() {
    * so we point to the scene's upload if the backend serves it, or show a placeholder.
    * When the terrain texture URL is available in results, prefer that.
    */
-  const rgbUrl  = results?.preview_url ?? null;
-  const depthUrl = depthData?.url ?? null;
-  const dsmUrl   = dsmData?.download_url ?? null;
+  const rgbUrl  = resolveAssetUrl(results?.preview_url ?? null);
+  const depthUrl = resolveAssetUrl(depthData?.url ?? null);
+  const dsmUrl   = resolveAssetUrl(dsmData?.download_url ?? null);
 
   const isLoading = fetchState === 'loading';
 
   // Scene metadata line items
   const meta = scene ? [
     { label: 'SOURCE', value: scene.filename },
-    { label: 'DIMENSIONS', value: `${scene.width} × ${scene.height} px` },
+    { label: 'DIMENSIONS', value: `${scene.dimensions?.width ?? '—'} × ${scene.dimensions?.height ?? '—'} px` },
     { label: 'FORMAT', value: scene.format },
     { label: 'GEOREF', value: scene.georeferenced ? 'YES' : 'NO' },
     scene.crs ? { label: 'CRS', value: scene.crs } : null,

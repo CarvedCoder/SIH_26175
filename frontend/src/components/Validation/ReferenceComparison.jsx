@@ -10,6 +10,7 @@
  * Spec §16, §17, §62, §63.
  */
 import { useValidation } from '../../hooks/useValidation.js';
+import { resolveAssetUrl } from '../../api/client.js';
 import MetricsPanel from './MetricsPanel.jsx';
 import ComparisonView from './ComparisonView.jsx';
 import { ShieldAlert, Download, RefreshCw, ExternalLink } from 'lucide-react';
@@ -160,7 +161,7 @@ export default function ReferenceComparison({
             {reference?.download_url && (
               <div>
                 <a
-                  href={reference.download_url}
+                  href={resolveAssetUrl(reference.download_url)}
                   download
                   style={{
                     display: 'inline-flex',

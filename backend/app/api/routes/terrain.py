@@ -13,6 +13,7 @@ from fastapi import APIRouter, Query
 
 from backend.app.api.routes.scenes import _require_scene
 from backend.app.core.errors import AppError
+from backend.app.core.logging import logger
 from backend.app.schemas.measurement import (
     ElevationResponse,
     HeightMeasureRequest,
@@ -59,14 +60,26 @@ def _require_depth(scene_id: str) -> None:
 
 @router.get("/{scene_id}/terrain", response_model=TerrainResponse)
 async def get_scene_terrain(scene_id: str):
-    """Return the normalized terrain representation for a scene."""
-    _require_results(scene_id)
+    """Return the normalized terrain representation for a scene.
+
+    Works for non-georeferenced scenes too (JPG/PNG): geometry comes from
+    the predicted depth array; bounds fall back to honest pixel space."""
+    _require_depth(scene_id)
 
     terrain = terrain_service.get_terrain(scene_id)
+    renderer = terrain_service.renderer_fields(scene_id)
+    logger.info(
+        "terrain built: scene=%s mode=%s heightmap=%s texture=%s",
+        scene_id,
+        terrain.elevation_mode,
+        renderer["heightmap_url"],
+        renderer["texture_url"],
+    )
     return TerrainResponse(
         scene_id=scene_id,
         available=True,
         terrain=terrain,
+        **renderer,
     )
 
 

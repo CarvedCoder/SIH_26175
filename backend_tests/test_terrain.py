@@ -192,3 +192,71 @@ def test_refine_bbox_out_of_bounds(client, uploaded_scene, mock_inference):
     job = client.get(f"/api/v1/jobs/{response.json()['job_id']}").json()
     assert job["status"] == "failed"
     assert job["error"]["code"] == "INVALID_INPUT"
+
+
+# ---------------------------------------------------------------------------
+# Terrain for non-georeferenced scenes + the 3D renderer contract
+# ---------------------------------------------------------------------------
+
+def test_terrain_non_georeferenced_scene(client, mock_inference):
+    """JPG/PNG scenes have no CRS: terrain MUST still be served (relative
+    mode, pixel-space bounds) — this was the '3D terrain shows nothing'
+    bug."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (512, 384), color=(90, 120, 60)).save(buffer, format="PNG")
+    buffer.seek(0)
+
+    scene = client.post(
+        "/api/v1/scenes", files={"file": ("village.png", buffer, "image/png")}
+    ).json()
+    job = client.post(f"/api/v1/scenes/{scene['scene_id']}/process", json={}).json()
+    status = client.get(f"/api/v1/jobs/{job['job_id']}").json()["status"]
+    assert status == "completed"
+
+    response = client.get(f"/api/v1/scenes/{scene['scene_id']}/terrain")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["available"] is True
+    assert body["terrain"]["elevation_mode"] == "relative"
+    assert body["terrain"]["coordinate_system"]["crs"] is None
+    # pixel-space bounds, honestly
+    assert body["terrain"]["bounds"] == {
+        "min_x": 0.0, "min_y": 0.0, "max_x": 512.0, "max_y": 384.0,
+    }
+
+
+def test_terrain_renderer_contract_fields(client, processed_scene):
+    """TerrainCanvas destructures these top-level fields — they must exist
+    and every URL must serve a real, decodable image."""
+    import io
+
+    from PIL import Image
+
+    scene_id = processed_scene["scene"]["scene_id"]
+    body = client.get(f"/api/v1/scenes/{scene_id}/terrain").json()
+
+    for field in (
+        "heightmap_url",
+        "texture_url",
+        "height_scale",
+        "min_elevation",
+        "max_elevation",
+    ):
+        assert field in body, f"renderer contract field missing: {field}"
+    assert body["heightmap_url"] and body["texture_url"]
+    assert body["height_scale"] == body["max_elevation"]
+
+    for url in (body["heightmap_url"], body["texture_url"]):
+        image = client.get(url)
+        assert image.status_code == 200, url
+        assert image.headers["content-type"] == "image/png"
+        img = Image.open(io.BytesIO(image.content))
+        img.verify()
+
+    heightmap = Image.open(io.BytesIO(client.get(body["heightmap_url"]).content))
+    assert heightmap.mode in ("L", "RGB")  # R channel carries elevation
