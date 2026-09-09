@@ -12,6 +12,11 @@ from backend.app.core.paths import get_scene_output_dir
 class ResultService:
     """Reads and describes outputs produced by the DepthWizard pipeline."""
 
+    def __init__(self) -> None:
+        # Stats cache keyed by (path, mtime): polling the results endpoint
+        # must not rescan multi-hundred-MB arrays on every GET.
+        self._stats_cache: dict[Path, tuple[float, dict[str, Any]]] = {}
+
     def get_output_dir(self, scene_id: str) -> Path:
         """Return the output directory for a scene."""
         return get_scene_output_dir(scene_id)
@@ -41,10 +46,15 @@ class ResultService:
         }
 
     def _load_array_stats(self, path: Path) -> dict[str, Any]:
-        """Calculate statistics from a generated NumPy raster."""
+        """Calculate statistics from a generated NumPy raster (mtime-cached)."""
+        stat = path.stat()
+        cached = self._stats_cache.get(path)
+        if cached is not None and cached[0] == stat.st_mtime:
+            return cached[1]
+
         array = np.load(path)
 
-        return {
+        stats = {
             "width": int(array.shape[1]),
             "height": int(array.shape[0]),
             "minimum": float(np.min(array)),
@@ -54,6 +64,8 @@ class ResultService:
             "relief": float(np.max(array) - np.min(array)),
             "units": "meters",
         }
+        self._stats_cache[path] = (stat.st_mtime, stats)
+        return stats
 
     def _read_dsm_metadata(self, path: Path) -> dict[str, Any]:
         """Read spatial metadata from the generated DSM GeoTIFF."""

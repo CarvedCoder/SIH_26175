@@ -73,10 +73,12 @@ class ResultCapabilities(BaseModel):
 
 
 class SceneResultsResponse(BaseModel):
-    """Complete result response for a processed scene."""
+    """Complete result response for a processed scene.
 
+    ``job_id`` is null when result artifacts exist but no job record does
+    (evicted or post-restart) — the backend never invents ids."""
     scene_id: str
-    job_id: str
+    job_id: str | None = None
 
     status: str
 
@@ -99,3 +101,39 @@ class SceneResultsResponse(BaseModel):
     metadata: dict[str, Any] = Field(
         default_factory=dict
     )
+
+class DepthMetaResponse(BaseModel):
+    """Depth-layer metadata for the frontend viewer (GET /scenes/{id}/depth).
+
+    ``url`` is the visual (preview PNG); ``download_url`` is the raw
+    product (float32 .npy). Both are real, servable endpoints."""
+
+    scene_id: str
+    available: bool
+    url: str | None = None
+    download_url: str | None = None
+    format: str | None = None
+    width: int | None = None
+    height: int | None = None
+    statistics: ElevationStats | None = None
+
+
+class DsmMetaResponse(BaseModel):
+    """DSM-layer metadata for the frontend viewer (GET /scenes/{id}/dsm)."""
+
+    scene_id: str
+    available: bool
+    url: str | None = None
+    download_url: str | None = None
+    format: str | None = None
+    width: int | None = None
+    height: int | None = None
+    crs: str | None = None
+
+
+class ArtifactUrlResponse(BaseModel):
+    """A small JSON descriptor pointing at a servable artifact."""
+
+    scene_id: str
+    url: str
+    format: str | None = None

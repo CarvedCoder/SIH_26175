@@ -4,21 +4,24 @@ import { apiFetch } from './client.js';
 /**
  * Start a processing job for a scene.
  * POST /scenes/{id}/process
+ *
+ * The backend runs the DAv2 + CalibrationNet flagship with a fixed 1024
+ * training tile contract; it accepts only `mode` and `ground_elev` and
+ * rejects unknown options with a 422, so no phantom knobs are sent here.
+ *
  * @param {string} sceneId
- * @param {{ model?: string, tileSize?: number, overlap?: number, enableRefinement?: boolean, enableReferenceCalibration?: boolean }} [opts]
+ * @param {{ mode?: 'auto'|'crop'|'resize'|'tiles', groundElev?: number }} [opts]
  * @returns {Promise<import('../types/api.js').JobStartResponse>}
  */
 export async function startProcessing(sceneId, opts = {}) {
+  const body = {};
+  if (opts.mode) body.mode = opts.mode;
+  if (opts.groundElev != null) body.ground_elev = opts.groundElev;
+
   return apiFetch(`/scenes/${sceneId}/process`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model:                       opts.model                      ?? 'depth-anything-v2',
-      tile_size:                   opts.tileSize                   ?? 1024,
-      overlap:                     opts.overlap                    ?? 0.15,
-      enable_refinement:           opts.enableRefinement           ?? true,
-      enable_reference_calibration: opts.enableReferenceCalibration ?? true,
-    }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -58,4 +61,3 @@ export async function refineScene(sceneId, opts) {
     }),
   });
 }
-
