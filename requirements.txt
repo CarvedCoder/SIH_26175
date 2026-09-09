@@ -1,13 +1,25 @@
-annotated-doc==0.0.5
-annotated-types==0.8.0
-anyio==4.14.2
-click==8.5.0
-fastapi==0.141.1
-h11==0.16.0
-idna==3.19
-pydantic==2.13.4
-pydantic_core==2.46.4
-starlette==1.6.0
-typing-inspection==0.4.4
-typing_extensions==4.16.0
-uvicorn==0.52.4
+# DepthWizard — verified on Python 3.12
+# Core pipeline
+torch>=2.2
+transformers>=4.44        # AutoModelForDepthEstimation (Depth Anything V2)
+rasterio>=1.3
+numpy>=1.26
+pyyaml>=6.0
+pillow>=10.0
+matplotlib>=3.8
+tqdm>=4.66
+scipy>=1.11               # depthwizard.demprior: separable Gaussian for synth_dem_from_agl
+
+# GAMUS ingestion (GAMUS integration, Phase 2+): raw HDF5 release + lazy
+# per-file download from the HuggingFace Hub (local-dir mode needs no
+# network). Runtime-optional — DFC-only usage never imports them.
+h5py>=3.10
+huggingface_hub>=0.23
+
+# Inference service (webapp bridge): python model.py serve
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9   # multipart form parsing (image uploads)
+
+# Test suite
+pytest>=8.0

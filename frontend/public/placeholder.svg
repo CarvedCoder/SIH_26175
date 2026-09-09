@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" width="100%" height="100%" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#07090e" />
+      <stop offset="50%" stop-color="#0d1527" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="contourGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.1" />
+      <stop offset="50%" stop-color="#3b82f6" stop-opacity="0.45" />
+      <stop offset="100%" stop-color="#60a5fa" stop-opacity="0.1" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="800" height="1000" fill="url(#bgGrad)" />
+  <circle cx="400" cy="500" r="350" fill="url(#glow)" />
+  <!-- Elevation Contour Lines -->
+  <g stroke="url(#contourGrad)" stroke-width="1.5" fill="none">
+    <path d="M 50 150 Q 200 80, 400 140 T 750 180" opacity="0.4" />
+    <path d="M 30 250 Q 250 180, 450 260 T 770 240" opacity="0.5" />
+    <path d="M 40 360 Q 220 300, 380 340 T 760 380" opacity="0.6" />
+    <path d="M 60 480 Q 280 410, 480 470 T 750 510" opacity="0.7" />
+    <path d="M 30 600 Q 210 520, 420 580 T 770 630" opacity="0.65" />
+    <path d="M 50 720 Q 260 670, 450 710 T 750 760" opacity="0.5" />
+    <path d="M 40 850 Q 230 790, 400 830 T 760 880" opacity="0.4" />
+  </g>
+  <!-- Elevation Mesh Grid Accents -->
+  <g stroke="#3b82f6" stroke-width="0.75" stroke-dasharray="3,6" opacity="0.3">
+    <line x1="100" y1="0" x2="100" y2="1000" />
+    <line x1="250" y1="0" x2="250" y2="1000" />
+    <line x1="400" y1="0" x2="400" y2="1000" />
+    <line x1="550" y1="0" x2="550" y2="1000" />
+    <line x1="700" y1="0" x2="700" y2="1000" />
+    <line x1="0" y1="200" x2="800" y2="200" />
+    <line x1="0" y1="400" x2="800" y2="400" />
+    <line x1="0" y1="600" x2="800" y2="600" />
+    <line x1="0" y1="800" x2="800" y2="800" />
+  </g>
+  <!-- Center Coordinates Label -->
+  <text x="400" y="520" text-anchor="middle" fill="#94a3b8" font-family="monospace" font-size="13" letter-spacing="0.15em" opacity="0.75">
+    TERRAMESH PRECISION ELEVATION
+  </text>
+  <text x="400" y="545" text-anchor="middle" fill="#3b82f6" font-family="monospace" font-size="11" letter-spacing="0.2em" opacity="0.9">
+    34°03'N 118°15'W · DSM RECONSTRUCTION
+  </text>
+</svg>

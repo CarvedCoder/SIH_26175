@@ -1,0 +1,14 @@
+.halftone-reveal {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.halftone-reveal canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
