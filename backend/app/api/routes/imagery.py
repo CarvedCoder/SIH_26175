@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, File, UploadFile
 
-from app.schemas.processing import ProcessingResponse, ProcessingStatus
+from backend.app.schemas.processing import ProcessingResponse, ProcessingStatus
 
 router = APIRouter(prefix="/api/imagery", tags=["Imagery"])
 
