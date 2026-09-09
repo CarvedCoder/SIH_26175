@@ -24,6 +24,7 @@ import { useApp } from '../../store/appStore.jsx';
 
 /** Human-readable names + colourmap description for each layer ID */
 const LAYER_META = {
+  solid:         { label: 'Solid',          sub: 'Shaded surface + mesh',        colormap: 'solid' },
   rgb:           { label: 'RGB',            sub: 'Source photograph',           colormap: 'rgb' },
   depth:         { label: 'Depth',          sub: 'Monocular depth estimate',    colormap: 'greyscale' },
   dsm:           { label: 'DSM',            sub: 'Digital surface model',       colormap: 'viridis' },
@@ -42,8 +43,8 @@ export default function LayerControl({ activeLayer, onLayerChange }) {
   const { state } = useApp();
   const isAbsolute = state.results?.elevation_mode === 'absolute' || state.scene?.is_georeferenced;
   const defaultAvailable = isAbsolute
-    ? ['rgb', 'depth', 'dsm', 'reference_dem', 'error', 'slope']
-    : ['rgb', 'depth', 'dsm', 'slope'];
+    ? ['solid', 'rgb', 'depth', 'dsm', 'reference_dem', 'error', 'slope']
+    : ['solid', 'rgb', 'depth', 'dsm', 'slope'];
   const availableLayers = state.results?.available_layers ?? defaultAvailable;
 
   return (
