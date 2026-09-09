@@ -26,10 +26,9 @@ V2-Large-hf, which silently mismatched cached vs live Dn distributions
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 from PIL import Image
+from transformers import PreTrainedModel
 
 INPUT_SIZE = 518  # 14 * 37 — multiple of the ViT patch size (do not change)
 
@@ -41,12 +40,16 @@ _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 class DepthAnythingBackbone:
     """Lazy-loading singleton-style wrapper around the HF depth model."""
 
-    def __init__(self, model_id: str = "depth-anything/Depth-Anything-V2-Base-hf",
-                 device: str = "cpu", fp16: bool = False):
+    def __init__(
+        self,
+        model_id: str = "depth-anything/Depth-Anything-V2-Base-hf",
+        device: str = "cpu",
+        fp16: bool = False,
+    ):
         self.model_id = model_id
         self.device = device
         self.fp16 = fp16 and device.startswith("cuda")
-        self._model = None
+        self._model: PreTrainedModel | None = None
 
     # ------------------------------------------------------------------
     @property
@@ -61,10 +64,10 @@ class DepthAnythingBackbone:
         from transformers import AutoModelForDepthEstimation
 
         self._torch = torch
-        self._model = AutoModelForDepthEstimation.from_pretrained(self.model_id)
-        self._model.to(self.device).eval()
+        model = AutoModelForDepthEstimation.from_pretrained(self.model_id)
+        model.to(self.device).eval()
         if self.fp16:
-            self._model.half()
+            model.half()
         return self
 
     # ------------------------------------------------------------------
@@ -72,7 +75,8 @@ class DepthAnythingBackbone:
         """uint8 [H,W,3] -> float tensor [1,3,518,518] on self.device."""
         torch = self._torch
         im = Image.fromarray(rgb_u8).resize(
-            (INPUT_SIZE, INPUT_SIZE), Image.BICUBIC)
+            (INPUT_SIZE, INPUT_SIZE), Image.Resampling.BICUBIC
+        )
         x = (np.asarray(im, dtype=np.float32) / 255.0 - _MEAN) / _STD
         t = torch.from_numpy(x).permute(2, 0, 1)[None]
         return t.to(self.device)
@@ -85,6 +89,7 @@ class DepthAnythingBackbone:
         """
         if self._model is None:
             self.load()
+        assert self._model is not None
         torch = self._torch
         h, w = rgb_u8.shape[:2]
         with torch.inference_mode():
@@ -92,20 +97,19 @@ class DepthAnythingBackbone:
             if self.fp16:
                 x = x.half()
             pred = self._model(pixel_values=x).predicted_depth
-            pred = pred[0].float()[None, None]          # -> [1,1,h',w']
+            pred = pred[0].float()[None, None]  # -> [1,1,h',w']
             pred = torch.nn.functional.interpolate(
-                pred, size=(h, w), mode="bilinear", align_corners=False)
+                pred, size=(h, w), mode="bilinear", align_corners=False
+            )
         return pred[0, 0].cpu().numpy().astype(np.float32)
 
 
-# ----------------------------------------------------------------------
-# Module-level default instance (models are expensive; share one per process)
-# ----------------------------------------------------------------------
-_DEFAULT: Optional[DepthAnythingBackbone] = None
+_DEFAULT: DepthAnythingBackbone | None = None
 
 
-def get_backbone(model_id: str = "depth-anything/Depth-Anything-V2-Base-hf",
-                 device: str = "cpu") -> DepthAnythingBackbone:
+def get_backbone(
+    model_id: str = "depth-anything/Depth-Anything-V2-Base-hf", device: str = "cpu"
+) -> DepthAnythingBackbone:
     """Process-wide shared backbone instance (loads on first raw_depth call)."""
     global _DEFAULT
     if _DEFAULT is None or _DEFAULT.model_id != model_id:

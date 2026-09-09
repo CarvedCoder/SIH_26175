@@ -56,16 +56,12 @@ def _find_export_file(
     output_dir = get_scene_output_dir(scene_id)
 
     if not output_dir.exists():
-        raise ExportFileNotFound(
-            f"No output directory exists for scene '{scene_id}'."
-        )
+        raise ExportFileNotFound(f"No output directory exists for scene '{scene_id}'.")
 
     candidates = _EXPORT_CANDIDATES.get(export_type)
 
     if candidates is None:
-        raise ValueError(
-            f"Unsupported export type: {export_type}"
-        )
+        raise ValueError(f"Unsupported export type: {export_type}")
 
     for filename in candidates:
         path = output_dir / filename
@@ -73,14 +69,13 @@ def _find_export_file(
         if path.is_file():
             return path
 
-    raise ExportFileNotFound(
-        f"No {export_type} export exists for scene '{scene_id}'."
-    )
+    raise ExportFileNotFound(f"No {export_type} export exists for scene '{scene_id}'.")
 
 
 # ---------------------------------------------------------------------------
 # Public export functions
 # ---------------------------------------------------------------------------
+
 
 def get_depth_export(scene_id: str) -> Path:
     """Return the generated depth artifact."""
@@ -118,3 +113,4 @@ def get_export(scene_id: str, export_type: str) -> Path:
         scene_id,
         export_type,
     )
+

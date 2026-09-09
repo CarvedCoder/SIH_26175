@@ -68,8 +68,7 @@ GAMUS_SPLITS = ("train", "val", "test")
 _H5_KEY = "image"
 
 # Honesty constants (sources in module docstring).
-GAMUS_HEIGHT_SEMANTICS = ("nDSM/AGL (GAMUS paper: height modality "
-                          "represents nDSM data)")
+GAMUS_HEIGHT_SEMANTICS = "nDSM/AGL (GAMUS paper: height modality represents nDSM data)"
 GAMUS_UNITS_NOTE = "undocumented — ASSUMED metres (values consistent with metres)"
 GAMUS_GSD_M = 0.33
 
@@ -82,31 +81,34 @@ class GAMUSConfig(AdapterConfig):
     backend: "hdf5" (default, this module) | "dataset4eo" (optional,
     not implemented — see module docstring for the deferral rationale).
     """
+
     source: str = "hf"
     backend: str = "hdf5"
-    local_root: Optional[Path] = None            # required when source="local"
+    local_root: Optional[Path] = None  # required when source="local"
     repo_id: str = GAMUS_REPO_ID
-    manifest: Optional[Path] = None              # splits manifest (offline idx)
-    save_manifest: Optional[Path] = None         # write manifest after listing
-    hf_cache_dir: Optional[Path] = None          # local download cache root
-    limit: int = 0                               # per-split cap (0 = all)
-    depth_cache_dir: Optional[Path] = None       # model-tag dir; gamus/ inside
-    splits: tuple = GAMUS_SPLITS                 # which splits to index
+    manifest: Optional[Path] = None  # splits manifest (offline idx)
+    save_manifest: Optional[Path] = None  # write manifest after listing
+    hf_cache_dir: Optional[Path] = None  # local download cache root
+    limit: int = 0  # per-split cap (0 = all)
+    depth_cache_dir: Optional[Path] = None  # model-tag dir; gamus/ inside
+    splits: tuple = GAMUS_SPLITS  # which splits to index
 
     def __post_init__(self):
         super().__post_init__()
         if self.source not in ("hf", "local"):
             raise ValueError(f"source must be 'hf' or 'local', got {self.source!r}")
         if self.backend not in ("hdf5", "dataset4eo"):
-            raise ValueError(f"backend must be 'hdf5' or 'dataset4eo', "
-                             f"got {self.backend!r}")
+            raise ValueError(
+                f"backend must be 'hdf5' or 'dataset4eo', got {self.backend!r}"
+            )
         if self.backend == "dataset4eo":
             raise NotImplementedError(
                 "Dataset4EO/EarthNets_GAMUS streaming backend is deliberately "
                 "NOT the default and not yet implemented: it stores height as "
                 "float16 (metric-regression precision loss) and carries "
                 "CC-BY-NC-ND-4.0 vs the raw release's CC-BY-4.0. Use the "
-                "default raw-HDF5 backend (source='hf' or 'local').")
+                "default raw-HDF5 backend (source='hf' or 'local')."
+            )
         if self.source == "local":
             if self.local_root is None:
                 raise ValueError("source='local' requires local_root")
@@ -122,6 +124,7 @@ class GAMUSConfig(AdapterConfig):
 @dataclass
 class GAMUSSample:
     """One GAMUS tile: split + sample id (e.g. 'DC_01_25')."""
+
     sample_id: str
     split: str
 
@@ -142,24 +145,30 @@ class GAMUSSample:
 # HDF5 primitives (official RSI-MMSegmentation mechanism: f["image"][()])
 # ---------------------------------------------------------------------------
 
+
 def read_gamus_h5(path: Path) -> np.ndarray:
     """Read one GAMUS .h5 file (key 'image'), h5py imported lazily."""
     import h5py
+
     with h5py.File(path, "r") as f:
         dataset_obj = f.get(_H5_KEY)
         if dataset_obj is None:
-            raise KeyError(f"{path}: expected HDF5 key '{_H5_KEY}' "
-                           "(official GAMUS layout) — got keys "
-                           f"{list(f.keys())}")
+            raise KeyError(
+                f"{path}: expected HDF5 key '{_H5_KEY}' "
+                "(official GAMUS layout) — got keys "
+                f"{list(f.keys())}"
+            )
         if not isinstance(dataset_obj, h5py.Dataset):
-            raise TypeError(f"{path}: HDF5 key '{_H5_KEY}' is not a dataset "
-                            f"(got {type(dataset_obj).__name__})")
+            raise TypeError(
+                f"{path}: HDF5 key '{_H5_KEY}' is not a dataset "
+                f"(got {type(dataset_obj).__name__})"
+            )
         return np.asarray(dataset_obj[()])
 
 
-_HF_DOWNLOAD_MAX_RETRIES = 6          # transient-network retries per file
-_HF_DOWNLOAD_BACKOFF_BASE_S = 1.5     # exponential backoff base (seconds)
-_HF_DOWNLOAD_BACKOFF_CAP_S = 30.0     # never sleep longer than this
+_HF_DOWNLOAD_MAX_RETRIES = 6  # transient-network retries per file
+_HF_DOWNLOAD_BACKOFF_BASE_S = 1.5  # exponential backoff base (seconds)
+_HF_DOWNLOAD_BACKOFF_CAP_S = 30.0  # never sleep longer than this
 
 
 def _is_transient_network_error(exc: BaseException) -> bool:
@@ -174,23 +183,37 @@ def _is_transient_network_error(exc: BaseException) -> bool:
     transient_types: tuple = (ConnectionError, TimeoutError)
     try:
         import httpx
-        transient_types += (httpx.ReadError, httpx.ConnectError,
-                            httpx.ConnectTimeout, httpx.ReadTimeout,
-                            httpx.RemoteProtocolError, httpx.NetworkError)
+
+        transient_types += (
+            httpx.ReadError,
+            httpx.ConnectError,
+            httpx.ConnectTimeout,
+            httpx.ReadTimeout,
+            httpx.RemoteProtocolError,
+            httpx.NetworkError,
+        )
     except ImportError:
         pass
     try:
         import httpcore
-        transient_types += (httpcore.ReadError, httpcore.ConnectError,
-                            httpcore.ConnectTimeout, httpcore.ReadTimeout,
-                            httpcore.RemoteProtocolError)
+
+        transient_types += (
+            httpcore.ReadError,
+            httpcore.ConnectError,
+            httpcore.ConnectTimeout,
+            httpcore.ReadTimeout,
+            httpcore.RemoteProtocolError,
+        )
     except ImportError:
         pass
     try:
         import requests  # type: ignore[import-not-found]
-        transient_types += (requests.exceptions.ConnectionError,
-                            requests.exceptions.Timeout,
-                            requests.exceptions.ChunkedEncodingError)
+
+        transient_types += (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            requests.exceptions.ChunkedEncodingError,
+        )
     except ImportError:
         pass
     if isinstance(exc, transient_types):
@@ -199,9 +222,9 @@ def _is_transient_network_error(exc: BaseException) -> bool:
     # (rate limit) as transient, everything else (401/403/404) as fatal.
     try:
         from huggingface_hub.errors import HfHubHTTPError
+
         if isinstance(exc, HfHubHTTPError):
-            status = getattr(getattr(exc, "response", None),
-                             "status_code", None)
+            status = getattr(getattr(exc, "response", None), "status_code", None)
             return status is not None and (status == 429 or status >= 500)
     except ImportError:
         pass
@@ -243,13 +266,17 @@ def _hf_download(cfg: GAMUSConfig, rel_path: str) -> Path:
 
     # Stage 1: already-cached fast path, no network call whatsoever.
     try:
-        return Path(hf_hub_download(
-            repo_id=str(cfg.repo_id),
-            filename=str(rel_path),
-            repo_type="dataset",
-            cache_dir=str(cfg.hf_cache_dir) if cfg.hf_cache_dir is not None else None,
-            local_files_only=True,
-        ))
+        return Path(
+            hf_hub_download(
+                repo_id=str(cfg.repo_id),
+                filename=str(rel_path),
+                repo_type="dataset",
+                cache_dir=str(cfg.hf_cache_dir)
+                if cfg.hf_cache_dir is not None
+                else None,
+                local_files_only=True,
+            )
+        )
     except Exception:
         pass  # not cached (or cache lookup itself failed) -> fall through
 
@@ -257,16 +284,21 @@ def _hf_download(cfg: GAMUSConfig, rel_path: str) -> Path:
     last_exc: Optional[BaseException] = None
     for attempt in range(1, _HF_DOWNLOAD_MAX_RETRIES + 1):
         try:
-            return Path(hf_hub_download(
-                repo_id=str(cfg.repo_id),
-                filename=str(rel_path),
-                repo_type="dataset",
-                cache_dir=str(cfg.hf_cache_dir) if cfg.hf_cache_dir is not None else None,
-            ))
-        except Exception as exc:                      # noqa: BLE001
+            return Path(
+                hf_hub_download(
+                    repo_id=str(cfg.repo_id),
+                    filename=str(rel_path),
+                    repo_type="dataset",
+                    cache_dir=str(cfg.hf_cache_dir)
+                    if cfg.hf_cache_dir is not None
+                    else None,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
             last_exc = exc
-            if (attempt == _HF_DOWNLOAD_MAX_RETRIES
-                    or not _is_transient_network_error(exc)):
+            if attempt == _HF_DOWNLOAD_MAX_RETRIES or not _is_transient_network_error(
+                exc
+            ):
                 raise RuntimeError(
                     f"GAMUS: failed to download {rel_path!r} from "
                     f"{cfg.repo_id!r} after {attempt} attempt(s): "
@@ -275,15 +307,20 @@ def _hf_download(cfg: GAMUSConfig, rel_path: str) -> Path:
                     "unauthenticated request limit, or pre-populate "
                     "hf_cache_dir offline and pass source='local'."
                 ) from exc
-            sleep_s = min(_HF_DOWNLOAD_BACKOFF_CAP_S,
-                         _HF_DOWNLOAD_BACKOFF_BASE_S * (2 ** (attempt - 1)))
-            sleep_s += random.uniform(0, 1.0)          # jitter
-            print(f"[gamus] transient error downloading {rel_path} "
-                  f"(attempt {attempt}/{_HF_DOWNLOAD_MAX_RETRIES}): "
-                  f"{exc!r} — retrying in {sleep_s:.1f}s")
+            sleep_s = min(
+                _HF_DOWNLOAD_BACKOFF_CAP_S,
+                _HF_DOWNLOAD_BACKOFF_BASE_S * (2 ** (attempt - 1)),
+            )
+            sleep_s += random.uniform(0, 1.0)  # jitter
+            print(
+                f"[gamus] transient error downloading {rel_path} "
+                f"(attempt {attempt}/{_HF_DOWNLOAD_MAX_RETRIES}): "
+                f"{exc!r} — retrying in {sleep_s:.1f}s"
+            )
             time.sleep(sleep_s)
     raise RuntimeError(  # pragma: no cover — loop always returns/raises above
-        f"GAMUS: unreachable retry-loop exit for {rel_path!r}") from last_exc
+        f"GAMUS: unreachable retry-loop exit for {rel_path!r}"
+    ) from last_exc
 
 
 def _resolve_sample_files(cfg: GAMUSConfig, s: GAMUSSample) -> Dict[str, Path]:
@@ -292,16 +329,22 @@ def _resolve_sample_files(cfg: GAMUSConfig, s: GAMUSSample) -> Dict[str, Path]:
         if cfg.local_root is None:
             raise ValueError("source='local' requires local_root")
         base = cfg.local_root
-        return {"rgb": base / s.rgb_rel, "agl": base / s.agl_rel,
-                "cls": base / s.cls_rel}
-    return {"rgb": _hf_download(cfg, s.rgb_rel),
-            "agl": _hf_download(cfg, s.agl_rel),
-            "cls": _hf_download(cfg, s.cls_rel)}
+        return {
+            "rgb": base / s.rgb_rel,
+            "agl": base / s.agl_rel,
+            "cls": base / s.cls_rel,
+        }
+    return {
+        "rgb": _hf_download(cfg, s.rgb_rel),
+        "agl": _hf_download(cfg, s.agl_rel),
+        "cls": _hf_download(cfg, s.cls_rel),
+    }
 
 
 # ---------------------------------------------------------------------------
 # Sample discovery (local walk or manifest or HF repo listing)
 # ---------------------------------------------------------------------------
+
 
 def _stems_from_dir(d: Path) -> List[str]:
     """Sorted sample ids from a directory of {ID}_RGB.h5 files."""
@@ -315,8 +358,7 @@ def _stems_from_dir(d: Path) -> List[str]:
     return out
 
 
-def _check_triples(cfg: GAMUSConfig, per_split: Dict[str, List[str]]
-                   ) -> List[str]:
+def _check_triples(cfg: GAMUSConfig, per_split: Dict[str, List[str]]) -> List[str]:
     """Triple completeness check (local mode) — problems reported, never
     silently dropped (same philosophy as geo.discover_tiles)."""
     problems: List[str] = []
@@ -327,16 +369,19 @@ def _check_triples(cfg: GAMUSConfig, per_split: Dict[str, List[str]]
     for split, ids in per_split.items():
         for sid in ids:
             s = GAMUSSample(sid, split)
-            for kind, rel in (("rgb", s.rgb_rel), ("agl", s.agl_rel),
-                              ("cls", s.cls_rel)):
+            for kind, rel in (
+                ("rgb", s.rgb_rel),
+                ("agl", s.agl_rel),
+                ("cls", s.cls_rel),
+            ):
                 if not (cfg.local_root / rel).exists():
-                    problems.append(f"GAMUS {split}/{sid}: missing {kind} "
-                                    f"({rel})")
+                    problems.append(f"GAMUS {split}/{sid}: missing {kind} ({rel})")
     return problems
 
 
-def list_gamus_samples(cfg: GAMUSConfig
-                       ) -> tuple[Dict[str, List[GAMUSSample]], List[str]]:
+def list_gamus_samples(
+    cfg: GAMUSConfig,
+) -> tuple[Dict[str, List[GAMUSSample]], List[str]]:
     """{split: [GAMUSSample, ...]} in deterministic (sorted) order.
 
     Order of resolution:
@@ -347,12 +392,16 @@ def list_gamus_samples(cfg: GAMUSConfig
     """
     if cfg.manifest is not None and cfg.manifest.exists():
         from ..geo import load_json
+
         payload = load_json(cfg.manifest)
-        per_split = {k: [GAMUSSample(sid, k) for sid in v]
-                     for k, v in payload["splits"].items()
-                     if k in cfg.splits}
-        problems = _check_triples(cfg, {k: [s.sample_id for s in v]
-                                        for k, v in per_split.items()})
+        per_split = {
+            k: [GAMUSSample(sid, k) for sid in v]
+            for k, v in payload["splits"].items()
+            if k in cfg.splits
+        }
+        problems = _check_triples(
+            cfg, {k: [s.sample_id for s in v] for k, v in per_split.items()}
+        )
         return per_split, problems
 
     if cfg.source == "local":
@@ -364,12 +413,12 @@ def list_gamus_samples(cfg: GAMUSConfig
             per_split_ids[split] = ids
     else:
         from huggingface_hub import HfApi
+
         files = HfApi().list_repo_files(cfg.repo_id, repo_type="dataset")
         per_split_ids = {split: [] for split in cfg.splits}
         for f in files:
             parts = f.split("/")
-            if len(parts) == 3 and parts[0] == "images" and \
-                    parts[1] in per_split_ids:
+            if len(parts) == 3 and parts[0] == "images" and parts[1] in per_split_ids:
                 m = re.match(r"^(.+)_RGB\.h5$", parts[2])
                 if m:
                     per_split_ids[parts[1]].append(m.group(1))
@@ -378,22 +427,27 @@ def list_gamus_samples(cfg: GAMUSConfig
 
     if cfg.limit and cfg.limit > 0:
         for split in per_split_ids:
-            per_split_ids[split] = per_split_ids[split][:cfg.limit]
+            per_split_ids[split] = per_split_ids[split][: cfg.limit]
 
     if cfg.save_manifest is not None:
-        dump_json({
-            "created": datetime.now(timezone.utc).isoformat(),
-            "generator": "depthwizard-gamus-splits v1 (official splits, "
-                         "verbatim, sorted ids)",
-            "source": cfg.source, "repo_id": cfg.repo_id,
-            "official": True,
-            "counts": {k: len(v) for k, v in per_split_ids.items()},
-            "limit": cfg.limit,
-            "splits": per_split_ids,
-        }, cfg.save_manifest)
+        dump_json(
+            {
+                "created": datetime.now(timezone.utc).isoformat(),
+                "generator": "depthwizard-gamus-splits v1 (official splits, "
+                "verbatim, sorted ids)",
+                "source": cfg.source,
+                "repo_id": cfg.repo_id,
+                "official": True,
+                "counts": {k: len(v) for k, v in per_split_ids.items()},
+                "limit": cfg.limit,
+                "splits": per_split_ids,
+            },
+            cfg.save_manifest,
+        )
 
-    per_split = {k: [GAMUSSample(sid, k) for sid in ids]
-                 for k, ids in per_split_ids.items()}
+    per_split = {
+        k: [GAMUSSample(sid, k) for sid in ids] for k, ids in per_split_ids.items()
+    }
     problems = _check_triples(cfg, per_split_ids)
     return per_split, problems
 
@@ -401,6 +455,7 @@ def list_gamus_samples(cfg: GAMUSConfig
 # ---------------------------------------------------------------------------
 # The dataset
 # ---------------------------------------------------------------------------
+
 
 class GAMUSDataset(BaseDepthDataset):
     dataset_name = "gamus"
@@ -414,21 +469,22 @@ class GAMUSDataset(BaseDepthDataset):
         depth_cache_dir = getattr(self.cfg, "depth_cache_dir", None)
         if not self.cfg.load_depth or depth_cache_dir is None:
             return None
-        candidates = depth_npy_candidates(depth_cache_dir,
-                                          "gamus", sid)
+        candidates = depth_npy_candidates(depth_cache_dir, "gamus", sid)
         f = next((p for p in candidates if p.exists()), None)
         if f is None:
             raise FileNotFoundError(
                 f"GAMUS depth cache miss for '{sid}': none of {candidates}. "
                 "Run `python model.py depth --dataset gamus ...` first, or "
-                "set load_depth=False.")
+                "set load_depth=False."
+            )
         raw = np.load(f)
         if raw.shape != (h, w):
             raise ValueError(
                 f"GAMUS depth cache for '{sid}' has shape {raw.shape}, tile "
                 f"grid is {(h, w)} — cache and tiles are out of sync. Delete "
-                "the stale .npy and re-run the depth command.")
-        return minmax_normalize(raw)     # single source of truth (normalize.py)
+                "the stale .npy and re-run the depth command."
+            )
+        return minmax_normalize(raw)  # single source of truth (normalize.py)
 
     # ------------------------------------------------------------------
     def _load_arrays(self, idx: int) -> Dict[str, object]:
@@ -446,14 +502,15 @@ class GAMUSDataset(BaseDepthDataset):
         if rgb.ndim != 3 or rgb.shape[2] < 3:
             raise ValueError(
                 f"GAMUS {s.sample_id}: RGB .h5 shape {rgb.shape} — expected "
-                "(H, W, 3) per the official layout.")
+                "(H, W, 3) per the official layout."
+            )
         rgb = rgb[:, :, :3].astype(np.uint8)
         agl = np.asarray(agl, dtype=np.float32)
-        if agl.ndim == 3:                        # (1,H,W) defensive
+        if agl.ndim == 3:  # (1,H,W) defensive
             agl = agl[0]
         # CLS dtype inconsistency: uint8 or float32 -> int32 ids either way.
         cls = np.asarray(cls)
-        if cls.ndim == 3:                        # (1,H,W) defensive
+        if cls.ndim == 3:  # (1,H,W) defensive
             cls = cls[0]
         cls = cls.astype(np.int32)
 
@@ -462,12 +519,14 @@ class GAMUSDataset(BaseDepthDataset):
             raise ValueError(
                 f"GAMUS {s.sample_id}: grid mismatch rgb{(h, w)} "
                 f"agl{agl.shape} cls{cls.shape} — files NOT pixel-aligned; "
-                "do not proceed.")
+                "do not proceed."
+            )
 
         dn = self._load_depth(s.sample_id, h, w)
 
         meta = {
-            "sample_id": s.sample_id, "stem": s.sample_id,
+            "sample_id": s.sample_id,
+            "stem": s.sample_id,
             "split": s.split,
             "source": getattr(self.cfg, "source", "hf"),
             "height_semantics": GAMUS_HEIGHT_SEMANTICS,
@@ -475,12 +534,17 @@ class GAMUSDataset(BaseDepthDataset):
             "gsd_m": GAMUS_GSD_M,
             "georef": "none",
         }
-        return {"rgb": rgb, "agl": agl, "cls": cls, "dn": dn, "meta": meta,
-                "dem_tag": None}
+        return {
+            "rgb": rgb,
+            "agl": agl,
+            "cls": cls,
+            "dn": dn,
+            "meta": meta,
+            "dem_tag": None,
+        }
 
 
-def build_gamus_datasets(cfg: GAMUSConfig
-                         ) -> Dict[str, GAMUSDataset]:
+def build_gamus_datasets(cfg: GAMUSConfig) -> Dict[str, GAMUSDataset]:
     """{split: GAMUSDataset} for the configured splits (official, verbatim)."""
     per_split, problems = list_gamus_samples(cfg)
     if problems:
@@ -495,5 +559,7 @@ def build_gamus_datasets(cfg: GAMUSConfig
     if not out:
         raise ValueError(
             "GAMUS discovery produced no samples — check source/local_root/"
-            f"manifest (source={cfg.source}, splits={cfg.splits}).")
+            f"manifest (source={cfg.source}, splits={cfg.splits})."
+        )
     return out
+

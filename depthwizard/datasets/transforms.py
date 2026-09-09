@@ -28,9 +28,9 @@ from typing import Dict, Tuple
 import numpy as np
 
 
-def joint_crop(layers: Dict[str, np.ndarray],
-               rng: random.Random,
-               crop_size: int | None) -> Tuple[int, int]:
+def joint_crop(
+    layers: Dict[str, np.ndarray], rng: random.Random, crop_size: int | None
+) -> Tuple[int, int]:
     """One shared window for every layer, or identity when crop is None.
 
     Returns (y0, x0) of the applied window (0, 0 when no crop was taken).
@@ -42,17 +42,18 @@ def joint_crop(layers: Dict[str, np.ndarray],
     h, w = ref.shape[:2]
     if c is None or (h <= c and w <= c):
         for name in layers:
-            layers[name] = layers[name][:c or h, :c or w] if c else layers[name]
+            layers[name] = layers[name][: c or h, : c or w] if c else layers[name]
         return 0, 0
     y0 = rng.randint(0, h - c)
     x0 = rng.randint(0, w - c)
-    for name in layers:                      # <- single window, all layers
-        layers[name] = layers[name][y0:y0 + c, x0:x0 + c]
+    for name in layers:  # <- single window, all layers
+        layers[name] = layers[name][y0 : y0 + c, x0 : x0 + c]
     return y0, x0
 
 
-def joint_flip_rot(layers: Dict[str, np.ndarray],
-                   rng: random.Random) -> Tuple[int, bool, bool]:
+def joint_flip_rot(
+    layers: Dict[str, np.ndarray], rng: random.Random
+) -> Tuple[int, bool, bool]:
     """One shared (rot90 k, hflip, vflip) for every layer.
 
     Returns (k, do_h, do_v). Applied only when the caller enables augment.

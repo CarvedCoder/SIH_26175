@@ -39,9 +39,9 @@ from .geo import parse_stem
 VALID_SPLITS = ("train", "val", "test")
 
 
-def _chunk_rows(rows: List[int],
-                weights: List[int],
-                fractions: Tuple[float, float, float]) -> List[List[int]]:
+def _chunk_rows(
+    rows: List[int], weights: List[int], fractions: Tuple[float, float, float]
+) -> List[List[int]]:
     """Split sorted row indices into 3 contiguous chunks whose *tile counts*
     (weights) best match `fractions` (train, val, test).
 
@@ -62,19 +62,23 @@ def _chunk_rows(rows: List[int],
             w_tr = prefix[i] - prefix[0]
             w_va = prefix[j] - prefix[i]
             w_te = prefix[n] - prefix[j]
-            loss = (abs(w_tr / total - fractions[0])
-                    + abs(w_va / total - fractions[1])
-                    + abs(w_te / total - fractions[2]))
+            loss = (
+                abs(w_tr / total - fractions[0])
+                + abs(w_va / total - fractions[1])
+                + abs(w_te / total - fractions[2])
+            )
             if best_loss is None or loss < best_loss - 1e-12:
                 best_loss, best_ij = loss, (i, j)
     i, j = best_ij
     return [rows[:i], rows[i:j], rows[j:]]
 
 
-def make_splits(stems: List[str],
-                mode: str = "block",
-                fractions: Tuple[float, float, float] = (0.7, 0.15, 0.15),
-                seed: int = 42) -> Dict[str, List[str]]:
+def make_splits(
+    stems: List[str],
+    mode: str = "block",
+    fractions: Tuple[float, float, float] = (0.7, 0.15, 0.15),
+    seed: int = 42,
+) -> Dict[str, List[str]]:
     """Return {'train': [...], 'val': [...], 'test': [...]}.
 
     Deterministic for a given (stems, mode, fractions, seed).
@@ -91,12 +95,16 @@ def make_splits(stems: List[str],
         rng.shuffle(order)
         n_tr = max(1, round(fractions[0] * len(order)))
         n_va = max(1, round(fractions[1] * len(order)))
-        return {"train": sorted(order[:n_tr]),
-                "val": sorted(order[n_tr:n_tr + n_va]),
-                "test": sorted(order[n_tr + n_va:])}
+        return {
+            "train": sorted(order[:n_tr]),
+            "val": sorted(order[n_tr : n_tr + n_va]),
+            "test": sorted(order[n_tr + n_va :]),
+        }
 
     # ---- block mode ----------------------------------------------------
-    by_city_rows: Dict[str, Dict[int, List[str]]] = defaultdict(lambda: defaultdict(list))
+    by_city_rows: Dict[str, Dict[int, List[str]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for s in stems:
         city, row, _col = parse_stem(s)
         by_city_rows[city][row].append(s)
@@ -122,9 +130,11 @@ def make_splits(stems: List[str],
     for split, f in zip(VALID_SPLITS, fractions):
         achieved = len(assignment[split]) / n_tot
         if abs(achieved - f) > 0.05:
-            print(f"[warn] split '{split}' achieved {achieved:.1%} vs target "
-                  f"{f:.1%} — spatial blocks cannot always hit exact fractions; "
-                  "consider mode='tile' if exactness matters more than blocking")
+            print(
+                f"[warn] split '{split}' achieved {achieved:.1%} vs target "
+                f"{f:.1%} — spatial blocks cannot always hit exact fractions; "
+                "consider mode='tile' if exactness matters more than blocking"
+            )
 
     # Guard: every split must be non-empty; degrade to tile mode otherwise.
     if any(len(assignment[s]) == 0 for s in VALID_SPLITS):
@@ -148,7 +158,8 @@ def assert_no_overlap(splits: Dict[str, List[str]]) -> None:
         for stem in lst:
             if stem in seen:
                 raise AssertionError(
-                    f"Tile '{stem}' appears in both '{seen[stem]}' and '{split}' — split leaks!")
+                    f"Tile '{stem}' appears in both '{seen[stem]}' and '{split}' — split leaks!"
+                )
             seen[stem] = split
 
 

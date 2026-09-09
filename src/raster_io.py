@@ -21,19 +21,13 @@ those stages only ever see the common internal representation
 """
 
 from __future__ import annotations
-
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import rasterio
 
-from config import SUPPORTED_EXTENSIONS, FUTURE_EXTENSIONS
-from src.exceptions import (
-    InputPathError,
-    InvalidGeoTiffError,
-    UnsupportedFormatError,
-)
+from config import FUTURE_EXTENSIONS, SUPPORTED_EXTENSIONS
+from src.exceptions import InputPathError, InvalidGeoTiffError, UnsupportedFormatError
 
 
 def detect_format(path: Path) -> str:
@@ -80,8 +74,10 @@ def open_geotiff(path: Path):
     """
     try:
         dataset = rasterio.open(path)
-    except rasterio.errors.RasterioIOError as exc:
-        raise InvalidGeoTiffError(f"Could not open '{path}' as a GeoTIFF: {exc}") from exc
+    except rasterio.RasterioIOError as exc:
+        raise InvalidGeoTiffError(
+            f"Could not open '{path}' as a GeoTIFF: {exc}"
+        ) from exc
 
     if dataset.count < 1:
         dataset.close()
@@ -111,7 +107,7 @@ def read_geotiff_band(path: Path, band: int = 1) -> tuple[np.ndarray, dict]:
 
 
 def build_invalid_mask(
-    array: np.ndarray, nodata: Optional[float]
+    array: np.ndarray, nodata: float | None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Build boolean masks for NaN, inf, nodata, and their union.
 

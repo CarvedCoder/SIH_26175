@@ -36,7 +36,7 @@ import numpy as np
 class LoadedModel:
     """Everything the inference path needs, plus provenance for reporting."""
 
-    net: "object"                    # CalibrationNet (torch) — kept opaque here
+    net: "object"  # CalibrationNet (torch) — kept opaque here
     use_rgb: bool
     widths: tuple
     clamp_min: float
@@ -44,7 +44,7 @@ class LoadedModel:
     epoch: int
     checkpoint: Path
     val_subset_mae: Optional[float]
-    use_sem: bool = False            # Exp 4/5 checkpoints (additive defaults)
+    use_sem: bool = False  # Exp 4/5 checkpoints (additive defaults)
     sem_classes: int = 0
     sem_aux_head: bool = False
 
@@ -60,6 +60,7 @@ def resolve_torch_device(device: Optional[str]) -> str:
     every entry point that touches a checkpoint must resolve first."""
     if device in (None, "", "auto"):
         import torch
+
         return "cuda" if torch.cuda.is_available() else "cpu"
     return device
 
@@ -78,7 +79,8 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
     if not ckpt_path.exists():
         raise FileNotFoundError(
             f"checkpoint not found: {ckpt_path} — train first "
-            f"(`python model.py train`) or pass --checkpoint.")
+            f"(`python model.py train`) or pass --checkpoint."
+        )
 
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
 
@@ -96,8 +98,9 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
     # precedence so any future variant is handled too.
     in_ch = ckpt.get("in_ch")
     if in_ch is None:
-        in_ch = derive_in_ch(use_rgb=use_rgb, use_sem=use_sem,
-                             use_dem=use_dem, sem_classes=sem_classes)
+        in_ch = derive_in_ch(
+            use_rgb=use_rgb, use_sem=use_sem, use_dem=use_dem, sem_classes=sem_classes
+        )
     net = CalibrationNet(
         in_ch=int(in_ch),
         widths=tuple(ckpt["widths"]),
@@ -116,8 +119,10 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
         use_rgb=use_rgb,
         widths=tuple(ckpt["widths"]),
         clamp_min=ckpt.get("clamp_min", 0.0),
-        affine_init={"a": float(ckpt["affine_init"]["a"]),
-                     "b": float(ckpt["affine_init"]["b"])},
+        affine_init={
+            "a": float(ckpt["affine_init"]["a"]),
+            "b": float(ckpt["affine_init"]["b"]),
+        },
         epoch=int(ckpt["epoch"]),
         checkpoint=ckpt_path,
         val_subset_mae=(float(subset_mae) if subset_mae is not None else None),
@@ -147,17 +152,20 @@ def make_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
     @torch.no_grad()
     def predict(dn: np.ndarray, rgb: Optional[np.ndarray] = None) -> np.ndarray:
         dn_t = torch.from_numpy(
-            np.ascontiguousarray(dn, dtype=np.float32)[None, None]).to(device)
+            np.ascontiguousarray(dn, dtype=np.float32)[None, None]
+        ).to(device)
         rgb_t = None
         if model.use_rgb:
             if rgb is None:
                 raise ValueError(
                     "this checkpoint is Dn+RGB (use_rgb=True) but no RGB array "
-                    "was supplied to the predict function")
+                    "was supplied to the predict function"
+                )
             rgb_f = rgb.astype(np.float32) / 255.0
             rgb_n = (rgb_f - IMAGENET_MEAN) / IMAGENET_STD
             rgb_t = torch.from_numpy(
-                np.ascontiguousarray(rgb_n.transpose(2, 0, 1))[None]).to(device)
+                np.ascontiguousarray(rgb_n.transpose(2, 0, 1))[None]
+            ).to(device)
         pred = net(dn_t, rgb_t)["pred"][0, 0].cpu().numpy()
         return pred.astype(np.float32)
 

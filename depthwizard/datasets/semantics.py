@@ -44,9 +44,14 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 PROJECT_CLASSES: Tuple[str, ...] = (
-    "building", "vegetation", "road", "water", "ground", "other",
+    "building",
+    "vegetation",
+    "road",
+    "water",
+    "ground",
+    "other",
 )
-NUM_PROJECT_CLASSES: int = len(PROJECT_CLASSES)          # = 6
+NUM_PROJECT_CLASSES: int = len(PROJECT_CLASSES)  # = 6
 PROJECT_CLASS_TO_INDEX: Dict[str, int] = {
     name: i for i, name in enumerate(PROJECT_CLASSES)
 }
@@ -60,24 +65,42 @@ IGNORE: int = -1
 
 RAW_LEGENDS: Dict[str, Dict[int, str]] = {
     "dfc2019": {
-        2: "Ground", 5: "Trees", 6: "Buildings", 9: "Water",
-        17: "Bridge/elevated road", 65: "Unlabeled (void)",
+        2: "Ground",
+        5: "Trees",
+        6: "Buildings",
+        9: "Water",
+        17: "Bridge/elevated road",
+        65: "Unlabeled (void)",
     },
     "gamus": {
-        0: "others (background)", 1: "ground", 2: "low vegetation",
-        3: "buildings", 4: "water", 5: "road", 6: "tree",
+        0: "others (background)",
+        1: "ground",
+        2: "low vegetation",
+        3: "buildings",
+        4: "water",
+        5: "road",
+        6: "tree",
     },
 }
 
 # raw id -> project class NAME, or None -> IGNORE.
 PROJECT_MAPS: Dict[str, Dict[int, Optional[str]]] = {
     "dfc2019": {
-        2: "ground", 5: "vegetation", 6: "building", 9: "water",
-        17: "road", 65: None,              # void -> IGNORE (official protocol)
+        2: "ground",
+        5: "vegetation",
+        6: "building",
+        9: "water",
+        17: "road",
+        65: None,  # void -> IGNORE (official protocol)
     },
     "gamus": {
-        0: "other", 1: "ground", 2: "vegetation", 3: "building",
-        4: "water", 5: "road", 6: "vegetation",
+        0: "other",
+        1: "ground",
+        2: "vegetation",
+        3: "building",
+        4: "water",
+        5: "road",
+        6: "vegetation",
     },
 }
 
@@ -94,12 +117,14 @@ def class_to_project(dataset: str, raw_id: int) -> Optional[str]:
         raise KeyError(
             f"unknown dataset '{dataset}' — legends exist for: "
             f"{sorted(PROJECT_MAPS)}. Add the VERIFIED legend (with source) "
-            "in depthwizard/datasets/semantics.py first; do not guess.")
-    return PROJECT_MAPS[dataset].get(int(raw_id))          # None -> IGNORE
+            "in depthwizard/datasets/semantics.py first; do not guess."
+        )
+    return PROJECT_MAPS[dataset].get(int(raw_id))  # None -> IGNORE
 
 
-def semantic_layers(cls: np.ndarray,
-                    dataset: str) -> Tuple[np.ndarray, np.ndarray, List[int]]:
+def semantic_layers(
+    cls: np.ndarray, dataset: str
+) -> Tuple[np.ndarray, np.ndarray, List[int]]:
     """Raw class map -> (one-hot [K,H,W] float32, ignore [H,W] bool,
     unmapped_ids list).
 
@@ -116,19 +141,17 @@ def semantic_layers(cls: np.ndarray,
     cls = np.asarray(cls)
     h, w = cls.shape[:2]
 
-    lut = np.full((256,), IGNORE, dtype=np.int64)          # ids are uint8-ish
+    lut = np.full((256,), IGNORE, dtype=np.int64)  # ids are uint8-ish
     for raw_id, name in PROJECT_MAPS[dataset].items():
-        lut[int(raw_id)] = (PROJECT_CLASS_TO_INDEX[name]
-                            if name is not None else IGNORE)
+        lut[int(raw_id)] = PROJECT_CLASS_TO_INDEX[name] if name is not None else IGNORE
 
-    ids = cls.astype(np.int64)                             # float CLS -> int
+    ids = cls.astype(np.int64)  # float CLS -> int
     in_range = (ids >= 0) & (ids <= 255)
     proj = np.where(in_range, lut[np.clip(ids, 0, 255)], IGNORE)
-    ignore = (proj == IGNORE)                              # includes out-of-range
+    ignore = proj == IGNORE  # includes out-of-range
 
     known = set(PROJECT_MAPS[dataset])
-    unmapped = sorted({int(v) for v in np.unique(ids)
-                       if int(v) not in known})
+    unmapped = sorted({int(v) for v in np.unique(ids) if int(v) not in known})
 
     onehot = np.zeros((NUM_PROJECT_CLASSES, h, w), dtype=np.float32)
     for k in range(NUM_PROJECT_CLASSES):
@@ -149,5 +172,5 @@ def legend_report(dataset: str) -> Dict:
         },
         "project_classes": list(PROJECT_CLASSES),
         "note": "Raw ids are preserved in sample['cls'] and meta; this "
-                "mapping is the only place meanings are assigned.",
+        "mapping is the only place meanings are assigned.",
     }
