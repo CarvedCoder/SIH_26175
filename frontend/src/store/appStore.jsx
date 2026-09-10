@@ -4,7 +4,7 @@
  * Named states drive every routing and control-guard decision.
  * See DECISIONS.md §D02 and spec §37, §73.
  */
-import { createContext, useContext, useReducer } from 'react';
+import { createContext, useContext, useReducer, useMemo } from 'react';
 
 /** @type {Record<string, string>} */
 export const AppState = {
@@ -301,7 +301,13 @@ const AppContext = createContext(null);
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  const actions = {
+  // Memoized so `actions` keeps a stable identity across renders — dispatch
+  // itself is guaranteed stable by useReducer, so an empty dep array is safe.
+  // Without this, a brand-new `actions` object was created on every render,
+  // which broke any effect depending on `actions` (e.g. TerrainCanvas's
+  // terrain-load effect), causing it to re-fire every render in an
+  // infinite fetch → dispatch → re-render → re-fetch loop.
+  const actions = useMemo(() => ({
     startUpload: () => dispatch({ type: Action.START_UPLOAD }),
     uploadSuccess: (scene) => dispatch({ type: Action.UPLOAD_SUCCESS, payload: scene }),
     uploadFail: (err) => dispatch({ type: Action.UPLOAD_FAIL, payload: err }),
@@ -328,10 +334,15 @@ export function AppProvider({ children }) {
     clearRecentProjects: () => dispatch({
       type: Action.CLEAR_RECENT_PROJECTS,
     }),
-  };
+  }), [dispatch]);
+
+  // Memoized so consumers relying on reference equality (e.g. effects that
+  // depend on `state` or `actions` from useApp()) don't see a new object
+  // identity unless state or actions actually changed.
+  const value = useMemo(() => ({ state, actions }), [state, actions]);
 
   return (
-    <AppContext.Provider value={{ state, actions }}>
+    <AppContext.Provider value={value}>
       {children}
     </AppContext.Provider>
   );

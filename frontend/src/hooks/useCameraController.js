@@ -15,7 +15,7 @@
  *   - First-person mouse look only activates on pointer lock
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 /** @typedef {'orbit'|'first-person'|'top'} CameraMode */
 
