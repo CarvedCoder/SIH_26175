@@ -86,18 +86,19 @@ Key choices not re-derived each time:
 
 ---
 
-## D06 — 3D renderer (OGL)
+## D06 — 3D renderer (React Three Fiber + Three.js)
 
 | Concern | Decision |
 |---------|----------|
-| Terrain geometry | `PlaneGeometry` with vertex Y displacement from heightmap |
-| Heightmap decode | `OffscreenCanvas` + `ImageBitmap`; read pixel values as elevation |
+| Framework | `@react-three/fiber` (R3F) + `@react-three/drei` + `three` |
+| Terrain geometry | Multi-tile `THREE.BufferGeometry` with vertex displacement from heightmap |
+| Heightmap decode | `OffscreenCanvas` + `ImageBitmap` -> `THREE.DataTexture`; read pixel values as elevation |
 | Exaggeration | Vertex shader `uniform float uExaggeration`; visual only |
-| Colormaps | Fragment shader `uniform sampler2D uColormap`; LUT texture |
-| LOD | Distance-based mesh resolution; tile swap when backend exposes tile API |
-| Progressive | Render coarse mesh immediately; swap to full-res on load |
+| Colormaps | Fragment shader `uniform float uColormapMode` (RGB, Greyscale, Viridis, Diverging) |
+| Camera controls | Drei `<OrbitControls>` with smooth damping, custom top and first-person fly modes |
+| Progressive | Render low-res 64×64 mesh first; swap to high-res 256×256 when ready |
 | Texturing | Diffuse `uTexture`; switch texture URL on layer change |
-| Disposal | `geometry.remove()`, `program.remove()` on scene change/unmount |
+| Disposal | `geometry.dispose()`, `material.dispose()`, `texture.dispose()` on scene change/unmount |
 
 ---
 

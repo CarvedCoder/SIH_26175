@@ -1,28 +1,26 @@
 /**
- * DepthWizard — TerrainCanvas (Phase 4)
+ * DepthWizard — TerrainCanvas (React Three Fiber Migration + Main Merge)
  *
- * OGL WebGL terrain renderer. Full-bleed canvas that:
- *   4.1 — initialises Renderer, Camera, Scene, GL context
- *   4.2 — fetches /terrain/heightmap PNG; decodes via OffscreenCanvas;
- *          builds PlaneGeometry with vertex Y displacement; transitions TERRAIN_READY
- *   4.3 — fetches /terrain/texture; applies as diffuse map
- *   4.4 — directional (sun) + ambient lighting; professional geospatial look
- *   4.5 — terrain exaggeration via uniform float uExaggeration (vertex shader only)
- *   4.6 — wireframe toggle via mesh.mode
- *   4.7 — progressive: low-res mesh first, swap to full-res when ready
+ * React Three Fiber (R3F) + Three.js terrain renderer. Full-bleed canvas that:
+ *   - Renders 3D terrain via R3F <Canvas> and Three.js ShaderMaterial
+ *   - Decodes /terrain/heightmap PNG and applies vertex displacement
+ *   - Fetches /terrain/texture (RGB / Depth / DSM / Slope) as diffuse map
+ *   - Directional (sun) + ambient lighting; geospatial mission-control look
+ *   - Terrain exaggeration via uniform float uExaggeration
+ *   - Wireframe toggle via ShaderMaterial.wireframe
+ *   - Solid view via setSolidView()
+ *   - Progressive reveal: low-res mesh first, swaps to high-res when ready
+ *   - Integrates Drei <OrbitControls> with smooth damping
+ *   - Full backward compatibility with TerrainWorkspace, CameraHUD, and Minimap
  *
- * Exposes a ref-forwarded handle: { setExaggeration(v), setWireframe(v), resetCamera() }
- * Parent (TerrainWorkspace) calls these from the controls UI.
- *
- * DECISIONS.md §D06 — OGL renderer choices.
+ * DECISIONS.md §D06 — React Three Fiber renderer choice.
  * DESIGN.md — dark, instrument-panel; no neon, no bloom.
- * Spec §7, §20, §32, §75.
  */
+
 import { useEffect, useRef, useImperativeHandle, forwardRef, useCallback } from 'react';
-import {
-  Renderer, Camera, Transform, Geometry, Program, Mesh, Texture, Vec3,
-} from 'ogl';
-import { Orbit } from 'ogl/src/extras/Orbit.js';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
+import { OrbitControls } from '@react-three/drei';
+import * as THREE from 'three';
 import { useApp } from '../../store/appStore.jsx';
 import { getTerrain } from '../../api/terrain.js';
 import { resolveAssetUrl } from '../../api/client.js';
@@ -34,28 +32,18 @@ import { resolveAssetUrl } from '../../api/client.js';
  * - Reads heightmap Y from uHeightmap texture at (uv.x, uv.y)
  * - Displaces Y by height × uExaggeration × uHeightScale
  * - Lerp from flat to displaced using uProgress (progressive reveal)
- * - Passes vNormal (world-space approximation) for lighting
+ * - Passes vNormal (world-space) for lighting
  */
 const VERT = /* glsl */ `
-  precision highp float;
-
-  attribute vec3 position;
-  attribute vec2 uv;
-  attribute vec3 normal;
-
-  uniform mat4 modelViewMatrix;
-  uniform mat4 projectionMatrix;
-  uniform mat3 normalMatrix;
-
   uniform sampler2D uHeightmap;
   uniform float uExaggeration;
   uniform float uHeightScale;
-  uniform float uProgress;       // 0 → 1, progressive reveal
+  uniform float uProgress;       // 0 -> 1, progressive reveal
 
   varying vec2 vUv;
   varying vec3 vNormal;
   varying float vHeight;         // normalised [0,1] for colormap fallback
-  varying float vViewDist;       // distance from camera for depth fog (§20, task 19.4)
+  varying float vViewDist;       // distance from camera for depth fog
 
   void main() {
     vUv = uv;
@@ -86,11 +74,12 @@ const VERT = /* glsl */ `
  *     1 = Greyscale (depth)
  *     2 = Viridis (DSM, slope)
  *     3 = Diverging red-blue (error map)
- * - Atmospheric depth fog (§20)
- * - No neon, no bloom (DESIGN.md anti-patterns)
+ * - Atmospheric depth fog
  */
 const FRAG = /* glsl */ `
-  precision highp float;
+  #ifdef GL_OES_standard_derivatives
+  #extension GL_OES_standard_derivatives : enable
+  #endif
 
   uniform sampler2D uTexture;
   uniform vec3 uSunDir;          // normalised
@@ -102,13 +91,8 @@ const FRAG = /* glsl */ `
   uniform float uContourInterval;
   uniform float uElevationSpan;
   uniform float uMinElevation;
-  uniform float uFogEnabled;     // 0=off, 1=on (§20, task 19.4)
+  uniform float uFogEnabled;     // 0=off, 1=on
   uniform vec3 uFogColor;        // matches background [0.028, 0.035, 0.055]
-  // Solid-mesh rendering (no imagery draped on the surface):
-  uniform vec3 uSolidColor;      // surface colour when no texture layer is active
-  uniform vec3 uMeshColor;       // mesh grid line colour
-  uniform float uMeshEnabled;    // 0=off, 1=on
-  uniform float uMeshDensity;    // grid cells across the full terrain
 
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -129,7 +113,6 @@ const FRAG = /* glsl */ `
 
   // Diverging red-blue (error map): blue=negative, white=zero, red=positive
   vec3 diverging(float t) {
-    // t in [0,1]; centre=0.5
     if (t < 0.5) {
       return mix(vec3(0.145, 0.396, 0.933), vec3(0.87, 0.89, 0.93), t * 2.0);
     } else {
@@ -138,8 +121,12 @@ const FRAG = /* glsl */ `
   }
 
   void main() {
-    // Solid surface colour until a texture layer is explicitly selected
-    vec3 heightColor = uSolidColor;
+    // Height-based fallback colour until texture loads
+    vec3 heightColor = mix(
+      vec3(0.08, 0.12, 0.16),
+      vec3(0.55, 0.62, 0.70),
+      vHeight
+    );
 
     vec4 texSample = texture2D(uTexture, vUv);
     vec3 texColor  = texSample.rgb;
@@ -148,59 +135,42 @@ const FRAG = /* glsl */ `
     vec3 baseColor;
     int mode = int(uColormapMode + 0.5);
     if (mode == 1) {
-      // Greyscale: use red channel (luminance from depth PNG)
       float lum = texSample.r;
       baseColor = vec3(lum);
     } else if (mode == 2) {
-      // Viridis: red channel as normalised value
       baseColor = viridis(texSample.r);
     } else if (mode == 3) {
-      // Diverging: red channel as position [0,1]
       baseColor = diverging(texSample.r);
     } else {
-      // RGB (default)
       baseColor = texColor;
     }
 
-    // Blend: solid surface → mapped colour based on texture readiness
+    // Blend: fallback -> mapped colour based on texture readiness
     baseColor = mix(heightColor, baseColor, uTextureReady);
-
-    // Mesh grid overlay (surface-space quad grid — reads like the wireframe
-    // of the terrain mesh, works in every layer mode)
-    if (uMeshEnabled > 0.5) {
-      vec2 f = fract(vUv * uMeshDensity);
-      vec2 d = min(f, 1.0 - f);           // distance to nearest gridline, cell units
-      float line = 1.0 - smoothstep(0.015, 0.05, min(d.x, d.y));
-      baseColor = mix(baseColor, uMeshColor, line * 0.55);
-    }
 
     // Diffuse lighting
     float diff = max(dot(vNormal, uSunDir), 0.0);
     vec3 lit = baseColor * (uAmbient + diff * (1.0 - uAmbient));
 
-    // Slight tonal grading toward cool shadow — geospatial look
+    // Slight tonal grading toward cool shadow
     vec3 shadow = mix(vec3(0.04, 0.07, 0.12), lit, clamp(diff + uAmbient, 0.0, 1.0));
 
-    // Optional contour lines (§21)
-    // NOTE: no fwidth() here — it requires the OES_standard_derivatives
-    // extension in WebGL 1, and its absence failed the WHOLE shader compile
-    // (black canvas). Line width is a fixed fraction of the interval instead.
+    // Optional contour lines
     if (uContoursEnabled > 0.5 && uContourInterval > 0.001) {
       float elev = vHeight * uElevationSpan + uMinElevation;
       float lineDist = abs(fract(elev / uContourInterval - 0.5) - 0.5) * uContourInterval;
-      float contour = 1.0 - smoothstep(0.0, uContourInterval * 0.06, lineDist);
+      float fw = max(fwidth(elev), 0.0001);
+      float contour = 1.0 - smoothstep(0.0, fw * 1.5, lineDist);
 
-      // Major index contour every 5 intervals
       float majorInterval = uContourInterval * 5.0;
       float majorDist = abs(fract(elev / majorInterval - 0.5) - 0.5) * majorInterval;
-      float majorContour = 1.0 - smoothstep(0.0, majorInterval * 0.03, majorDist);
+      float majorContour = 1.0 - smoothstep(0.0, fw * 2.2, majorDist);
 
-      // Subtle crisp cartographic line
       vec3 contourColor = vec3(0.06, 0.09, 0.14);
       shadow = mix(shadow, contourColor, clamp(contour * 0.45 + majorContour * 0.35, 0.0, 0.85));
     }
 
-    // Optional atmospheric depth fog (§20, task 19.4)
+    // Optional atmospheric depth fog
     if (uFogEnabled > 0.5) {
       float fogFactor = clamp((vViewDist - 1.2) / 6.0, 0.0, 0.85);
       shadow = mix(shadow, uFogColor, fogFactor);
@@ -212,26 +182,18 @@ const FRAG = /* glsl */ `
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
-/** Low-res: 64×64 segments; high-res: 256×256 */
 const LO_SEGS = 64;
 const HI_SEGS = 256;
-
-/** Default camera pose — a 3/4 map view above the tallest peaks
- * (max height = maxAGL x exaggeration ≈ 2.25), slightly off-axis so the
- * terrain reads as 3D rather than corner-on */
-const DEFAULT_CAMERA_POS = [1.6, 3.3, 2.0];
-const DEFAULT_ORBIT_TARGET = [0, 0.4, 0];
+const DEFAULT_CAMERA_POS = [0, 1.2, 2.5];
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 
 /**
  * Decode a PNG image URL into a Float32Array of normalised [0,1] red-channel values.
- * Uses OffscreenCanvas; falls back to ImageBitmap for Safari.
- * @param {string} url
- * @returns {Promise<{ data: Float32Array, width: number, height: number }>}
  */
 async function decodeHeightmap(url) {
-  const res = await fetch(resolveAssetUrl(url));
+  const resolved = resolveAssetUrl(url);
+  const res = await fetch(resolved);
   const blob = await res.blob();
   const bitmap = await createImageBitmap(blob);
 
@@ -242,16 +204,15 @@ async function decodeHeightmap(url) {
     const oc = new OffscreenCanvas(width, height);
     ctx = oc.getContext('2d');
   } else {
-    // Fallback: regular canvas (never shown)
     const c = document.createElement('canvas');
-    c.width = width; c.height = height;
+    c.width = width;
+    c.height = height;
     ctx = c.getContext('2d');
   }
 
   ctx.drawImage(bitmap, 0, 0);
-  const pixels = ctx.getImageData(0, 0, width, height).data; // Uint8ClampedArray, RGBA
+  const pixels = ctx.getImageData(0, 0, width, height).data;
 
-  // Extract red channel, normalise to [0, 1]
   const data = new Float32Array(width * height);
   for (let i = 0; i < width * height; i++) {
     data[i] = pixels[i * 4] / 255;
@@ -262,143 +223,9 @@ async function decodeHeightmap(url) {
 }
 
 /**
- * Build a PlaneGeometry with Y displacement baked into position buffer.
- * Uses a custom Geometry (not Plane class) so we control the segment count.
- * @param {WebGLRenderingContext} gl
- * @param {Float32Array} heightData
- * @param {number} hmWidth   - heightmap pixel width
- * @param {number} hmHeight  - heightmap pixel height
- * @param {number} segs      - grid segments (LO_SEGS or HI_SEGS)
- * @param {number} heightScale
- * @param {number} exaggeration
- * @returns {Geometry}
+ * Build a PlaneGeometry tile representing a subsection [uMin, uMax] x [vMin, vMax]
  */
-function buildTerrainGeometry(gl, heightData, hmWidth, hmHeight, segs, heightScale, exaggeration) {
-  const wSegs = segs;
-  const hSegs = segs;
-  const num = (wSegs + 1) * (hSegs + 1);
-  const numIndices = wSegs * hSegs * 6;
-
-  const position = new Float32Array(num * 3);
-  const normal   = new Float32Array(num * 3);
-  const uv       = new Float32Array(num * 2);
-  const index    = numIndices > 65536 ? new Uint32Array(numIndices) : new Uint16Array(numIndices);
-
-  let i = 0;
-  for (let iy = 0; iy <= hSegs; iy++) {
-    const v = iy / hSegs;
-    for (let ix = 0; ix <= wSegs; ix++, i++) {
-      const u = ix / wSegs;
-      const x = (u - 0.5) * 2; // [-1, 1]
-      const z = (v - 0.5) * 2; // [-1, 1]
-
-      // Sample heightmap at (u, v) — nearest neighbour
-      const px = Math.min(Math.round(u * (hmWidth - 1)), hmWidth - 1);
-      const py = Math.min(Math.round(v * (hmHeight - 1)), hmHeight - 1);
-      const h  = heightData[py * hmWidth + px] * heightScale * exaggeration;
-
-      position[i * 3]     = x;
-      position[i * 3 + 1] = h;
-      position[i * 3 + 2] = z;
-
-      // Up normal (will be updated by computeNormals below, but init here)
-      normal[i * 3]     = 0;
-      normal[i * 3 + 1] = 1;
-      normal[i * 3 + 2] = 0;
-
-      uv[i * 2]     = u;
-      uv[i * 2 + 1] = 1 - v; // flip V for WebGL (origin bottom-left)
-    }
-  }
-
-  // Build index buffer (two triangles per quad)
-  let ii = 0;
-  for (let iy = 0; iy < hSegs; iy++) {
-    for (let ix = 0; ix < wSegs; ix++) {
-      const a = ix + iy * (wSegs + 1);
-      const b = ix + (iy + 1) * (wSegs + 1);
-      const c = ix + (iy + 1) * (wSegs + 1) + 1;
-      const d = ix + iy * (wSegs + 1) + 1;
-      index[ii * 6]     = a;
-      index[ii * 6 + 1] = b;
-      index[ii * 6 + 2] = d;
-      index[ii * 6 + 3] = b;
-      index[ii * 6 + 4] = c;
-      index[ii * 6 + 5] = d;
-      ii++;
-    }
-  }
-
-  // Compute smooth normals from cross-products of surrounding triangles
-  computeNormals(position, index, normal, wSegs, hSegs);
-
-  return new Geometry(gl, {
-    position: { size: 3, data: position },
-    normal:   { size: 3, data: normal },
-    uv:       { size: 2, data: uv },
-    index:    { data: index },
-  });
-}
-
-/**
- * Very simple smooth normal computation via face normal accumulation.
- */
-function computeNormals(position, index, normal, wSegs, hSegs) {
-  const totalVerts = (wSegs + 1) * (hSegs + 1);
-  const count = new Float32Array(totalVerts);
-
-  for (let i = 0; i < index.length; i += 3) {
-    const ia = index[i], ib = index[i + 1], ic = index[i + 2];
-
-    // Edge vectors
-    const ax = position[ib * 3]     - position[ia * 3];
-    const ay = position[ib * 3 + 1] - position[ia * 3 + 1];
-    const az = position[ib * 3 + 2] - position[ia * 3 + 2];
-    const bx = position[ic * 3]     - position[ia * 3];
-    const by = position[ic * 3 + 1] - position[ia * 3 + 1];
-    const bz = position[ic * 3 + 2] - position[ia * 3 + 2];
-
-    // Cross product
-    const nx = ay * bz - az * by;
-    const ny = az * bx - ax * bz;
-    const nz = ax * by - ay * bx;
-
-    for (const vi of [ia, ib, ic]) {
-      normal[vi * 3]     += nx;
-      normal[vi * 3 + 1] += ny;
-      normal[vi * 3 + 2] += nz;
-      count[vi]++;
-    }
-  }
-
-  for (let i = 0; i < totalVerts; i++) {
-    if (count[i] === 0) continue;
-    const len = Math.hypot(normal[i * 3], normal[i * 3 + 1], normal[i * 3 + 2]);
-    if (len > 0) {
-      normal[i * 3]     /= len;
-      normal[i * 3 + 1] /= len;
-      normal[i * 3 + 2] /= len;
-    }
-  }
-}
-
-/**
- * Build a PlaneGeometry tile representing a subsection of the terrain [uMin, uMax] x [vMin, vMax].
- * Calculates local bounding box and bounding sphere for OGL frustum culling (§32, task 19.1).
- *
- * @param {WebGLRenderingContext} gl
- * @param {Float32Array} heightData
- * @param {number} hmWidth
- * @param {number} hmHeight
- * @param {number} segs
- * @param {number} heightScale
- * @param {number} exaggeration
- * @param {number} tx - tile x index (0..numTiles-1)
- * @param {number} ty - tile y index (0..numTiles-1)
- * @param {number} [numTiles=2]
- * @returns {Geometry}
- */
-function buildTerrainTileGeometry(gl, heightData, hmWidth, hmHeight, segs, heightScale, exaggeration, tx, ty, numTiles = 2) {
+function buildTerrainTileGeometry(heightData, hmWidth, hmHeight, segs, heightScale, exaggeration, tx, ty, numTiles = 2) {
   const uMin = tx / numTiles;
   const uMax = (tx + 1) / numTiles;
   const vMin = ty / numTiles;
@@ -410,9 +237,9 @@ function buildTerrainTileGeometry(gl, heightData, hmWidth, hmHeight, segs, heigh
   const numIndices = wSegs * hSegs * 6;
 
   const position = new Float32Array(num * 3);
-  const normal   = new Float32Array(num * 3);
-  const uv       = new Float32Array(num * 2);
-  const index    = numIndices > 65536 ? new Uint32Array(numIndices) : new Uint16Array(numIndices);
+  const normal = new Float32Array(num * 3);
+  const uv = new Float32Array(num * 2);
+  const index = numIndices > 65536 ? new Uint32Array(numIndices) : new Uint16Array(numIndices);
 
   let i = 0;
   for (let iy = 0; iy <= hSegs; iy++) {
@@ -425,19 +252,22 @@ function buildTerrainTileGeometry(gl, heightData, hmWidth, hmHeight, segs, heigh
       const x = (u - 0.5) * 2; // [-1, 1]
       const z = (v - 0.5) * 2; // [-1, 1]
 
-      const px = Math.min(Math.max(Math.round(u * (hmWidth - 1)), 0), hmWidth - 1);
-      const py = Math.min(Math.max(Math.round(v * (hmHeight - 1)), 0), hmHeight - 1);
-      const h  = heightData[py * hmWidth + px] * heightScale * exaggeration;
+      let h = 0;
+      if (heightData && hmWidth && hmHeight) {
+        const px = Math.min(Math.max(Math.round(u * (hmWidth - 1)), 0), hmWidth - 1);
+        const py = Math.min(Math.max(Math.round(v * (hmHeight - 1)), 0), hmHeight - 1);
+        h = heightData[py * hmWidth + px] * heightScale * exaggeration;
+      }
 
-      position[i * 3]     = x;
+      position[i * 3] = x;
       position[i * 3 + 1] = h;
       position[i * 3 + 2] = z;
 
-      normal[i * 3]     = 0;
+      normal[i * 3] = 0;
       normal[i * 3 + 1] = 1;
       normal[i * 3 + 2] = 0;
 
-      uv[i * 2]     = u;
+      uv[i * 2] = u;
       uv[i * 2 + 1] = 1 - v;
     }
   }
@@ -449,7 +279,7 @@ function buildTerrainTileGeometry(gl, heightData, hmWidth, hmHeight, segs, heigh
       const b = ix + (iy + 1) * (wSegs + 1);
       const c = ix + (iy + 1) * (wSegs + 1) + 1;
       const d = ix + iy * (wSegs + 1) + 1;
-      index[ii * 6]     = a;
+      index[ii * 6] = a;
       index[ii * 6 + 1] = b;
       index[ii * 6 + 2] = d;
       index[ii * 6 + 3] = b;
@@ -461,118 +291,162 @@ function buildTerrainTileGeometry(gl, heightData, hmWidth, hmHeight, segs, heigh
 
   computeNormals(position, index, normal, wSegs, hSegs);
 
-  const geo = new Geometry(gl, {
-    position: { size: 3, data: position },
-    normal:   { size: 3, data: normal },
-    uv:       { size: 2, data: uv },
-    index:    { data: index },
-  });
-
-  // Calculate local bounding sphere for frustum culling
-  geo.computeBoundingBox();
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(position, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(new THREE.BufferAttribute(index, 1));
   geo.computeBoundingSphere();
-  if (geo.bounds) {
-    geo.bounds.radius += Math.max(0.5, heightScale * 2.5);
-  }
-
+  geo.computeBoundingBox();
   return geo;
 }
 
-/**
- * Build a flat tile geometry placeholder with bounding sphere for frustum culling.
- */
-function buildFlatTileGeometry(gl, segs, tx, ty, numTiles = 2) {
-  const uMin = tx / numTiles;
-  const uMax = (tx + 1) / numTiles;
-  const vMin = ty / numTiles;
-  const vMax = (ty + 1) / numTiles;
+function computeNormals(position, index, normal, wSegs, hSegs) {
+  const totalVerts = (wSegs + 1) * (hSegs + 1);
+  const count = new Float32Array(totalVerts);
 
-  const num = (segs + 1) ** 2;
-  const numIdx = segs * segs * 6;
+  for (let i = 0; i < index.length; i += 3) {
+    const ia = index[i], ib = index[i + 1], ic = index[i + 2];
 
-  const position = new Float32Array(num * 3);
-  const normal   = new Float32Array(num * 3);
-  const uv       = new Float32Array(num * 2);
-  const index    = numIdx > 65536 ? new Uint32Array(numIdx) : new Uint16Array(numIdx);
+    const ax = position[ib * 3] - position[ia * 3];
+    const ay = position[ib * 3 + 1] - position[ia * 3 + 1];
+    const az = position[ib * 3 + 2] - position[ia * 3 + 2];
+    const bx = position[ic * 3] - position[ia * 3];
+    const by = position[ic * 3 + 1] - position[ia * 3 + 1];
+    const bz = position[ic * 3 + 2] - position[ia * 3 + 2];
 
-  let i = 0;
-  for (let iy = 0; iy <= segs; iy++) {
-    const fracY = iy / segs;
-    const v = vMin + fracY * (vMax - vMin);
-    for (let ix = 0; ix <= segs; ix++, i++) {
-      const fracX = ix / segs;
-      const u = uMin + fracX * (uMax - uMin);
-      position[i * 3]     = (u - 0.5) * 2;
-      position[i * 3 + 1] = 0;
-      position[i * 3 + 2] = (v - 0.5) * 2;
-      normal[i * 3 + 1]   = 1;
-      uv[i * 2]           = u;
-      uv[i * 2 + 1]       = 1 - v;
+    const nx = ay * bz - az * by;
+    const ny = az * bx - ax * bz;
+    const nz = ax * by - ay * bx;
+
+    for (const vi of [ia, ib, ic]) {
+      normal[vi * 3] += nx;
+      normal[vi * 3 + 1] += ny;
+      normal[vi * 3 + 2] += nz;
+      count[vi]++;
     }
   }
 
-  let ii = 0;
-  for (let iy = 0; iy < segs; iy++) {
-    for (let ix = 0; ix < segs; ix++) {
-      const a = ix + iy * (segs + 1);
-      const b = ix + (iy + 1) * (segs + 1);
-      const c = ix + (iy + 1) * (segs + 1) + 1;
-      const d = ix + iy * (segs + 1) + 1;
-      index[ii * 6] = a; index[ii * 6 + 1] = b; index[ii * 6 + 2] = d;
-      index[ii * 6 + 3] = b; index[ii * 6 + 4] = c; index[ii * 6 + 5] = d;
-      ii++;
+  for (let i = 0; i < totalVerts; i++) {
+    if (count[i] === 0) continue;
+    const len = Math.hypot(normal[i * 3], normal[i * 3 + 1], normal[i * 3 + 2]);
+    if (len > 0) {
+      normal[i * 3] /= len;
+      normal[i * 3 + 1] /= len;
+      normal[i * 3 + 2] /= len;
     }
   }
-
-  const geo = new Geometry(gl, {
-    position: { size: 3, data: position },
-    normal:   { size: 3, data: normal },
-    uv:       { size: 2, data: uv },
-    index:    { data: index },
-  });
-
-  geo.computeBoundingBox();
-  geo.computeBoundingSphere();
-  if (geo.bounds) geo.bounds.radius += 0.5;
-
-  return geo;
 }
 
-/* ─── Component ──────────────────────────────────────────────────────────── */
+function createEmptyTexture() {
+  const pixel = new Uint8Array([0, 0, 0, 255]);
+  const tex = new THREE.DataTexture(pixel, 1, 1, THREE.RGBAFormat);
+  tex.needsUpdate = true;
+  return tex;
+}
 
-/**
- * @param {{ onReady?: () => void }} props
- * @param {React.Ref} ref
- */
+/* ─── R3F Inner Bridge Component ────────────────────────────────────────── */
+
+function SceneBridge({ canvasRef, glRef, orbitControlsRef, materialRef, sceneState, actions }) {
+  const { gl, scene, camera } = useThree();
+
+  useEffect(() => {
+    canvasRef.current = gl.domElement;
+    const g = glRef.current;
+    g.renderer = gl;
+    g.scene = scene;
+    g.camera = camera;
+    g.orbit = orbitControlsRef.current;
+    g.controls = orbitControlsRef.current;
+  }, [gl, scene, camera, canvasRef, glRef, orbitControlsRef]);
+
+  // Handle terrain loading whenever scene_id changes
+  useEffect(() => {
+    const sceneId = sceneState?.scene?.scene_id;
+    if (!sceneId) return;
+
+    const g = glRef.current;
+    const mat = materialRef.current;
+    if (!mat) return;
+
+    g.disposed = false;
+    loadTerrainData(g, mat, scene, sceneId, actions);
+
+    return () => {
+      g.disposed = true;
+      if (g.tiles) {
+        g.tiles.forEach(m => {
+          m.geometry?.dispose?.();
+          scene.remove(m);
+        });
+        g.tiles = [];
+      }
+      if (g.activeTextures) {
+        g.activeTextures.forEach(t => t.dispose?.());
+        g.activeTextures.clear();
+      }
+    };
+  }, [sceneState?.scene?.scene_id, scene, actions, glRef, materialRef]);
+
+  // Frame tick animation loop
+  useFrame((_, delta) => {
+    const g = glRef.current;
+    if (g.disposed) return;
+    const dt = Math.min(delta, 0.1);
+
+    const mat = materialRef.current;
+    if (mat && mat.uniforms.uProgress) {
+      const prefersReducedMotion = typeof window !== 'undefined' &&
+        window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+
+      if (prefersReducedMotion) {
+        g.progressCurrent = g.progress;
+        mat.uniforms.uProgress.value = g.progress;
+      } else if (g.progressCurrent < g.progress) {
+        g.progressCurrent = Math.min(g.progressCurrent + dt * (1 / 0.6), g.progress);
+        mat.uniforms.uProgress.value = g.progressCurrent;
+      }
+    }
+
+    if (g.cameraMode === 'first-person' && typeof g.fpTick === 'function') {
+      g.fpTick(dt);
+    }
+  });
+
+  return null;
+}
+
+/* ─── Main TerrainCanvas Component ──────────────────────────────────────── */
+
 const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
   const { state, actions } = useApp();
-  const canvasRef  = useRef(null);
+  const canvasRef = useRef(null);
+  const orbitControlsRef = useRef(null);
 
-  // Mutable GL state (not React state — lives across renders without re-render)
+  // Shared state ref for imperative handles & parent consumers
   const glRef = useRef({
     renderer: null,
     camera: null,
     scene: null,
     orbit: null,
-    program: null,
+    controls: null,
     mesh: null,
-    tiles: [],                  // tile meshes for frustum culling (§32, task 19.1)
-    activeTextures: new Set(),  // tracked GPU textures for clean disposal (§32, task 19.2)
-    rafId: null,
-    exaggeration: 1.5,
-    wireframe: true,            // solid surface + mesh grid is the default view
-    fogEnabled: false,          // atmospheric fog toggle (§20, task 19.4)
-    progress: 0,                // progressive reveal lerp target
-    progressCurrent: 0,         // current interpolated value
+    tiles: [],
+    material: null,
     heightData: null,
     hmWidth: 0,
     hmHeight: 0,
-    heightScale: 1,
-    segs: LO_SEGS,
+    heightScale: 1.0,
+    exaggeration: 1.5,
+    progress: 0.0,
+    progressCurrent: 0.0,
     textureReady: 0,
+    cameraMode: 'orbit',
+    fpTick: null,
     disposed: false,
-    cameraMode: 'orbit',        // 'orbit' | 'first-person' | 'top'
-    fpTick: null,               // callback injected from useCameraController
+    activeTextures: new Set(),
+    wireframe: false,
+    fogEnabled: false,
     contoursEnabled: false,
     contourInterval: 5.0,
     minElevation: 0.0,
@@ -580,84 +454,115 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     elevationSpan: 100.0,
   });
 
-  /* ── Expose handle to parent ── */
+  // Create initial Three.js ShaderMaterial
+  const sunDir = [0.6, 0.9, 0.4].map(v => v / Math.hypot(0.6, 0.9, 0.4));
+  const materialRef = useRef(null);
+
+  if (!materialRef.current) {
+    const emptyHm = createEmptyTexture();
+    const emptyRgb = createEmptyTexture();
+    glRef.current.activeTextures.add(emptyHm);
+    glRef.current.activeTextures.add(emptyRgb);
+
+    materialRef.current = new THREE.ShaderMaterial({
+      vertexShader: VERT,
+      fragmentShader: FRAG,
+      uniforms: {
+        uHeightmap: { value: emptyHm },
+        uTexture: { value: emptyRgb },
+        uExaggeration: { value: 1.5 },
+        uHeightScale: { value: 1.0 },
+        uProgress: { value: 0.0 },
+        uSunDir: { value: new THREE.Vector3(sunDir[0], sunDir[1], sunDir[2]) },
+        uSunColor: { value: new THREE.Color(1.0, 0.95, 0.85) },
+        uAmbient: { value: 0.32 },
+        uTextureReady: { value: 0.0 },
+        uColormapMode: { value: 0.0 },
+        uContoursEnabled: { value: 0.0 },
+        uContourInterval: { value: 5.0 },
+        uElevationSpan: { value: 100.0 },
+        uMinElevation: { value: 0.0 },
+        uFogEnabled: { value: 0.0 },
+        uFogColor: { value: new THREE.Color(0.028, 0.035, 0.055) },
+      },
+      wireframe: false,
+      transparent: false,
+      depthTest: true,
+      depthWrite: true,
+    });
+    glRef.current.material = materialRef.current;
+  }
+
+  /* ── Expose imperative handle to parent ── */
   useImperativeHandle(ref, () => ({
     setExaggeration(v) {
       const g = glRef.current;
       g.exaggeration = v;
-      if (g.program) {
-        g.program.uniforms.uExaggeration.value = v;
+      const mat = materialRef.current;
+      if (mat?.uniforms?.uExaggeration) {
+        mat.uniforms.uExaggeration.value = v;
       }
     },
     setWireframe(v) {
-      // Mesh overlay is a shader grid on the surface (the old
-      // mesh.mode = gl.LINES hack drew triangle indices as line segments —
-      // garbage geometry). The grid works in every layer mode.
       const g = glRef.current;
       g.wireframe = v;
-      if (g.program?.uniforms?.uMeshEnabled) {
-        g.program.uniforms.uMeshEnabled.value = v ? 1.0 : 0.0;
+      const mat = materialRef.current;
+      if (mat) {
+        mat.wireframe = !!v;
       }
     },
-    /** Return to the default solid shaded surface + mesh view */
     setSolidView() {
       const g = glRef.current;
       g.textureReady = 0;
-      if (g.program?.uniforms?.uTextureReady) {
-        g.program.uniforms.uTextureReady.value = 0.0;
+      const mat = materialRef.current;
+      if (mat?.uniforms?.uTextureReady) {
+        mat.uniforms.uTextureReady.value = 0.0;
       }
-      if (g.program?.uniforms?.uColormapMode) {
-        g.program.uniforms.uColormapMode.value = 0.0;
+      if (mat?.uniforms?.uColormapMode) {
+        mat.uniforms.uColormapMode.value = 0.0;
       }
     },
-    /** Atmospheric fog toggle (§20, task 19.4) */
     setFog(v) {
       const g = glRef.current;
       g.fogEnabled = !!v;
-      if (g.program?.uniforms?.uFogEnabled) {
-        g.program.uniforms.uFogEnabled.value = v ? 1.0 : 0.0;
+      const mat = materialRef.current;
+      if (mat?.uniforms?.uFogEnabled) {
+        mat.uniforms.uFogEnabled.value = v ? 1.0 : 0.0;
       }
     },
     resetCamera() {
       const g = glRef.current;
       if (g.camera && g.orbit) {
         g.camera.position.set(...DEFAULT_CAMERA_POS);
-        g.orbit.target.set(...DEFAULT_ORBIT_TARGET);
-        // Orbit derives its internal spherical from the position ONLY here —
-        // without forcePosition() the next update() snaps the camera back to
-        // the pre-reset view.
-        g.orbit.forcePosition?.();
+        g.orbit.target.set(0, 0, 0);
+        g.orbit.update?.();
       }
       g.cameraMode = 'orbit';
       if (g.orbit) g.orbit.enabled = true;
       g.fpTick = null;
     },
-    /** Register first-person tick callback — called every frame when mode is fp */
     setFpTick(fn) {
       glRef.current.fpTick = fn;
     },
-    /** Set camera mode so render loop knows which controller is active */
     setCameraMode(newMode) {
       glRef.current.cameraMode = newMode;
       if (glRef.current.orbit) {
         glRef.current.orbit.enabled = (newMode === 'orbit');
       }
     },
-    /** Expose raw glRef so useCameraController can read camera and heightData */
-    getRef() { return glRef; },
-    /** Expose canvas ref for pointer-lock in first-person mode */
-    getCanvas() { return canvasRef; },
-    /**
-     * Capture a snapshot of current WebGL scene as PNG data URL
-     * @returns {string|null}
-     */
+    getRef() {
+      return glRef;
+    },
+    getCanvas() {
+      return canvasRef;
+    },
     captureSnapshot() {
-      const g = glRef.current;
-      if (g.renderer && g.scene && g.camera) {
-        g.renderer.render({ scene: g.scene, camera: g.camera, frustumCull: true });
-      }
       const canvas = canvasRef.current;
       if (!canvas) return null;
+      const g = glRef.current;
+      if (g.renderer && g.scene && g.camera) {
+        g.renderer.render(g.scene, g.camera);
+      }
       try {
         return canvas.toDataURL('image/png');
       } catch (err) {
@@ -665,72 +570,59 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         return null;
       }
     },
-    /**
-     * Swap the terrain texture to a new image URL (layer switch, task 8.2).
-     * Camera and minimap state are preserved — only the texture changes.
-     * Cleans up replaced texture from GPU memory (§32, task 19.2).
-     * @param {string} url - new texture URL
-     * @param {number} colormapMode - 0=rgb, 1=greyscale, 2=viridis, 3=diverging
-     */
     setLayerTexture(url, colormapMode = 0) {
-      url = resolveAssetUrl(url);
       const g = glRef.current;
-      if (!g.renderer || !g.program) return;
-      const gl = g.renderer.gl;
-      // Reset texture-ready flag for cross-fade
-      if (g.program.uniforms.uTextureReady) {
-        g.program.uniforms.uTextureReady.value = 0.0;
+      const mat = materialRef.current;
+      if (!mat) return;
+
+      if (mat.uniforms.uTextureReady) {
+        mat.uniforms.uTextureReady.value = 0.0;
         g.textureReady = 0;
       }
-      if (g.program.uniforms.uColormapMode) {
-        g.program.uniforms.uColormapMode.value = colormapMode;
+      if (mat.uniforms.uColormapMode) {
+        mat.uniforms.uColormapMode.value = colormapMode;
       }
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        if (g.disposed) return;
-        const oldTex = g.program.uniforms.uTexture?.value;
-        const tex = new Texture(gl, {
-          image: img,
-          minFilter: gl.LINEAR_MIPMAP_LINEAR,
-          magFilter: gl.LINEAR,
-          wrapS: gl.CLAMP_TO_EDGE,
-          wrapT: gl.CLAMP_TO_EDGE,
-          generateMipmaps: true,
-          flipY: true,
-        });
+
+      const resolved = resolveAssetUrl(url);
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin('anonymous');
+      loader.load(resolved, (tex) => {
+        if (g.disposed) {
+          tex.dispose();
+          return;
+        }
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.generateMipmaps = true;
+        tex.flipY = true;
         tex.needsUpdate = true;
+
+        const oldTex = mat.uniforms.uTexture?.value;
+        mat.uniforms.uTexture.value = tex;
         g.activeTextures.add(tex);
 
-        if (g.program.uniforms.uTexture) {
-          g.program.uniforms.uTexture.value = tex;
-        }
-
-        // Clean up old texture from GPU memory (§32)
-        if (oldTex && oldTex?.texture && gl) {
-          gl.deleteTexture(oldTex.texture);
+        if (oldTex && oldTex.dispose) {
+          oldTex.dispose();
           g.activeTextures.delete(oldTex);
         }
 
-        // Check prefers-reduced-motion (task 19.5, §32)
         const prefersReducedMotion = typeof window !== 'undefined' &&
           window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
 
         if (prefersReducedMotion) {
-          if (g.program.uniforms.uTextureReady) {
-            g.program.uniforms.uTextureReady.value = 1.0;
-          }
+          mat.uniforms.uTextureReady.value = 1.0;
           g.textureReady = 1;
           return;
         }
 
-        // Animate cross-fade: ramp textureReady from 0→1 over 250ms
         const start = performance.now();
         function fadeIn() {
           if (g.disposed) return;
           const t = Math.min((performance.now() - start) / 250, 1);
-          if (g.program.uniforms.uTextureReady) {
-            g.program.uniforms.uTextureReady.value = t;
+          if (mat.uniforms.uTextureReady) {
+            mat.uniforms.uTextureReady.value = t;
           }
           if (t < 1) requestAnimationFrame(fadeIn);
           else {
@@ -738,30 +630,24 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           }
         }
         requestAnimationFrame(fadeIn);
-      };
-      img.src = url;
+      });
     },
-    /**
-     * Toggle contour lines and set elevation interval (§21, task 8.4).
-     * @param {boolean} enabled
-     * @param {number} [interval]
-     */
     setContours(enabled, interval) {
       const g = glRef.current;
       g.contoursEnabled = !!enabled;
       if (typeof interval === 'number' && interval > 0) {
         g.contourInterval = interval;
       }
-      if (g.program) {
-        if (g.program.uniforms.uContoursEnabled) {
-          g.program.uniforms.uContoursEnabled.value = enabled ? 1.0 : 0.0;
+      const mat = materialRef.current;
+      if (mat) {
+        if (mat.uniforms.uContoursEnabled) {
+          mat.uniforms.uContoursEnabled.value = enabled ? 1.0 : 0.0;
         }
-        if (g.program.uniforms.uContourInterval && typeof interval === 'number' && interval > 0) {
-          g.program.uniforms.uContourInterval.value = interval;
+        if (mat.uniforms.uContourInterval && typeof interval === 'number' && interval > 0) {
+          mat.uniforms.uContourInterval.value = interval;
         }
       }
     },
-    /** Sample elevation from heightmap at normalised coordinates [0, 1] — client-side memory only (§32, task 19.3) */
     sampleElevation(nx, nz) {
       const g = glRef.current;
       if (!g.heightData || !g.hmWidth || !g.hmHeight) return null;
@@ -773,7 +659,6 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       }
       return raw * 100.0 * (g.heightScale ?? 1.0);
     },
-    /** Convert a client mouse event to terrain coordinates { x, z, elevation } */
     getTerrainPointFromEvent(event) {
       const canvas = canvasRef.current;
       if (!canvas) return null;
@@ -783,11 +668,30 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       if (clientX < 0 || clientX > rect.width || clientY < 0 || clientY > rect.height) return null;
       const ndcX = (clientX / rect.width) * 2 - 1;
       const ndcY = -(clientY / rect.height) * 2 + 1;
+
       const g = glRef.current;
+      // Precise Raycasting with Three.js
+      if (g.camera && g.tiles && g.tiles.length > 0) {
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2(ndcX, ndcY);
+        raycaster.setFromCamera(mouse, g.camera);
+        const hits = raycaster.intersectObjects(g.tiles, false);
+        if (hits.length > 0) {
+          const hit = hits[0];
+          const wx = hit.point.x;
+          const wz = hit.point.z;
+          const nx = Math.max(0, Math.min(1, (wx + 1) / 2));
+          const nz = Math.max(0, Math.min(1, (wz + 1) / 2));
+          const elevation = this.sampleElevation(nx, nz) ?? hit.point.y;
+          return { x: wx, z: wz, elevation };
+        }
+      }
+
+      // Mathematical approximation fallback
       let wx = ndcX;
       let wz = -ndcY;
       if (g.orbit?.target && g.camera) {
-        const dist = g.camera.position.distance ? g.camera.position.distance(g.orbit.target) : 2.5;
+        const dist = g.camera.position.distanceTo ? g.camera.position.distanceTo(g.orbit.target) : 2.5;
         wx = (g.orbit.target.x ?? 0) + ndcX * dist * 0.45;
         wz = (g.orbit.target.z ?? 0) - ndcY * dist * 0.45;
       }
@@ -798,226 +702,55 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     },
   }));
 
-  /* ── Resize handler ── */
-  const handleResize = useCallback(() => {
-    const g = glRef.current;
-    if (!g.renderer || !g.camera || !canvasRef.current) return;
-    const { clientWidth: w, clientHeight: h } = canvasRef.current.parentElement;
-    g.renderer.setSize(w, h);
-    g.camera.perspective({ aspect: w / h });
-  }, []);
-
-  /* ── Main init effect ── */
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !state.scene?.scene_id) return;
-
-    const g = glRef.current;
-    g.disposed = false;
-
-    // ── 4.1: Init Renderer, Camera, Scene ──
-    const container = canvas.parentElement;
-    const w = container.clientWidth;
-    const h = container.clientHeight;
-
-    const renderer = new Renderer({
-      canvas,
-      width: w,
-      height: h,
-      dpr: Math.min(window.devicePixelRatio, 2),
-      antialias: true,
-      preserveDrawingBuffer: true,
-      alpha: false,
-    });
-    const gl = renderer.gl;
-    gl.clearColor(0.028, 0.035, 0.055, 1); // near --dw-void
-    g.renderer = renderer;
-
-    const camera = new Camera(gl, { fov: 45, near: 0.01, far: 100 });
-    camera.position.set(...DEFAULT_CAMERA_POS);
-    g.camera = camera;
-
-    const scene = new Transform();
-    g.scene = scene;
-
-    // Orbit controller (task 5.1 lives here, basic setup; full camera system in Phase 5)
-    const orbit = new Orbit(camera, {
-      element: canvas,
-      // Orbit expects a Vec3 (it calls target.add() while panning) — a
-      // plain object threw every frame and killed the render loop.
-      target: new Vec3(...DEFAULT_ORBIT_TARGET),
-      ease: 0.08,
-      inertia: 0.7,
-      enablePan: true,
-      panSpeed: 0.5,
-      minDistance: 0.5,
-      maxDistance: 8,
-      minPolarAngle: 0.1,
-      maxPolarAngle: Math.PI * 0.48,
-    });
-    g.orbit = orbit;
-
-    // ── 4.4: Lighting uniforms (baked into program below) ──
-    // Sun direction: upper left at ~45° elevation (geospatial look §20)
-    const sunDir = [0.6, 0.9, 0.4].map(v => v / Math.hypot(0.6, 0.9, 0.4));
-
-    // ── 4.2: Create placeholder program + 1×1 black heightmap ──
-    // We create a 1px black texture so the program compiles immediately
-    const blackPixel = new Uint8Array([0, 0, 0, 255]);
-    // ogl expects image to be a RAW ArrayBufferView (data texture) or a DOM
-    // image — a three.js-style {data,width,height} object fails texImage2D
-    // overload resolution and killed the whole render loop.
-    const hmTex = new Texture(gl, {
-      image: blackPixel,
-      width: 1, height: 1,
-      minFilter: gl.LINEAR,
-      magFilter: gl.LINEAR,
-      wrapS: gl.CLAMP_TO_EDGE,
-      wrapT: gl.CLAMP_TO_EDGE,
-      flipY: false,
-    });
-
-    const rgbTex = new Texture(gl, {
-      image: blackPixel,
-      width: 1, height: 1,
-      minFilter: gl.LINEAR_MIPMAP_LINEAR,
-      magFilter: gl.LINEAR,
-      wrapS: gl.CLAMP_TO_EDGE,
-      wrapT: gl.CLAMP_TO_EDGE,
-      generateMipmaps: true,
-    });
-    g.activeTextures.add(hmTex);
-    g.activeTextures.add(rgbTex);
-
-    const program = new Program(gl, {
-      vertex: VERT,
-      fragment: FRAG,
-      uniforms: {
-        uHeightmap:    { value: hmTex },
-        uTexture:      { value: rgbTex },
-        uExaggeration: { value: g.exaggeration },
-        uHeightScale:  { value: 1.0 },
-        uProgress:     { value: 0.0 },
-        uSunDir:       { value: sunDir },
-        uSunColor:     { value: [1.0, 0.95, 0.85] },
-        uAmbient:      { value: 0.32 },
-        uTextureReady: { value: 0.0 },
-        uColormapMode:    { value: 0.0 },  // 0=rgb, 1=greyscale, 2=viridis, 3=diverging
-        uContoursEnabled: { value: g.contoursEnabled ? 1.0 : 0.0 },
-        uContourInterval: { value: g.contourInterval },
-        uElevationSpan:   { value: g.elevationSpan },
-        uMinElevation:    { value: g.minElevation },
-        uFogEnabled:      { value: g.fogEnabled ? 1.0 : 0.0 },
-        uFogColor:        { value: [0.028, 0.035, 0.055] },
-        // Solid-mesh defaults: shaded solid surface with a visible mesh
-        uSolidColor:   { value: [0.60, 0.57, 0.50] },
-        uMeshColor:    { value: [0.13, 0.16, 0.15] },
-        uMeshEnabled:  { value: g.wireframe ? 1.0 : 0.0 },
-        uMeshDensity:  { value: 48.0 },
-      },
-      transparent: false,
-      depthTest: true,
-      depthWrite: true,
-    });
-    g.program = program;
-
-    // ── 4.7 + 19.1: Low-resolution flat plane tiles as placeholder with frustum culling ──
-    const tiles = [];
-    for (let ty = 0; ty < 2; ty++) {
-      for (let tx = 0; tx < 2; tx++) {
-        const flatGeo = buildFlatTileGeometry(gl, LO_SEGS / 2, tx, ty, 2);
-        const tileMesh = new Mesh(gl, { geometry: flatGeo, program, frustumCulled: true });
-        tileMesh.setParent(scene);
-        tiles.push(tileMesh);
-      }
-    }
-    g.tiles = tiles;
-    g.mesh = tiles[0];
-    g.segs = LO_SEGS;
-
-    // ── Render loop ──
-    let lastTime = 0;
-    function render(time) {
-      if (g.disposed) return;
-      g.rafId = requestAnimationFrame(render);
-
-      const dt = Math.min((time - lastTime) / 1000, 0.1);
-      lastTime = time;
-
-      // Progressive reveal (smooth 600ms lerp, instant on reduced motion §32, task 19.5)
-      const prefersReducedMotion = typeof window !== 'undefined' &&
-        window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
-
-      if (prefersReducedMotion) {
-        g.progressCurrent = g.progress;
-        if (program.uniforms.uProgress) {
-          program.uniforms.uProgress.value = g.progress;
-        }
-      } else if (g.progressCurrent < g.progress) {
-        g.progressCurrent = Math.min(g.progressCurrent + dt * (1 / 0.6), g.progress);
-        if (program.uniforms.uProgress) {
-          program.uniforms.uProgress.value = g.progressCurrent;
-        }
-      }
-
-      orbit.update();
-      // First-person tick: called every frame if mode is fp and callback is registered
-      if (g.cameraMode === 'first-person' && typeof g.fpTick === 'function') {
-        g.fpTick(dt);
-      }
-      // Frustum culling enabled (§32, task 19.1)
-      renderer.render({ scene, camera, frustumCull: true });
-    }
-    g.rafId = requestAnimationFrame(render);
-
-    // ── Resize ──
-    const ro = new ResizeObserver(handleResize);
-    ro.observe(container);
-
-    // ── 4.2 + 4.3: Fetch terrain data from API ──
-    const sceneId = state.scene.scene_id;
-    loadTerrainData(gl, g, program, scene, sceneId, actions);
-
-    return () => {
-      g.disposed = true;
-      cancelAnimationFrame(g.rafId);
-      ro.disconnect();
-      // Orbit listener cleanup
-      orbit.remove?.();
-      // GPU disposal (§D06, §32, task 19.2)
-      if (g.tiles) {
-        g.tiles.forEach(m => {
-          m.geometry?.remove?.();
-          m.setParent(null);
-        });
-        g.tiles = [];
-      }
-      if (g.activeTextures) {
-        g.activeTextures.forEach(t => {
-          if (t?.texture && gl) {
-            gl.deleteTexture(t.texture);
-          }
-        });
-        g.activeTextures.clear();
-      }
-      program.remove?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.scene?.scene_id]);
-
   return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        display: 'block',
-        width: '100%',
-        height: '100%',
-        background: '#07090e',
-        outline: 'none',
-      }}
-      tabIndex={0}
-      aria-label="3D terrain viewer"
-    />
+    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <Canvas
+        gl={{
+          preserveDrawingBuffer: true,
+          antialias: true,
+          alpha: false,
+        }}
+        camera={{
+          position: DEFAULT_CAMERA_POS,
+          fov: 45,
+          near: 0.01,
+          far: 100,
+        }}
+        onCreated={({ gl }) => {
+          gl.setClearColor(new THREE.Color(0.028, 0.035, 0.055), 1);
+        }}
+        style={{
+          display: 'block',
+          width: '100%',
+          height: '100%',
+          background: '#07090e',
+          outline: 'none',
+        }}
+        tabIndex={0}
+        aria-label="3D terrain viewer"
+      >
+        <SceneBridge
+          canvasRef={canvasRef}
+          glRef={glRef}
+          orbitControlsRef={orbitControlsRef}
+          materialRef={materialRef}
+          sceneState={state}
+          actions={actions}
+        />
+        <OrbitControls
+          ref={orbitControlsRef}
+          makeDefault
+          enableDamping
+          dampingFactor={0.08}
+          enablePan
+          panSpeed={0.5}
+          minDistance={0.3}
+          maxDistance={8}
+          minPolarAngle={0.05}
+          maxPolarAngle={Math.PI * 0.48}
+        />
+      </Canvas>
+    </div>
   );
 });
 
@@ -1025,28 +758,26 @@ export default TerrainCanvas;
 
 /* ─── Async terrain data loader ────────────────────────────────────────── */
 
-async function loadTerrainData(gl, g, program, scene, sceneId, actions) {
+async function loadTerrainData(g, material, scene, sceneId, actions) {
   try {
-    // Fetch terrain metadata
     console.info('[terrain] loading terrain for', sceneId);
     const terrainMeta = await getTerrain(sceneId);
     if (g.disposed) return;
 
     console.info('[terrain] metadata loaded:', {
       heightmap_url: terrainMeta?.heightmap_url,
-      texture_url:   terrainMeta?.texture_url,
-      height_scale:  terrainMeta?.height_scale,
+      texture_url: terrainMeta?.texture_url,
+      height_scale: terrainMeta?.height_scale,
       min_elevation: terrainMeta?.min_elevation,
       max_elevation: terrainMeta?.max_elevation,
     });
 
-    const { heightmap_url, height_scale, min_elevation, max_elevation } = terrainMeta;
+    const { heightmap_url, texture_url, height_scale, min_elevation, max_elevation } = terrainMeta;
 
-    // Normalise height scale: if backend gives absolute, we store it; else default to 1
     const hs = typeof height_scale === 'number' && height_scale > 0 ? height_scale : 1.0;
     g.heightScale = hs;
-    if (program.uniforms.uHeightScale) {
-      program.uniforms.uHeightScale.value = hs;
+    if (material.uniforms.uHeightScale) {
+      material.uniforms.uHeightScale.value = hs;
     }
 
     const minElev = typeof min_elevation === 'number' ? min_elevation : 0.0;
@@ -1055,77 +786,114 @@ async function loadTerrainData(gl, g, program, scene, sceneId, actions) {
     g.minElevation = minElev;
     g.maxElevation = maxElev;
     g.elevationSpan = span;
-    if (program.uniforms.uMinElevation) program.uniforms.uMinElevation.value = minElev;
-    if (program.uniforms.uElevationSpan) program.uniforms.uElevationSpan.value = span;
+    if (material.uniforms.uMinElevation) material.uniforms.uMinElevation.value = minElev;
+    if (material.uniforms.uElevationSpan) material.uniforms.uElevationSpan.value = span;
 
-    // ── 4.2: Decode heightmap ──
+    // Remove existing placeholder tiles if present
+    if (g.tiles && g.tiles.length > 0) {
+      g.tiles.forEach(m => {
+        m.geometry?.dispose?.();
+        scene.remove(m);
+      });
+      g.tiles = [];
+    }
+
+    // Decode heightmap
     const { data, width, height } = await decodeHeightmap(heightmap_url);
     if (g.disposed) return;
 
-    g.heightData  = data;
-    g.hmWidth     = width;
-    g.hmHeight    = height;
+    g.heightData = data;
+    g.hmWidth = width;
+    g.hmHeight = height;
 
-    // Upload heightmap as GL texture (full resolution). The data is the
-    // normalized [0,1] height in a single 8-bit channel — a RAW Uint8Array
-    // view (R8/RED in WebGL2, LUMINANCE in WebGL1).
-    const uint8 = new Uint8Array(data.length);
-    for (let i = 0; i < data.length; i++) uint8[i] = Math.round(data[i] * 255);
+    // Create 32-bit float heightmap texture for Three.js
+    const uint8 = new Uint8Array(data.length * 4);
+    for (let i = 0; i < data.length; i++) {
+      const val = Math.round(data[i] * 255);
+      uint8[i * 4] = val;
+      uint8[i * 4 + 1] = val;
+      uint8[i * 4 + 2] = val;
+      uint8[i * 4 + 3] = 255;
+    }
+    const hmTex = new THREE.DataTexture(uint8, width, height, THREE.RGBAFormat);
+    hmTex.minFilter = THREE.LinearFilter;
+    hmTex.magFilter = THREE.LinearFilter;
+    hmTex.wrapS = THREE.ClampToEdgeWrapping;
+    hmTex.wrapT = THREE.ClampToEdgeWrapping;
+    hmTex.flipY = false;
+    hmTex.needsUpdate = true;
 
-    const oldHmTex = program.uniforms.uHeightmap?.value;
-    const hmTex = new Texture(gl, {
-      image: uint8,
-      width,
-      height,
-      internalFormat: gl.R8 ?? gl.LUMINANCE,
-      format: gl.RED ?? gl.LUMINANCE,
-      type: gl.UNSIGNED_BYTE,
-      minFilter: gl.LINEAR,
-      magFilter: gl.LINEAR,
-      wrapS: gl.CLAMP_TO_EDGE,
-      wrapT: gl.CLAMP_TO_EDGE,
-      flipY: false,
-      generateMipmaps: false,
-    });
+    const oldHmTex = material.uniforms.uHeightmap?.value;
+    material.uniforms.uHeightmap.value = hmTex;
     g.activeTextures.add(hmTex);
-    program.uniforms.uHeightmap.value = hmTex;
 
-    if (oldHmTex && oldHmTex?.texture && gl) {
-      gl.deleteTexture(oldHmTex.texture);
+    if (oldHmTex && oldHmTex.dispose) {
+      oldHmTex.dispose();
       g.activeTextures.delete(oldHmTex);
     }
 
-    // ── 4.7 + 19.1 — Low-res 2x2 tile meshes with actual height data & bounding spheres ──
-    g.tiles.forEach((m, idx) => {
+    // Create 2x2 low-res tile meshes
+    const tiles = [];
+    for (let idx = 0; idx < 4; idx++) {
       const tx = idx % 2;
       const ty = Math.floor(idx / 2);
-      const loGeo = buildTerrainTileGeometry(gl, data, width, height, LO_SEGS / 2, hs, g.exaggeration, tx, ty, 2);
-      const oldGeo = m.geometry;
-      m.geometry = loGeo;
-      oldGeo?.remove?.();
-    });
-    g.progress = 1.0; // start progressive reveal
+      const loGeo = buildTerrainTileGeometry(data, width, height, LO_SEGS / 2, hs, g.exaggeration, tx, ty, 2);
+      const tileMesh = new THREE.Mesh(loGeo, material);
+      tileMesh.frustumCulled = true;
+      scene.add(tileMesh);
+      tiles.push(tileMesh);
+    }
+    g.tiles = tiles;
+    g.mesh = tiles[0];
+    g.progress = 1.0;
 
     // Mark terrain ready in state machine
     actions.terrainReady(terrainMeta);
 
-    // ── 4.7 + 19.1 — High-res 2x2 tile swap (async, after state machine transitions) ──
-    setTimeout(async () => {
+    // Swap to high-res after short timeout
+    setTimeout(() => {
       if (g.disposed) return;
       g.tiles.forEach((m, idx) => {
         const tx = idx % 2;
         const ty = Math.floor(idx / 2);
-        const hiGeo = buildTerrainTileGeometry(gl, data, width, height, HI_SEGS / 2, hs, g.exaggeration, tx, ty, 2);
+        const hiGeo = buildTerrainTileGeometry(data, width, height, HI_SEGS / 2, hs, g.exaggeration, tx, ty, 2);
         const oldGeo = m.geometry;
         m.geometry = hiGeo;
-        oldGeo?.remove?.();
+        oldGeo?.dispose?.();
       });
       g.segs = HI_SEGS;
     }, 100);
 
-    // ── 4.3: default view is the SOLID shaded surface — imagery is only
-    // draped when the user explicitly picks a texture layer (RGB/Depth/…)
-    // from the Layers panel.
+    // Load diffuse texture if provided
+    if (texture_url) {
+      const resolved = resolveAssetUrl(texture_url);
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin('anonymous');
+      loader.load(resolved, (tex) => {
+        if (g.disposed) {
+          tex.dispose();
+          return;
+        }
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.generateMipmaps = true;
+        tex.flipY = true;
+        tex.needsUpdate = true;
+
+        const oldTex = material.uniforms.uTexture?.value;
+        material.uniforms.uTexture.value = tex;
+        material.uniforms.uTextureReady.value = 1.0;
+        g.textureReady = 1;
+        g.activeTextures.add(tex);
+
+        if (oldTex && oldTex.dispose) {
+          oldTex.dispose();
+          g.activeTextures.delete(oldTex);
+        }
+      });
+    }
   } catch (err) {
     console.error('[terrain] failed to load terrain data:', err);
     if (!g.disposed) {
@@ -1136,50 +904,4 @@ async function loadTerrainData(gl, g, program, scene, sceneId, actions) {
       });
     }
   }
-}
-
-/* ─── Flat plane builder (4.7 placeholder) ─────────────────────────────── */
-
-function buildFlatPlane(gl, segs) {
-  const num = (segs + 1) ** 2;
-  const numIdx = segs * segs * 6;
-
-  const position = new Float32Array(num * 3);
-  const normal   = new Float32Array(num * 3);
-  const uv       = new Float32Array(num * 2);
-  const index    = numIdx > 65536 ? new Uint32Array(numIdx) : new Uint16Array(numIdx);
-
-  let i = 0;
-  for (let iy = 0; iy <= segs; iy++) {
-    for (let ix = 0; ix <= segs; ix++, i++) {
-      const u = ix / segs;
-      const v = iy / segs;
-      position[i * 3]     = (u - 0.5) * 2;
-      position[i * 3 + 1] = 0;
-      position[i * 3 + 2] = (v - 0.5) * 2;
-      normal[i * 3 + 1] = 1;
-      uv[i * 2]     = u;
-      uv[i * 2 + 1] = 1 - v;
-    }
-  }
-
-  let ii = 0;
-  for (let iy = 0; iy < segs; iy++) {
-    for (let ix = 0; ix < segs; ix++) {
-      const a = ix + iy * (segs + 1);
-      const b = ix + (iy + 1) * (segs + 1);
-      const c = ix + (iy + 1) * (segs + 1) + 1;
-      const d = ix + iy * (segs + 1) + 1;
-      index[ii * 6] = a; index[ii * 6 + 1] = b; index[ii * 6 + 2] = d;
-      index[ii * 6 + 3] = b; index[ii * 6 + 4] = c; index[ii * 6 + 5] = d;
-      ii++;
-    }
-  }
-
-  return new Geometry(gl, {
-    position: { size: 3, data: position },
-    normal:   { size: 3, data: normal },
-    uv:       { size: 2, data: uv },
-    index:    { data: index },
-  });
 }

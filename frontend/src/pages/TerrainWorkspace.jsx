@@ -19,6 +19,7 @@ import Header from '../components/common/Header.jsx';
 import TerrainCanvas from '../components/TerrainViewer/TerrainCanvas.jsx';
 import Minimap from '../components/TerrainViewer/Minimap.jsx';
 import CameraHUD from '../components/TerrainViewer/CameraHUD.jsx';
+import ControlsHint from '../components/TerrainViewer/ControlsHint.jsx';
 import LayerControl, { LAYER_META } from '../components/TerrainViewer/LayerControl.jsx';
 import Toolbar from '../components/common/Toolbar.jsx';
 import ElevationProbe from '../components/Analysis/ElevationProbe.jsx';
@@ -292,6 +293,11 @@ export default function TerrainWorkspace() {
             cameraMode={cameraMode}
             elevationMode={state.results?.elevation_mode ?? 'relative'}
           />
+        )}
+
+        {/* 3D Viewport Controls Guide (bottom-left) */}
+        {!isLoading && (
+          <ControlsHint cameraMode={cameraMode} />
         )}
 
         {/* Active Analysis tool readout panel (Phase 9, tasks 9.2-9.6) */}
