@@ -169,16 +169,14 @@ function HUDFace({ label, value, unit }) {
 /* ─── Computation helpers ─────────────────────────────────────────────── */
 
 /**
- * Extract yaw heading in degrees from camera's view matrix.
- * @param {import('ogl').Camera} cam
+ * Extract yaw heading in degrees from camera's view/world matrix.
+ * @param {import('three').Camera|any} cam
  * @returns {number} 0–360
  */
 function computeHeading(cam) {
-  // Camera view matrix[2] (third row/col of view) gives forward direction components
-  // In OGL Transform, camera.matrix is local-to-world transform
-  // Extract forward vector from column 2 of the world matrix
-  if (!cam.matrix) return 0;
-  const m = cam.matrix.elements ?? cam.matrix;
+  if (!cam) return 0;
+  const m = cam.matrixWorld?.elements ?? cam.matrix?.elements ?? cam.matrix;
+  if (!m) return 0;
   // Forward in local space is -Z; world forward = -col2 of world matrix
   const fx = -(m[8] ?? 0);
   const fz = -(m[10] ?? 0);
