@@ -212,7 +212,7 @@ def get_validation(
     if error_map_path is not None:
         error_map = ValidationAsset(
             name=error_map_path.name,
-            url=f"/api/v1/scenes/{scene_id}/validation/error-map",
+            url=f"/api/v1/scenes/{scene_id}/results/error-map",
             format=error_map_path.suffix.lstrip("."),
         )
 

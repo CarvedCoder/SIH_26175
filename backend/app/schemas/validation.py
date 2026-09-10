@@ -68,3 +68,20 @@ class ValidationResponse(BaseModel):
     metadata: dict[str, Any] = Field(
         default_factory=dict
     )
+
+class ValidationDimensions(BaseModel):
+    width: int
+    height: int
+    channels: int | None = None
+
+
+class ValidationCheckResponse(BaseModel):
+    """Result of POST /scenes/{id}/validate — an input-raster health check
+    performed BEFORE processing. This is distinct from the processed-scene
+    validation comparison (GET /scenes/{id}/validation)."""
+
+    scene_id: str
+    valid: bool
+    issues: list[str] = Field(default_factory=list)
+    georeferenced: bool | None = None
+    dimensions: ValidationDimensions | None = None

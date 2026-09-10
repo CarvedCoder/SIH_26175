@@ -83,3 +83,12 @@ class SceneResponse(SceneCreateResponse):
     updated_at: str | None = None
 
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+class SceneSummary(BaseModel):
+    """Entry of the scene list (GET /scenes)."""
+
+    scene_id: str
+    filename: str
+    status: SceneStatus
+    has_results: bool
+    created_at: str | None = None

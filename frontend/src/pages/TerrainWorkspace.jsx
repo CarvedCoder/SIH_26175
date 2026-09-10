@@ -101,7 +101,7 @@ export default function TerrainWorkspace() {
   }, [state.scene?.scene_id, isLoading]);
 
   // ── Layer system (Phase 8) ──
-  const [activeLayer, setActiveLayer] = useState('rgb');
+  const [activeLayer, setActiveLayer] = useState('solid');
   const [layerPanelOpen, setLayerPanelOpen] = useState(false);
   // Cache of layer URL → { url, colormapMode } to avoid re-fetching
   const layerCache = useRef({});
@@ -127,6 +127,12 @@ export default function TerrainWorkspace() {
     try {
       let url = null;
       const colormapMode = COLORMAP_MODE[layerId] ?? 0;
+
+      if (layerId === 'solid') {
+        // default view: solid shaded surface + mesh, no imagery
+        terrainRef.current?.setSolidView();
+        return;
+      }
 
       if (layerId === 'rgb') {
         // RGB uses the terrain texture (already loaded)

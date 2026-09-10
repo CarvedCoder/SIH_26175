@@ -100,7 +100,7 @@ export default function FileInfo() {
       {/* Data rows */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Row label="File" value={scene.filename} />
-        <Row label="Dimensions" value={`${scene.width} × ${scene.height}`} />
+        <Row label="Dimensions" value={`${scene.dimensions?.width ?? "—"} × ${scene.dimensions?.height ?? "—"}`} />
         <Row label="Format" value={scene.format} />
         {scene.crs && <Row label="CRS" value={scene.crs} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
