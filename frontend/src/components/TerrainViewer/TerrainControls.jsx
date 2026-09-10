@@ -27,7 +27,7 @@ import { useApp } from '../../store/appStore.jsx';
 export default function TerrainControls({ terrainRef, disabled = false }) {
   const { state } = useApp();
   const [exaggeration, setExaggeration] = useState(1.5);
-  const [wireframe, setWireframe]       = useState(false);
+  const [wireframe, setWireframe]       = useState(true);
   const [contours, setContours]         = useState(false);
   const [interval, setIntervalVal]      = useState(5);
 

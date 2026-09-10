@@ -1,5 +1,5 @@
 /**
- * DepthWizard — TerrainCanvas (React Three Fiber Migration)
+ * DepthWizard — TerrainCanvas (React Three Fiber Migration + Main Merge)
  *
  * React Three Fiber (R3F) + Three.js terrain renderer. Full-bleed canvas that:
  *   - Renders 3D terrain via R3F <Canvas> and Three.js ShaderMaterial
@@ -8,6 +8,7 @@
  *   - Directional (sun) + ambient lighting; geospatial mission-control look
  *   - Terrain exaggeration via uniform float uExaggeration
  *   - Wireframe toggle via ShaderMaterial.wireframe
+ *   - Solid view via setSolidView()
  *   - Progressive reveal: low-res mesh first, swaps to high-res when ready
  *   - Integrates Drei <OrbitControls> with smooth damping
  *   - Full backward compatibility with TerrainWorkspace, CameraHUD, and Minimap
@@ -22,6 +23,7 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useApp } from '../../store/appStore.jsx';
 import { getTerrain } from '../../api/terrain.js';
+import { resolveAssetUrl } from '../../api/client.js';
 
 /* ─── Shader source ─────────────────────────────────────────────────────── */
 
@@ -190,7 +192,8 @@ const DEFAULT_CAMERA_POS = [0, 1.2, 2.5];
  * Decode a PNG image URL into a Float32Array of normalised [0,1] red-channel values.
  */
 async function decodeHeightmap(url) {
-  const res = await fetch(url);
+  const resolved = resolveAssetUrl(url);
+  const res = await fetch(resolved);
   const blob = await res.blob();
   const bitmap = await createImageBitmap(blob);
 
@@ -508,6 +511,17 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         mat.wireframe = !!v;
       }
     },
+    setSolidView() {
+      const g = glRef.current;
+      g.textureReady = 0;
+      const mat = materialRef.current;
+      if (mat?.uniforms?.uTextureReady) {
+        mat.uniforms.uTextureReady.value = 0.0;
+      }
+      if (mat?.uniforms?.uColormapMode) {
+        mat.uniforms.uColormapMode.value = 0.0;
+      }
+    },
     setFog(v) {
       const g = glRef.current;
       g.fogEnabled = !!v;
@@ -569,9 +583,10 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         mat.uniforms.uColormapMode.value = colormapMode;
       }
 
+      const resolved = resolveAssetUrl(url);
       const loader = new THREE.TextureLoader();
       loader.setCrossOrigin('anonymous');
-      loader.load(url, (tex) => {
+      loader.load(resolved, (tex) => {
         if (g.disposed) {
           tex.dispose();
           return;
@@ -745,8 +760,17 @@ export default TerrainCanvas;
 
 async function loadTerrainData(g, material, scene, sceneId, actions) {
   try {
+    console.info('[terrain] loading terrain for', sceneId);
     const terrainMeta = await getTerrain(sceneId);
     if (g.disposed) return;
+
+    console.info('[terrain] metadata loaded:', {
+      heightmap_url: terrainMeta?.heightmap_url,
+      texture_url: terrainMeta?.texture_url,
+      height_scale: terrainMeta?.height_scale,
+      min_elevation: terrainMeta?.min_elevation,
+      max_elevation: terrainMeta?.max_elevation,
+    });
 
     const { heightmap_url, texture_url, height_scale, min_elevation, max_elevation } = terrainMeta;
 
@@ -840,11 +864,12 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
       g.segs = HI_SEGS;
     }, 100);
 
-    // Load diffuse texture
+    // Load diffuse texture if provided
     if (texture_url) {
+      const resolved = resolveAssetUrl(texture_url);
       const loader = new THREE.TextureLoader();
       loader.setCrossOrigin('anonymous');
-      loader.load(texture_url, (tex) => {
+      loader.load(resolved, (tex) => {
         if (g.disposed) {
           tex.dispose();
           return;
@@ -870,6 +895,7 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
       });
     }
   } catch (err) {
+    console.error('[terrain] failed to load terrain data:', err);
     if (!g.disposed) {
       actions.terrainFail({
         code: err.code ?? 'TERRAIN_LOAD_ERROR',

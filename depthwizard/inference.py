@@ -10,9 +10,13 @@ drift from the certified CLI forward pass.
 
 Flow:
     read image (rasterio; PNG/JPG/TIF, georef state reported honestly)
-      -> resolve Dn  (explicit .npy | depth cache | LIVE Depth Anything V2)
+      -> resolve RAW Dn (explicit .npy | depth cache | LIVE Depth Anything
+         V2, one 1024 tile per forward — the training granularity)
       -> flagship CalibrationNet  H = clamp(a(x,y)*Dn + b(x,y), 0)
-         modes: crop (center 1024) | resize (to 1024) | tiles (any size, edge-pad)
+         Dn min-max normalized at the granularity the net consumes
+         (per 1024 tile in tiles mode — the training contract)
+         modes: crop (center 1024) | resize (letterboxed 1024, aspect
+         preserved) | tiles (any size, edge-pad, per-tile Dn)
       -> optional Track-2 anchoring  DSM = AGL + ground  [ANCHORED (not learned)]
       -> outputs: dsm.npy (+ dsm.tif when georeferenced) (+ _anchored), preview PNG
       -> scene payload (downsampled grid + RGB PNG + stats) for the webapp
@@ -82,12 +86,17 @@ def georef_state(profile: dict) -> tuple[bool, CRS | None, Affine | None]:
 # ---------------------------------------------------------------------------
 
 
-def load_dn_file(path: Path | str) -> np.ndarray:
-    """Raw relative-depth .npy -> min-max normalized Dn [H,W] float32."""
+def load_raw_dn_file(path: Path | str) -> np.ndarray:
+    """Raw relative-depth .npy -> [H,W] float32 (NOT normalized).
+
+    Normalization is deliberately NOT done here: predict() normalizes at the
+    granularity the network actually consumes (per 1024 tile in tiles mode,
+    whole input otherwise) — mirroring the training cache recipe.
+    """
     raw = np.load(path)
     if raw.ndim != 2:
         raise ValueError(f"Dn array must be 2-D (H,W), got shape {raw.shape}")
-    return minmax_normalize(raw).astype(np.float32)
+    return raw.astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +106,11 @@ def load_dn_file(path: Path | str) -> np.ndarray:
 
 def resize_to_tile(arr: np.ndarray, size: int = TILE) -> np.ndarray:
     """Bilinear resize of [H,W] or [H,W,C] to (size, size). PIL-based,
-    deterministic, works for float32 single-band and uint8 RGB alike."""
+    deterministic, works for float32 single-band and uint8 RGB alike.
+
+    NOTE: this SQUEEZES the aspect ratio. Inference uses letterbox_to_tile
+    instead; this helper remains for utilities/tests that genuinely want a
+    square output."""
     from PIL import Image
 
     h, w = arr.shape[:2]
@@ -115,6 +128,89 @@ def resize_to_tile(arr: np.ndarray, size: int = TILE) -> np.ndarray:
     return np.asarray(
         im.resize((size, size), Image.Resampling.BILINEAR), dtype=arr.dtype
     )
+
+
+def _resize_bilinear(arr: np.ndarray, height: int, width: int) -> np.ndarray:
+    """Bilinear resize [H,W] or [H,W,C] to (height, width), dtype-preserving
+    for uint8, float32 for single-band float arrays."""
+    from PIL import Image
+
+    if (arr.shape[0], arr.shape[1]) == (height, width):
+        return arr
+    if arr.ndim == 2:
+        im = (
+            Image.fromarray(arr.astype(np.float32))
+            if arr.dtype == np.float32
+            else Image.fromarray(arr)
+        )
+        out = im.resize((width, height), Image.Resampling.BILINEAR)
+        return np.asarray(out, dtype=np.float32)
+    im = Image.fromarray(arr)
+    return np.asarray(
+        im.resize((width, height), Image.Resampling.BILINEAR), dtype=arr.dtype
+    )
+
+
+def letterbox_placement(h: int, w: int, size: int = TILE) -> tuple[int, int, int, int]:
+    """Aspect-preserving placement of a (h, w) image inside a (size, size)
+    canvas: (y0, x0, h2, w2) — top-left offset and scaled size of the real
+    content. The content is scaled so its LARGEST side equals `size`
+    (matching the old resize-mode scale, without the distortion)."""
+    scale = size / max(h, w)
+    h2 = max(1, round(h * scale))
+    w2 = max(1, round(w * scale))
+    y0 = (size - h2) // 2
+    x0 = (size - w2) // 2
+    return y0, x0, h2, w2
+
+
+def letterbox_to_tile(
+    arr: np.ndarray, size: int = TILE
+) -> tuple[np.ndarray, tuple[int, int, int, int]]:
+    """Fit [H,W] or [H,W,C] into a (size, size) canvas WITHOUT distortion.
+
+    The content is bilinear-scaled to fit, centered, and the remaining
+    margin is filled by edge replication (never invents new extrema, so
+    normalizing over the canvas == normalizing over the real content).
+
+    Returns (canvas, (y0, x0, h2, w2)) so the forward output can be cropped
+    back to exactly the content region before it is resized to the source
+    grid.
+    """
+    h, w = arr.shape[:2]
+    y0, x0, h2, w2 = letterbox_placement(h, w, size)
+    if arr.ndim == 2:
+        content = _resize_bilinear(arr, h2, w2)
+        pad = ((y0, size - h2 - y0), (x0, size - w2 - x0))
+    else:
+        content = _resize_bilinear(arr, h2, w2)
+        pad = ((y0, size - h2 - y0), (x0, size - w2 - x0), (0, 0))
+    canvas = np.pad(content, pad, mode="edge")
+    return np.ascontiguousarray(canvas), (y0, x0, h2, w2)
+
+
+def normalize_dn_per_tile(raw: np.ndarray, tile: int = TILE) -> np.ndarray:
+    """Per-tile min-max normalization of RAW relative depth — the training
+    contract (dataset.py normalizes each cached 1024 tile independently).
+
+    The raw map is edge-padded to the tile grid FIRST, then each padded
+    tile is normalized in isolation and the padding is cropped away, so
+    inference tiles see exactly the Dn distribution training tiles saw:
+    full [0,1] range per tile, zero cross-tile magnitude coupling.
+    """
+    h, w = raw.shape
+    ny, nx, hp, wp = tile_bounds(h, w, tile)
+    padded = np.pad(
+        raw.astype(np.float32, copy=False), ((0, hp - h), (0, wp - w)), mode="edge"
+    )
+    out = np.empty((hp, wp), dtype=np.float32)
+    for i in range(ny):
+        for j in range(nx):
+            y, x = i * tile, j * tile
+            out[y : y + tile, x : x + tile] = minmax_normalize(
+                padded[y : y + tile, x : x + tile]
+            )
+    return out[:h, :w]
 
 
 def center_crop_to_tile(arr: np.ndarray, size: int = TILE) -> np.ndarray:
@@ -184,7 +280,7 @@ def rgb_png_data_url(rgb_u8: np.ndarray, max_side: int = MAX_GRID_SIDE) -> str:
 
 @dataclass
 class DnResolution:
-    dn: np.ndarray  # [H,W] float32 in [0,1]
+    raw: np.ndarray  # [H,W] float32 RAW relative depth (NOT normalized)
     source: str  # "explicit" | "cache" | "live"
 
 
@@ -196,6 +292,10 @@ class DepthWizardPredictor:
         2. depth cache  <stem>.npy     -> source="cache"
         3. LIVE Depth Anything V2      -> source="live"   (downloads weights!)
        (4. none of the above -> error; we never fabricate a depth substitute)
+
+    Dn here is RAW relative depth. Per-tile min-max normalization happens in
+    predict(), exactly where the training cache recipe applies it (per 1024
+    tile) — see normalize_dn_per_tile.
     """
 
     def __init__(
@@ -221,27 +321,48 @@ class DepthWizardPredictor:
         return self.model.tag
 
     # ------------------------------------------------------------------
+    def _backbone_raw_per_tile(self, rgb_u8: np.ndarray) -> np.ndarray:
+        """RAW relative depth for multi-tile images, computed per 1024 tile.
+
+        Mirrors the cache-builder recipe (precompute_depth.py): the backbone
+        sees exactly ONE 1024x1024 tile per forward (same per-object
+        resolution as training), never a squeezed whole scene.
+        """
+        h, w = rgb_u8.shape[:2]
+        ny, nx, hp, wp = tile_bounds(h, w)
+        rgb_pad = np.pad(
+            rgb_u8, ((0, hp - h), (0, wp - w), (0, 0)), mode="edge"
+        )
+        raw = np.empty((hp, wp), dtype=np.float32)
+        for i in range(ny):
+            for j in range(nx):
+                y, x = i * TILE, j * TILE
+                raw[y : y + TILE, x : x + TILE] = self._backbone.raw_depth(
+                    rgb_pad[y : y + TILE, x : x + TILE]
+                )
+        return raw[:h, :w]
+
     def resolve_dn(
         self, rgb_u8: np.ndarray, stem: str = "", dn_path: Path | str | None = None
     ) -> DnResolution:
         h, w = rgb_u8.shape[:2]
 
         if dn_path is not None:
-            dn = load_dn_file(dn_path)
-            if dn.shape != (h, w):
+            raw = load_raw_dn_file(dn_path)
+            if raw.shape != (h, w):
                 raise ValueError(
-                    f"Dn shape {dn.shape} does not match RGB shape {(h, w)}"
+                    f"Dn shape {raw.shape} does not match RGB shape {(h, w)}"
                 )
-            return DnResolution(dn=dn, source="explicit")
+            return DnResolution(raw=raw, source="explicit")
 
         if self.cache_dir is not None and stem:
             cached = self.cache_dir / f"{stem}.npy"
             if cached.exists():
-                dn = load_dn_file(cached)
-                if dn.shape == (h, w):
-                    return DnResolution(dn=dn, source="cache")
+                raw = load_raw_dn_file(cached)
+                if raw.shape == (h, w):
+                    return DnResolution(raw=raw, source="cache")
                 print(
-                    f"[!] cache shape mismatch for {stem}: {dn.shape} vs "
+                    f"[!] cache shape mismatch for {stem}: {raw.shape} vs "
                     f"{(h, w)} — falling through to live backbone"
                 )
 
@@ -254,10 +375,14 @@ class DepthWizardPredictor:
                     f"(first call may download weights)"
                 )
                 self._backbone = get_backbone(self.backbone_id, self.device)
-            raw = self._backbone.raw_depth(rgb_u8)
-            return DnResolution(
-                dn=minmax_normalize(raw).astype(np.float32), source="live"
-            )
+            # Training fed the backbone one 1024 tile at a time. Match that
+            # granularity: multi-tile scenes get per-tile backbone passes at
+            # the SAME effective resolution the net was calibrated on.
+            if h > TILE or w > TILE:
+                raw = self._backbone_raw_per_tile(rgb_u8)
+            else:
+                raw = self._backbone.raw_depth(rgb_u8)
+            return DnResolution(raw=raw, source="live")
 
         raise FileNotFoundError(
             f"no Dn for '{stem or '<array>'}': not found in cache "
@@ -268,53 +393,65 @@ class DepthWizardPredictor:
 
     # ------------------------------------------------------------------
     def predict(
-        self, rgb_u8: np.ndarray, dn: np.ndarray, mode: str = "auto"
+        self, rgb_u8: np.ndarray, raw_dn: np.ndarray, mode: str = "auto"
     ) -> np.ndarray:
         """AGL metres [H,W] float32. Modes: auto|crop|resize|tiles.
 
-        crop   : center 1024x1024 crop -> its DSM (output 1024x1024).
-                 Images smaller than the tile fall back to resize semantics
-                 (same rule the certified 10_infer_single used).
-        resize : whole image -> 1024x1024 -> prediction mapped back to the
-                 source resolution.
-        tiles  : any size, edge-padded 1024 tiles, full-coverage output.
+        ``raw_dn`` is RAW relative depth (NOT normalized); normalization is
+        applied here at exactly the granularity the net consumes, mirroring
+        the training contract (dataset.py / precompute_depth.py):
+
+        crop   : center 1024x1024 crop, min-max normalized over the crop
+                 (output 1024x1024). Images smaller than the tile fall back
+                 to letterbox semantics.
+        resize : letterboxed 1024x1024 canvas (aspect preserved — NO
+                 squeeze), min-max normalized over the canvas, prediction
+                 cropped back to the content region and mapped to the
+                 source grid.
+        tiles  : any size, edge-padded 1024 tiles, Dn normalized PER TILE
+                 (the training recipe), full-coverage output.
         """
         h, w = rgb_u8.shape[:2]
         if mode == "auto":
             mode = "tiles" if (h >= TILE and w >= TILE) else "resize"
-        if dn.shape != (h, w):
-            raise ValueError(f"dn {dn.shape} != rgb {(h, w)} grid")
+        if raw_dn.shape != (h, w):
+            raise ValueError(f"dn {raw_dn.shape} != rgb {(h, w)} grid")
 
         if mode in ("crop", "resize"):
             small = (h < TILE) or (w < TILE)
             if mode == "resize" or small:
-                rgb_t = resize_to_tile(rgb_u8)
-                dn_t = resize_to_tile(dn)
-                pred = self._predict_fn(dn_t, rgb_t if self.model.use_rgb else None)
-                # map the 1024x1024 prediction back onto the source grid
-                from PIL import Image
-
-                im = Image.fromarray(pred.astype(np.float32))
-                return np.asarray(
-                    im.resize((w, h), Image.Resampling.BILINEAR), dtype=np.float32
+                rgb_canvas, (y0, x0, h2, w2) = letterbox_to_tile(rgb_u8)
+                dn_canvas, _ = letterbox_to_tile(raw_dn)
+                pred = self._predict_fn(
+                    minmax_normalize(dn_canvas),
+                    rgb_canvas if self.model.use_rgb else None,
                 )
+                # keep only the real content, then map back to the source grid
+                core = pred[y0 : y0 + h2, x0 : x0 + w2]
+                return _resize_bilinear(core, h, w)
             y0, x0 = (h - TILE) // 2, (w - TILE) // 2
             return self._predict_fn(
-                dn[y0 : y0 + TILE, x0 : x0 + TILE],
+                minmax_normalize(raw_dn[y0 : y0 + TILE, x0 : x0 + TILE]),
                 rgb_u8[y0 : y0 + TILE, x0 : x0 + TILE] if self.model.use_rgb else None,
             )
 
         if mode == "tiles":
             ny, nx, hp, wp = tile_bounds(h, w)
-            dn_pad = np.pad(dn, ((0, hp - h), (0, wp - w)), mode="edge")
+            dn_pad = np.pad(
+                raw_dn.astype(np.float32, copy=False),
+                ((0, hp - h), (0, wp - w)),
+                mode="edge",
+            )
             rgb_pad = np.pad(rgb_u8, ((0, hp - h), (0, wp - w), (0, 0)), mode="edge")
             out = np.zeros((hp, wp), dtype=np.float32)
             print(f"[i] tiles: {ny}x{nx} = {ny * nx} tiles of {TILE}")
             for i in range(ny):
                 for j in range(nx):
                     y, x = i * TILE, j * TILE
+                    # Per-tile normalization — the EXACT training contract
+                    # (each training tile was min-max normalized alone).
                     out[y : y + TILE, x : x + TILE] = self._predict_fn(
-                        dn_pad[y : y + TILE, x : x + TILE],
+                        minmax_normalize(dn_pad[y : y + TILE, x : x + TILE]),
                         rgb_pad[y : y + TILE, x : x + TILE]
                         if self.model.use_rgb
                         else None,
@@ -542,7 +679,7 @@ def run_inference(
     resolution = predictor.resolve_dn(rgb_u8, stem=input_path.stem, dn_path=dn_path)
     print(f"[i] Dn source: {resolution.source}")
 
-    dsm = predictor.predict(rgb_u8, resolution.dn, mode=mode)
+    dsm = predictor.predict(rgb_u8, resolution.raw, mode=mode)
     stats = compute_stats(dsm)
     print(
         f"[stats] DSM (m): min {stats['min']:.2f}  mean {stats['mean']:.2f}  "

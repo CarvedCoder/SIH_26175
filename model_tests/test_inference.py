@@ -163,7 +163,8 @@ def test_predictor_round_trip_exact_affine(tmp_path):
     with pytest.raises(FileNotFoundError):
         pred.resolve_dn(rgb, stem="nope")
 
-    # explicit dn path round trip via tmp file (linear ramp: resize-exact)
+    # explicit dn path round trip via tmp file (linear ramp: resize-exact).
+    # resolve_dn returns RAW relative depth; predict() normalizes internally.
     xs = np.linspace(0.0, 1.0, 256, dtype=np.float32)
     dn = np.tile(xs[None, :], (256, 1))
     raw = dn * 10.0
@@ -171,7 +172,7 @@ def test_predictor_round_trip_exact_affine(tmp_path):
     res = pred.resolve_dn(rgb, stem="nope", dn_path=tmp_path / "nope.npy")
     assert res.source == "explicit"
 
-    out = pred.predict(rgb, res.dn, mode="crop")     # small image -> resize path
+    out = pred.predict(rgb, res.raw, mode="crop")    # small image -> letterbox path
     expected = np.clip(a0 * dn + b0, 0, None)
     assert out.shape == (256, 256)
     np.testing.assert_allclose(out, expected, atol=5e-3)
