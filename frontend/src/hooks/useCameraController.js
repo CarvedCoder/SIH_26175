@@ -1,12 +1,12 @@
 /**
- * DepthWizard — useCameraController hook (Phase 5)
+ * DepthWizard — useCameraController hook (React Three Fiber / Three.js)
  *
  * Manages three camera modes for the terrain viewer:
  *   5.1 — Orbit: mouse drag rotates, scroll zooms, right-drag pans
  *   5.2 — First-person: WASD movement, mouse look, terrain-collision height clamp
- *   5.3 — Top-view: orthographic overhead
+ *   5.3 — Top-view: overhead view
  *
- * Returns { mode, setMode, resetCamera, attachOrbit, detachOrbit, orbitRef }
+ * Returns { mode, setMode, resetCamera, attachOrbit, detachOrbit, orbitRef, tickFirstPerson }
  * and handles all event listeners for the canvas.
  *
  * Design decisions (§D06):
@@ -15,7 +15,7 @@
  *   - First-person mouse look only activates on pointer lock
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Orbit } from 'ogl/src/extras/Orbit.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 /** @typedef {'orbit'|'first-person'|'top'} CameraMode */
 
@@ -26,6 +26,7 @@ import { Orbit } from 'ogl/src/extras/Orbit.js';
  *     renderer: any,
  *     camera: any,
  *     scene: any,
+ *     orbit: any,
  *     heightData: Float32Array|null,
  *     hmWidth: number,
  *     hmHeight: number,
@@ -58,37 +59,34 @@ export function useCameraController({ canvasRef, glRef }) {
   /** Switch camera mode */
   const setMode = useCallback((newMode) => {
     const g = glRef.current;
-    if (!g.camera || !g.renderer) return;
+    if (!g.camera) return;
 
     // Disable orbit in non-orbit modes
-    if (orbitRef.current) {
-      orbitRef.current.enabled = (newMode === 'orbit');
+    const orbit = g.orbit || orbitRef.current;
+    if (orbit) {
+      orbit.enabled = (newMode === 'orbit');
     }
 
     setModeState(newMode);
 
     if (newMode === 'orbit') {
-      // Restore perspective
-      const { clientWidth: w, clientHeight: h } = canvasRef.current?.parentElement ?? { clientWidth: 1, clientHeight: 1 };
-      g.camera.perspective({ aspect: w / h });
       g.camera.position.set(0, 1.2, 2.5);
-      if (orbitRef.current) {
-        orbitRef.current.target.set(0, 0, 0);
+      if (orbit) {
+        orbit.target?.set(0, 0, 0);
+        orbit.update?.();
       }
     }
 
     if (newMode === 'top') {
-      const { clientWidth: w, clientHeight: h } = canvasRef.current?.parentElement ?? { clientWidth: 1, clientHeight: 1 };
-      const aspect = w / h;
-      const s = 1.5;
-      g.camera.orthographic({ left: -s * aspect, right: s * aspect, bottom: -s, top: s, near: 0.01, far: 50 });
       g.camera.position.set(0, 5, 0);
-      g.camera.lookAt([0, 0, 0]);
+      g.camera.lookAt(0, 0, 0);
+      if (orbit) {
+        orbit.target?.set(0, 0, 0);
+        orbit.update?.();
+      }
     }
 
     if (newMode === 'first-person') {
-      const { clientWidth: w, clientHeight: h } = canvasRef.current?.parentElement ?? { clientWidth: 1, clientHeight: 1 };
-      g.camera.perspective({ aspect: w / h, fov: 70 });
       // Start at a reasonable position above terrain centre
       const startH = sampleHeight(0.5, 0.5) + 0.08;
       g.camera.position.set(0, startH, 0);
@@ -101,36 +99,35 @@ export function useCameraController({ canvasRef, glRef }) {
       // Exit pointer lock if locked
       if (document.pointerLockElement) document.exitPointerLock();
     }
-  }, [glRef, canvasRef, sampleHeight]);
+  }, [glRef, sampleHeight]);
 
   /** Reset camera to default orbit */
   const resetCamera = useCallback(() => {
     const g = glRef.current;
     if (!g.camera) return;
-    const { clientWidth: w, clientHeight: h } = canvasRef.current?.parentElement ?? { clientWidth: 1, clientHeight: 1 };
-    g.camera.perspective({ aspect: w / h, fov: 45 });
     g.camera.position.set(0, 1.2, 2.5);
-    if (orbitRef.current) {
-      orbitRef.current.target.set(0, 0, 0);
-      orbitRef.current.enabled = true;
+    const orbit = g.orbit || orbitRef.current;
+    if (orbit) {
+      orbit.target?.set(0, 0, 0);
+      orbit.enabled = true;
+      orbit.update?.();
     }
     setModeState('orbit');
     fpState.current.active = false;
-  }, [glRef, canvasRef]);
+  }, [glRef]);
 
   /** Attach orbit controller to a canvas */
   const attachOrbit = useCallback((canvas, camera) => {
-    const orbit = new Orbit(camera, {
-      element: canvas,
-      ease: 0.08,
-      inertia: 0.7,
-      enablePan: true,
-      panSpeed: 0.5,
-      minDistance: 0.3,
-      maxDistance: 8,
-      minPolarAngle: 0.05,
-      maxPolarAngle: Math.PI * 0.48,
-    });
+    if (!canvas || !camera) return null;
+    const orbit = new OrbitControls(camera, canvas);
+    orbit.enableDamping = true;
+    orbit.dampingFactor = 0.08;
+    orbit.enablePan = true;
+    orbit.panSpeed = 0.5;
+    orbit.minDistance = 0.3;
+    orbit.maxDistance = 8;
+    orbit.minPolarAngle = 0.05;
+    orbit.maxPolarAngle = Math.PI * 0.48;
     orbitRef.current = orbit;
     return orbit;
   }, []);
@@ -210,7 +207,7 @@ export function useCameraController({ canvasRef, glRef }) {
     const targetX = pos.x + fwdX * cosPitch;
     const targetY = pos.y + sinPitch;
     const targetZ = pos.z + fwdZ * cosPitch;
-    cam.lookAt([targetX, targetY, targetZ]);
+    cam.lookAt(targetX, targetY, targetZ);
   }, [glRef, sampleHeight]);
 
   return {
