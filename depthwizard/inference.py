@@ -9,7 +9,8 @@ Because every consumer imports the same functions, the webapp can never
 drift from the certified CLI forward pass.
 
 Flow:
-    read image (rasterio; PNG/JPG/TIF, georef state reported honestly)
+    read image (Pillow for PNG/JPG/JPEG, rasterio for GeoTIFF; georef
+      state reported honestly, never invented)
       -> resolve RAW Dn (explicit .npy | depth cache | LIVE Depth Anything
          V2, one 1024 tile per forward — the training granularity)
       -> flagship CalibrationNet  H = clamp(a(x,y)*Dn + b(x,y), 0)
@@ -49,28 +50,28 @@ MAX_GRID_SIDE = 512  # webapp mesh grid cap (stride-downsampled)
 
 
 def read_image(path: Path | str) -> tuple[np.ndarray, dict]:
-    """Read any raster rasterio can open -> (rgb_u8 [H,W,3], profile).
+    """Read any supported input -> (rgb_u8 [H,W,3] uint8, profile).
 
-    Single-band inputs are replicated to 3 channels (the net's contract).
-    Non-uint8 dtypes produce a loud warning — the training contract is
-    uint8/255 and silently rescaling would be a domain shift.
+    Delegates to :func:`depthwizard.imgio.preprocess_input_image`:
+
+      .png/.jpg/.jpeg -> Pillow decode (palette expanded, alpha dropped,
+                         16-bit range-checked — never a blind cast);
+                         CRS stays None, no invented georeferencing.
+      everything else -> rasterio (GeoTIFF + GDAL rasters) with CRS/
+                         transform preserved.
+
+    Both paths end at the SAME contract: uint8 [H,W,3] in [0,255] — the
+    input the DAv2 backbone and CalibrationNet expect (each applies its
+    own /255 + ImageNet normalization exactly once downstream). Decoding
+    failures raise imgio.InvalidImageError instead of returning garbage.
     """
-    import rasterio
+    from .imgio import preprocess_input_image
 
-    with rasterio.open(path) as ds:
-        bands = [1, 2, 3] if ds.count >= 3 else [1]
-        raw = ds.read(bands)
-        arr = np.stack([raw[0]] * 3) if ds.count < 3 else raw
-        profile = ds.profile.copy()
-        # keep crs/transform as first-class fields for the anchoring path
-        profile["_crs_obj"] = ds.crs
-        profile["_transform_obj"] = ds.transform
-        if ds.dtypes[0] != "uint8":
-            print(
-                f"[!] input dtype={ds.dtypes[0]} — training contract is "
-                f"uint8/255. Verify scaling!"
-            )
-    rgb = np.ascontiguousarray(arr.transpose(1, 2, 0), dtype=np.uint8)
+    rgb, meta = preprocess_input_image(path)
+    profile: dict = dict(meta["rasterio_profile"]) if meta["rasterio_profile"] else {}
+    # keep crs/transform as first-class fields for the anchoring path
+    profile["_crs_obj"] = meta["crs"]
+    profile["_transform_obj"] = meta["transform"]
     return rgb, profile
 
 
@@ -411,6 +412,11 @@ class DepthWizardPredictor:
         tiles  : any size, edge-padded 1024 tiles, Dn normalized PER TILE
                  (the training recipe), full-coverage output.
         """
+        # Model-input contract gate: callers that bypass read_image (tests,
+        # direct array use) get the same loud failure as a bad file.
+        from .imgio import validate_rgb_u8
+
+        validate_rgb_u8(rgb_u8, source="predict(rgb_u8)")
         h, w = rgb_u8.shape[:2]
         if mode == "auto":
             mode = "tiles" if (h >= TILE and w >= TILE) else "resize"
