@@ -31,8 +31,10 @@ from __future__ import annotations
 import base64
 import io
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from rasterio import CRS, Affine
@@ -248,6 +250,25 @@ def downsample_grid(grid: np.ndarray, stride: int) -> np.ndarray:
     return grid[::stride, ::stride]
 
 
+def _resize_sem_probs(
+    sem: np.ndarray, height: int, width: int
+) -> np.ndarray:
+    """Bilinear-resize per-channel semantic probabilities [K,h,w] -> [K,H,W].
+
+    Bilinear interpolation of probabilities does not re-normalize to a
+    probability simplex — acceptable for smoothness GATING (relative
+    similarities matter, not absolute values); callers must not present
+    the result as calibrated probabilities.
+    """
+    if sem.shape[1:] == (height, width):
+        return sem
+    out = np.stack(
+        [_resize_bilinear(sem[k], height, width) for k in range(sem.shape[0])],
+        axis=0,
+    )
+    return out.astype(np.float32)
+
+
 def compute_stats(dsm: np.ndarray) -> dict[str, float]:
     """The [stats] line of the infer path — descriptive, NOT citable metrics."""
     d = np.asarray(dsm, dtype=np.float64)
@@ -307,7 +328,12 @@ class DepthWizardPredictor:
         live_backbone: bool = True,
         backbone_id: str = "depth-anything/Depth-Anything-V2-Base-hf",
     ):
-        from .tifops import load_calib_net, make_predict_fn, resolve_torch_device
+        from .tifops import (
+            load_calib_net,
+            make_full_predict_fn,
+            make_predict_fn,
+            resolve_torch_device,
+        )
 
         self.device = resolve_torch_device(device)
         self.cache_dir = Path(cache_dir) if cache_dir else None
@@ -315,6 +341,7 @@ class DepthWizardPredictor:
         self.backbone_id = backbone_id
         self.model = load_calib_net(ckpt_path, self.device)
         self._predict_fn = make_predict_fn(self.model, self.device)
+        self._predict_full_fn = make_full_predict_fn(self.model, self.device)
         self._backbone = None
 
     @property
@@ -412,8 +439,28 @@ class DepthWizardPredictor:
         tiles  : any size, edge-padded 1024 tiles, Dn normalized PER TILE
                  (the training recipe), full-coverage output.
         """
-        # Model-input contract gate: callers that bypass read_image (tests,
-        # direct array use) get the same loud failure as a bad file.
+        return self._predict_impl(rgb_u8, raw_dn, mode, want_semantics=False)
+
+    def predict_with_semantics(
+        self, rgb_u8: np.ndarray, raw_dn: np.ndarray, mode: str = "auto"
+    ) -> dict:
+        """Like predict(), but ALSO returns predicted semantic probabilities.
+
+        Returns {"pred": [H,W] float32, "sem_probs": [K,H,W] float32 | None}.
+        ``sem_probs`` is the softmax of the PREDICTED auxiliary semantic head
+        (never GT) and is None for checkpoints without sem_aux_head — the
+        post-processing stage degrades honestly in that case. Composition:
+        {"pred", "sem_probs"} -> PostProcessConfig -> refine_agl.
+        """
+        return self._predict_impl(rgb_u8, raw_dn, mode, want_semantics=True)
+
+    def _predict_impl(
+        self,
+        rgb_u8: np.ndarray,
+        raw_dn: np.ndarray,
+        mode: str = "auto",
+        want_semantics: bool = False,
+    ):
         from .imgio import validate_rgb_u8
 
         validate_rgb_u8(rgb_u8, source="predict(rgb_u8)")
@@ -423,23 +470,40 @@ class DepthWizardPredictor:
         if raw_dn.shape != (h, w):
             raise ValueError(f"dn {raw_dn.shape} != rgb {(h, w)} grid")
 
+        def _forward(dn_n: np.ndarray, rgb_c: np.ndarray):
+            """Single-tile forward -> (pred, sem_probs|None)."""
+            if want_semantics:
+                ex = self._predict_full_fn(
+                    dn_n, rgb_c if self.model.use_rgb else None
+                )
+                return ex["pred"], ex.get("sem_probs")
+            return (
+                self._predict_fn(dn_n, rgb_c if self.model.use_rgb else None),
+                None,
+            )
+
         if mode in ("crop", "resize"):
             small = (h < TILE) or (w < TILE)
             if mode == "resize" or small:
                 rgb_canvas, (y0, x0, h2, w2) = letterbox_to_tile(rgb_u8)
                 dn_canvas, _ = letterbox_to_tile(raw_dn)
-                pred = self._predict_fn(
-                    minmax_normalize(dn_canvas),
-                    rgb_canvas if self.model.use_rgb else None,
+                pred, sem = _forward(
+                    minmax_normalize(dn_canvas), rgb_canvas
                 )
                 # keep only the real content, then map back to the source grid
                 core = pred[y0 : y0 + h2, x0 : x0 + w2]
-                return _resize_bilinear(core, h, w)
+                out = _resize_bilinear(core, h, w)
+                if sem is not None:
+                    sem = _resize_sem_probs(
+                        sem[y0 : y0 + h2, x0 : x0 + w2], h, w
+                    )
+                return self._pack(out, sem)
             y0, x0 = (h - TILE) // 2, (w - TILE) // 2
-            return self._predict_fn(
+            pred, sem = _forward(
                 minmax_normalize(raw_dn[y0 : y0 + TILE, x0 : x0 + TILE]),
-                rgb_u8[y0 : y0 + TILE, x0 : x0 + TILE] if self.model.use_rgb else None,
+                rgb_u8[y0 : y0 + TILE, x0 : x0 + TILE],
             )
+            return self._pack(pred, sem)
 
         if mode == "tiles":
             ny, nx, hp, wp = tile_bounds(h, w)
@@ -450,21 +514,65 @@ class DepthWizardPredictor:
             )
             rgb_pad = np.pad(rgb_u8, ((0, hp - h), (0, wp - w), (0, 0)), mode="edge")
             out = np.zeros((hp, wp), dtype=np.float32)
+            sem_out: np.ndarray | None = None
             print(f"[i] tiles: {ny}x{nx} = {ny * nx} tiles of {TILE}")
             for i in range(ny):
                 for j in range(nx):
                     y, x = i * TILE, j * TILE
                     # Per-tile normalization — the EXACT training contract
                     # (each training tile was min-max normalized alone).
-                    out[y : y + TILE, x : x + TILE] = self._predict_fn(
+                    pred, sem = _forward(
                         minmax_normalize(dn_pad[y : y + TILE, x : x + TILE]),
-                        rgb_pad[y : y + TILE, x : x + TILE]
-                        if self.model.use_rgb
-                        else None,
+                        rgb_pad[y : y + TILE, x : x + TILE],
                     )
-            return out[:h, :w]
+                    out[y : y + TILE, x : x + TILE] = pred
+                    if want_semantics:
+                        if sem is None:
+                            sem_out = None  # checkpoint has no aux head
+                        elif sem_out is None:
+                            k = sem.shape[0]
+                            sem_out = np.full(
+                                (k, hp, wp), np.nan, dtype=np.float32
+                            )
+                        if sem is not None and sem_out is not None:
+                            sem_out[:, y : y + TILE, x : x + TILE] = sem
+            if want_semantics and sem_out is not None:
+                sem_out = sem_out[:, :h, :w]
+            return self._pack(out[:h, :w], sem_out)
 
         raise ValueError(f"unknown mode '{mode}' (auto|crop|resize|tiles)")
+
+    @staticmethod
+    def _pack(pred: np.ndarray, sem_probs: np.ndarray | None) -> dict | np.ndarray:
+        if sem_probs is None:
+            return pred
+        return {"pred": np.asarray(pred, dtype=np.float32), "sem_probs": sem_probs}
+
+    def make_tta_predict_fn(self) -> Callable[[np.ndarray], np.ndarray]:
+        """Full-path TTA closure: transformed RGB -> LIVE backbone Dn ->
+        per-tile normalized forward -> AGL on the transformed grid.
+
+        The identity orientation of a cached-Dn deployment must NOT be
+        reused for flipped augmentations (a flipped image needs a flipped
+        backbone pass — reusing the cached orientation would silently
+        predict the unflipped world). This closure therefore always runs
+        the live backbone and raises if it is disabled.
+        """
+        if not self.live_backbone:
+            raise ValueError(
+                "TTA requires the live backbone (--no-live disables it); "
+                "a cached Dn exists only for the identity orientation and "
+                "reusing it for flipped augmentations would be wrong."
+            )
+
+        def predict_aug(rgb_aug_u8: np.ndarray) -> np.ndarray:
+            raw = self._backbone_raw_per_tile(rgb_aug_u8)
+            dn = normalize_dn_per_tile(raw)
+            return self._predict_fn(
+                dn, rgb_aug_u8 if self.model.use_rgb else None
+            )
+
+        return predict_aug
 
 
 # ---------------------------------------------------------------------------
@@ -495,15 +603,31 @@ def write_outputs(
     profile: dict,
     anchored: AnchorResult | None,
     preview_title: str,
+    agl_raw: np.ndarray | None = None,
+    postprocess_meta: dict | None = None,
 ) -> dict[str, str | None]:
     """Write dsm.npy (+ dsm.tif when georeferenced) (+ anchored DSM).
 
+    When post-processing ran, ``agl_raw`` (the untouched CalibrationNet
+    output) is ALSO written to agl_raw.npy — the raw signal is never
+    overwritten — and ``postprocess_meta`` lands in postprocess_meta.json.
+
     Returns relative path strings for the payload's ``outputs`` block.
     """
+    import json
+
     import rasterio
 
     out_dir.mkdir(parents=True, exist_ok=True)
     outputs: dict[str, str | None] = {}
+
+    if agl_raw is not None:
+        np.save(out_dir / "agl_raw.npy", agl_raw.astype(np.float32))
+        outputs["agl_raw_npy"] = str(out_dir / "agl_raw.npy")
+        if postprocess_meta is not None:
+            with open(out_dir / "postprocess_meta.json", "w", encoding="utf-8") as f:
+                json.dump(postprocess_meta, f, indent=2)
+            outputs["postprocess_meta"] = str(out_dir / "postprocess_meta.json")
 
     np.save(out_dir / "dsm.npy", dsm.astype(np.float32))
     outputs["dsm_npy"] = str(out_dir / "dsm.npy")
@@ -662,8 +786,23 @@ def run_inference(
     anchor_dem: Path | str | None = None,
     ground_elev: float | None = None,
     write_files: bool = True,
+    postprocess: str = "none",
+    postprocess_params: dict | None = None,
+    tta: bool = False,
 ) -> dict:
-    """Full inference run -> scene payload dict (see build_scene_payload)."""
+    """Full inference run -> scene payload dict (see build_scene_payload).
+
+    Post-processing (task Sec. 19 API):
+        postprocess="none"    raw AGL passthrough — byte-identical legacy path
+        postprocess=<preset>  median|guided|bilateral|wls|conf|semantic|full
+        postprocess_params    optional {field: value} overrides for
+                              PostProcessConfig (e.g. wls_lambda=2.0)
+        tta=True              flip/rotate ensemble inside the refinement
+
+    Order is FROZEN: AGL_raw -> refine -> (anchor) -> write. The raw AGL is
+    always preserved (agl_raw.npy) and the anchored DSM is built from the
+    REFINED AGL, so DSM == DEM + AGL_refined holds exactly.
+    """
     t0 = time.perf_counter()
     input_path = Path(input_path)
 
@@ -685,7 +824,62 @@ def run_inference(
     resolution = predictor.resolve_dn(rgb_u8, stem=input_path.stem, dn_path=dn_path)
     print(f"[i] Dn source: {resolution.source}")
 
-    dsm = predictor.predict(rgb_u8, resolution.raw, mode=mode)
+    pp_active = postprocess not in (None, "", "none")
+    pp_report_dict: dict | None = None
+    agl_raw: np.ndarray | None = None
+
+    if pp_active:
+        from .postprocess import config_from_preset, refine_agl
+
+        pcfg = config_from_preset(postprocess, postprocess_params or {})
+        pcfg = pcfg.with_updates(tta=tta or pcfg.tta)
+        out = predictor.predict_with_semantics(
+            rgb_u8, resolution.raw, mode=mode
+        )
+        agl_raw = out["pred"]
+        sem_probs = out.get("sem_probs")
+        if sem_probs is None and pcfg.method in ("semantic_wls", "planar"):
+            print(
+                "[i] checkpoint has no semantic auxiliary head — semantic "
+                "gating unavailable, refining RGB-only (no semantics "
+                "fabricated)"
+            )
+        tta_fn = None
+        if pcfg.tta:
+            tta_fn = predictor.make_tta_predict_fn()
+
+        confidence = None
+        if pcfg.method == "semantic_wls" and pcfg.confidence_weight > 0:
+            from .postprocess.confidence import estimate_confidence
+
+            confidence = estimate_confidence(agl_raw, rgb_u8)
+
+        dsm, pp_report = refine_agl(
+            agl_raw,
+            rgb_u8,
+            pcfg,
+            sem_probs=sem_probs,
+            confidence=confidence,
+            tta_predict_fn=tta_fn,
+        )
+        pp_report_dict = pp_report.to_dict()
+        print(
+            f"[postprocess] method={pp_report.method}  "
+            f"changed={pp_report.n_changed}/{pp_report.n_valid}  "
+            f"{pp_report.elapsed_sec:.2f}s"
+        )
+        if pp_report.calibration:
+            c = pp_report.calibration
+            print(
+                f"[postprocess] calibration: mean {c['raw_mean']:.3f}->"
+                f"{c['refined_mean']:.3f} (shift {c['mean_shift']:+.4f} m), "
+                f"std ratio {c['std_ratio']:.4f}"
+            )
+        for note in pp_report.notes:
+            print(f"[postprocess] {note}")
+    else:
+        dsm = predictor.predict(rgb_u8, resolution.raw, mode=mode)
+
     stats = compute_stats(dsm)
     print(
         f"[stats] DSM (m): min {stats['min']:.2f}  mean {stats['mean']:.2f}  "
@@ -728,12 +922,14 @@ def run_inference(
             profile,
             anchored,
             preview_title=f"{predictor.model_tag} — {input_path.name}",
+            agl_raw=agl_raw,
+            postprocess_meta=pp_report_dict,
         )
         for k, v in outputs.items():
             if v:
                 print(f"[out] {v}")
 
-    return build_scene_payload(
+    payload = build_scene_payload(
         dsm,
         rgb_u8,
         stem=input_path.stem,
@@ -746,3 +942,11 @@ def run_inference(
         outputs=outputs,
         elapsed_sec=time.perf_counter() - t0,
     )
+    if pp_report_dict is not None:
+        payload["postprocess"] = {
+            "method": pp_report_dict["method"],
+            "config": pp_report_dict["config"],
+            "calibration": pp_report_dict["calibration"],
+            "notes": pp_report_dict["notes"],
+        }
+    return payload

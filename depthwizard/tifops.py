@@ -226,3 +226,58 @@ def make_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
         return pred.astype(np.float32)
 
     return predict
+
+
+def make_full_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
+    """Return predict_full(dn, rgb) -> dict with EVERYTHING the model emits.
+
+    Keys: ``pred`` (float32 [H,W] metres — identical to make_predict_fn's
+    output), ``sem_probs`` (float32 [K,H,W] softmax over the PREDICTED
+    auxiliary semantic head, or None when the checkpoint has no aux head),
+    ``sem_zero_filled`` (bool).
+
+    Used by the post-processing pipeline (semantic boundary gating needs
+    predicted class probabilities at deployment) and by the scene payload.
+    The plain ``make_predict_fn`` above is unchanged and remains the
+    certified minimal path.
+    """
+    import torch
+
+    from .dataset import IMAGENET_MEAN, IMAGENET_STD
+
+    net = cast(Any, model.net)
+    net.eval()
+
+    @torch.no_grad()
+    def predict_full(
+        dn: np.ndarray, rgb: Optional[np.ndarray] = None
+    ) -> Dict[str, Any]:
+        dn_t = torch.from_numpy(
+            np.ascontiguousarray(dn, dtype=np.float32)[None, None]
+        ).to(device)
+        rgb_t = None
+        if model.use_rgb:
+            if rgb is None:
+                raise ValueError(
+                    "this checkpoint is Dn+RGB (use_rgb=True) but no RGB array "
+                    "was supplied to the predict function"
+                )
+            rgb_f = rgb.astype(np.float32) / 255.0
+            rgb_n = (rgb_f - IMAGENET_MEAN) / IMAGENET_STD
+            rgb_t = torch.from_numpy(
+                np.ascontiguousarray(rgb_n.transpose(2, 0, 1))[None]
+            ).to(device)
+        out = net(dn_t, rgb_t)
+        pred = out["pred"][0, 0].cpu().numpy().astype(np.float32)
+        sem_probs = None
+        if out.get("sem_logits") is not None:
+            sem_probs = (
+                torch.softmax(out["sem_logits"][0], dim=0).cpu().numpy().astype(np.float32)
+            )
+        return {
+            "pred": pred,
+            "sem_probs": sem_probs,
+            "sem_zero_filled": bool(out.get("sem_zero_filled", False)),
+        }
+
+    return predict_full
