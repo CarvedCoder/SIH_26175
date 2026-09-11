@@ -1,0 +1,77 @@
+# GAMUS post-processing ablation config (task Sec. 15/23).
+#
+# Purpose: train the CalibrationNet variant used by the post-processing
+# ablation (eval-postprocess) on a FROZEN, LIMITED, deterministic GAMUS
+# subset. This is a REAL-DATA run: official GAMUS tiles (earthflow/GAMUS,
+# CC-BY-4.0) lazily downloaded from HuggingFace, real Depth-Anything-V2-Base
+# Dn cache, real GT AGL + semantics.
+#
+# Budget honesty (binding): the host is CPU-only, so this config deliberately
+# uses a LIMITED subset (24 tiles/split, frozen by `model.py splits
+# --dataset gamus --limit 24`) and few epochs. The checkpoint is NOT a
+# flagship model — it exists so the post-processing ABLATION compares
+# refinement variants on identical, real inputs. Numbers are citable for
+# relative comparisons between post-processing variants on this split,
+# never as absolute model quality.
+#
+# Runbook (network + CPU, ~25-40 min total):
+#   # 1) freeze the limited manifest (deterministic official-split order)
+#   python model.py splits --dataset gamus --gamus-source hf \
+#       --limit 24 --out outputs/splits/gamus_splits.json
+#   # 2) precompute the ViT-B depth cache for exactly those tiles
+#   python model.py depth --dataset gamus \
+#       --gamus-manifest outputs/splits/gamus_splits.json \
+#       --out-dir outputs/depth_cache --device cpu
+#   # 3) affine baseline (a0, b0 init for the zero-head)
+#   python model.py fit-baseline --config configs/gamus_postproc.yaml \
+#       --dataset gamus
+#   # 4) train the sem-aux-head checkpoint (Dn+RGB+sem channels + PREDICTED
+#   #    semantics head — the deployment shape post-processing needs)
+#   python model.py train --config configs/gamus_postproc.yaml \
+#       --use-rgb --use-sem --sem-aux-head --out-tag postproc_flagship \
+#       --epochs 12 --batch-size 2
+#   # 5) the ablation itself (validation split ONLY — never test)
+#   python model.py eval-postprocess --config configs/gamus_postproc.yaml \
+#       --checkpoint outputs/calib_net/postproc_flagship/best.pt \
+#       --split val --tta-limit 6 --out-tag ablation_r1
+
+paths:
+  depth_cache_dir: outputs/depth_cache
+  outputs_dir: outputs
+  affine_json: outputs/baseline/global_affine_gamus.json
+  splits_json: outputs/splits/gamus_splits.json
+  rgb_dir: rgb_data/Train-Track1-RGB/Track1-RGB      # DFC-side only (unused here)
+  truth_dir: rgb_data_truth/Train-Track1-Truth/Track1-Truth
+  reference_json: outputs/reference/reference_card.json
+
+dataset:
+  name: gamus
+  source: hf                   # lazy per-file hf_hub_download
+  backend: hdf5
+  repo_id: earthflow/GAMUS
+  manifest: outputs/splits/gamus_splits.json
+  limit: 0                     # the manifest is already the limited subset
+  load_semantics: true         # one-hot [6,H,W] — GT semantics used ONLY at
+                               # train/eval time, never in deployed refinement
+
+model:
+  use_rgb: true
+  widths: [16, 32, 64]
+  clamp_min: 0.0
+
+train:
+  crop_size: 512               # the frozen training contract (Blueprint)
+  batch_size: 2
+  epochs: 12
+  lr: 0.001
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1
+  huber_delta: 5.0
+  workers: 2
+  val_subset: 8
+  patience: 4
+  seed: 42
+  w_grad: 0.0
+  w_smooth: 0.0
+  w_sem: 0.2                   # semantic CE on the PREDICTED aux head

@@ -186,6 +186,19 @@ const LO_SEGS = 64;
 const HI_SEGS = 256;
 const DEFAULT_CAMERA_POS = [0, 1.2, 2.5];
 
+/**
+ * Visual vertical scale used for the mesh's Y-displacement, decoupled from
+ * the backend's `height_scale` (which is a physical/real-world elevation
+ * factor used for measurements — see ElevationProbe.jsx, StructureInspector.jsx).
+ * The ground plane spans a fixed footprint of [-1, 1] (2 world units wide)
+ * regardless of scene mode, so a real-world `height_scale` (which can be in
+ * the hundreds for absolute/meters-based scenes) produces wildly
+ * disproportionate spikes if used directly as the mesh multiplier. This
+ * constant keeps rendered terrain proportional across both relative and
+ * absolute scenes; the `exaggeration` slider (1x-5x) still scales on top of it.
+ */
+const BASE_VISUAL_HEIGHT_SCALE = 0.22;
+
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 
 /**
@@ -220,6 +233,37 @@ async function decodeHeightmap(url) {
 
   bitmap.close();
   return { data, width, height };
+}
+
+/**
+ * Box-blur a heightmap in place-safe fashion (returns a new Float32Array).
+ * Reduces per-pixel noise so individual vertices don't spike into thin
+ * needles once displaced and exaggerated. `radius` in pixels; radius=1
+ * means a 3x3 average, radius=2 means 5x5, etc.
+ */
+function smoothHeightData(data, width, height, radius = 2) {
+  if (radius <= 0) return data;
+  const out = new Float32Array(data.length);
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let sum = 0;
+      let count = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        const sy = y + dy;
+        if (sy < 0 || sy >= height) continue;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const sx = x + dx;
+          if (sx < 0 || sx >= width) continue;
+          sum += data[sy * width + sx];
+          count++;
+        }
+      }
+      out[y * width + x] = count > 0 ? sum / count : data[y * width + x];
+    }
+  }
+
+  return out;
 }
 
 /**
@@ -408,6 +452,8 @@ function SceneBridge({ canvasRef, glRef, orbitControlsRef, materialRef, sceneSta
       }
     }
 
+    // Walkthrough mode (internal id 'first-person') — tick is registered
+    // from TerrainWorkspace via setFpTick; free-flight movement, no clamp.
     if (g.cameraMode === 'first-person' && typeof g.fpTick === 'function') {
       g.fpTick(dt);
     }
@@ -437,6 +483,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     hmWidth: 0,
     hmHeight: 0,
     heightScale: 1.0,
+    visualHeightScale: BASE_VISUAL_HEIGHT_SCALE,
     exaggeration: 1.5,
     progress: 0.0,
     progressCurrent: 0.0,
@@ -471,7 +518,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         uHeightmap: { value: emptyHm },
         uTexture: { value: emptyRgb },
         uExaggeration: { value: 1.5 },
-        uHeightScale: { value: 1.0 },
+        uHeightScale: { value: BASE_VISUAL_HEIGHT_SCALE },
         uProgress: { value: 0.0 },
         uSunDir: { value: new THREE.Vector3(sunDir[0], sunDir[1], sunDir[2]) },
         uSunColor: { value: new THREE.Color(1.0, 0.95, 0.85) },
@@ -775,9 +822,15 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     const { heightmap_url, texture_url, height_scale, min_elevation, max_elevation } = terrainMeta;
 
     const hs = typeof height_scale === 'number' && height_scale > 0 ? height_scale : 1.0;
+    // Physical height_scale — kept as-is for real-world elevation math
+    // (ElevationProbe, StructureInspector, CameraHUD all read g.heightScale).
     g.heightScale = hs;
+    // Visual height_scale — used only for mesh Y-displacement so the terrain
+    // stays proportional to its fixed [-1,1] footprint regardless of the
+    // backend's physical units. See BASE_VISUAL_HEIGHT_SCALE comment above.
+    g.visualHeightScale = BASE_VISUAL_HEIGHT_SCALE;
     if (material.uniforms.uHeightScale) {
-      material.uniforms.uHeightScale.value = hs;
+      material.uniforms.uHeightScale.value = g.visualHeightScale;
     }
 
     const minElev = typeof min_elevation === 'number' ? min_elevation : 0.0;
@@ -799,8 +852,12 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     }
 
     // Decode heightmap
-    const { data, width, height } = await decodeHeightmap(heightmap_url);
+    const decoded = await decodeHeightmap(heightmap_url);
     if (g.disposed) return;
+    const { width, height } = decoded;
+    // Smooth to remove per-pixel noise that would otherwise spike into
+    // thin vertical needles once displaced and exaggerated.
+    const data = smoothHeightData(decoded.data, width, height, 2);
 
     g.heightData = data;
     g.hmWidth = width;
@@ -837,7 +894,7 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     for (let idx = 0; idx < 4; idx++) {
       const tx = idx % 2;
       const ty = Math.floor(idx / 2);
-      const loGeo = buildTerrainTileGeometry(data, width, height, LO_SEGS / 2, hs, g.exaggeration, tx, ty, 2);
+      const loGeo = buildTerrainTileGeometry(data, width, height, LO_SEGS / 2, g.visualHeightScale, g.exaggeration, tx, ty, 2);
       const tileMesh = new THREE.Mesh(loGeo, material);
       tileMesh.frustumCulled = true;
       scene.add(tileMesh);
@@ -856,7 +913,7 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
       g.tiles.forEach((m, idx) => {
         const tx = idx % 2;
         const ty = Math.floor(idx / 2);
-        const hiGeo = buildTerrainTileGeometry(data, width, height, HI_SEGS / 2, hs, g.exaggeration, tx, ty, 2);
+        const hiGeo = buildTerrainTileGeometry(data, width, height, HI_SEGS / 2, g.visualHeightScale, g.exaggeration, tx, ty, 2);
         const oldGeo = m.geometry;
         m.geometry = hiGeo;
         oldGeo?.dispose?.();

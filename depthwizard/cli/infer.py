@@ -95,6 +95,27 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
         action="store_true",
         help="skip writing dsm/preview files (payload only)",
     )
+    p.add_argument(
+        "--postprocess",
+        default="none",
+        help="AGL post-processing preset: none (default, byte-identical "
+        "legacy path) | median | guided | bilateral | wls | conf | "
+        "semantic | planar | full",
+    )
+    p.add_argument(
+        "--pp-param",
+        action="append",
+        default=None,
+        metavar="KEY=VALUE",
+        help="override one PostProcessConfig field, repeatable "
+        "(e.g. --pp-param wls_lambda=2.0 --pp-param guided_radius=8)",
+    )
+    p.add_argument(
+        "--tta",
+        action="store_true",
+        help="flip/rotate test-time-augmentation ensemble inside the "
+        "refinement (~3-4x inference cost; requires the live backbone)",
+    )
     return p
 
 
@@ -134,6 +155,19 @@ def run(args) -> int:
         else Path(paths.get("outputs_dir", "outputs")) / "infer" / input_path.stem
     )
 
+    pp_params: dict | None = None
+    if args.pp_param:
+        pp_params = {}
+        for kv in args.pp_param:
+            key, _, raw = kv.partition("=")
+            if not key or not _:
+                print(f"[error] --pp-param expects KEY=VALUE, got '{kv}'")
+                return 1
+            try:
+                pp_params[key] = json.loads(raw)
+            except json.JSONDecodeError:
+                pp_params[key] = raw  # strings pass through unquoted
+
     payload = run_inference(
         input_path,
         ckpt,
@@ -147,6 +181,9 @@ def run(args) -> int:
         anchor_dem=args.anchor_dem,
         ground_elev=args.ground_elev,
         write_files=(not args.no_write),
+        postprocess=args.postprocess,
+        postprocess_params=pp_params,
+        tta=args.tta,
     )
 
     if args.json_out:

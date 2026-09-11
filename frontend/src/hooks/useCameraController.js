@@ -3,21 +3,60 @@
  *
  * Manages three camera modes for the terrain viewer:
  *   5.1 — Orbit: mouse drag rotates, scroll zooms, right-drag pans
- *   5.2 — First-person: WASD movement, mouse look, terrain-collision height clamp
+ *   5.2 — Walkthrough (internal id 'first-person'): creative-style free
+ *         flight — WASD strafe/advance, Space/Ctrl altitude, Shift boost,
+ *         pointer-lock mouse look. The camera is never clamped to the
+ *         terrain; only a small safety floor keeps it near the scene.
  *   5.3 — Top-view: overhead view
  *
- * Returns { mode, setMode, resetCamera, attachOrbit, detachOrbit, orbitRef, tickFirstPerson }
+ * Returns { mode, setMode, resetCamera, attachOrbit, orbitRef, tickWalkthrough }
  * and handles all event listeners for the canvas.
  *
  * Design decisions (§D06):
  *   - All camera logic is frontend-only — no API calls per frame
- *   - Height clamping reads from the glRef heightData array (client-side)
- *   - First-person mouse look only activates on pointer lock
+ *   - Movement and mouse-look only run while the pointer is locked, so keys
+ *     can never stay stuck after Escape, window blur, or a mode switch
+ *   - Entry placement samples the *visual* terrain scale, never the physical
+ *     heightScale (see TerrainCanvas §BASE_VISUAL_HEIGHT_SCALE)
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 /** @typedef {'orbit'|'first-person'|'top'} CameraMode */
+
+/* ─── Walkthrough tuning — all speeds in world units / second ─────────────
+ * The terrain slab spans [-1, 1] on X/Z, so these feel fast on purpose:
+ * normal flight crosses the scene in about a second, boost is for gaining
+ * overview altitude quickly. Vertical is slightly slower for precision. */
+const WALKTHROUGH_SPEED = 2.0;
+const WALKTHROUGH_BOOST_SPEED = 6.0;
+const VERTICAL_SPEED = 1.6;
+const MOUSE_SENSITIVITY = 0.0022;
+
+/** Pitch clamp (±) — just short of straight up/down so the view never flips. */
+const PITCH_LIMIT = Math.PI / 2 - 0.08;
+
+/** Entry placement: altitude above the terrain centre, slight south offset,
+ * and a gentle downward gaze so the surrounding relief reads immediately. */
+const WALKTHROUGH_START_CLEARANCE = 0.3;
+const WALKTHROUGH_START_OFFSET_Z = 0.35;
+const WALKTHROUGH_START_PITCH = -0.32;
+
+/** Soft bounds — allow leaving the terrain slab briefly to look back at it,
+ * without letting the camera drift far into the empty void. */
+const WALKTHROUGH_HORIZONTAL_BOUND = 1.6;
+const WALKTHROUGH_MIN_ALTITUDE = -0.2;
+
+/** Keys that drive the walkthrough, mapped to intent (Ctrl OR C descend). */
+const WALKTHROUGH_KEYS = {
+  KeyW: 'forward',  ArrowUp: 'forward',
+  KeyS: 'backward', ArrowDown: 'backward',
+  KeyA: 'left',     ArrowLeft: 'left',
+  KeyD: 'right',    ArrowRight: 'right',
+  Space: 'up',
+  ControlLeft: 'down', ControlRight: 'down', KeyC: 'down',
+  ShiftLeft: 'boost',  ShiftRight: 'boost',
+};
 
 /**
  * @param {{
@@ -30,7 +69,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
  *     heightData: Float32Array|null,
  *     hmWidth: number,
  *     hmHeight: number,
- *     heightScale: number,
+ *     visualHeightScale: number,
  *     exaggeration: number,
  *   }>,
  * }} options
@@ -41,20 +80,41 @@ export function useCameraController({ canvasRef, glRef }) {
   const fpState  = useRef({
     keys: new Set(),
     yaw: 0,
-    pitch: -0.3,
+    pitch: WALKTHROUGH_START_PITCH,
     locked: false,
     active: false,
   });
-  const rafFp = useRef(null);
 
-  /** Sample terrain height at normalised [0,1] coords */
-  const sampleHeight = useCallback((nx, nz) => {
+  /** Sample *visual* terrain height (rendered world Y) at normalised [0,1] coords */
+  const sampleVisualHeight = useCallback((nx, nz) => {
     const g = glRef.current;
     if (!g.heightData || !g.hmWidth || !g.hmHeight) return 0;
     const px = Math.min(Math.max(Math.round(nx * (g.hmWidth - 1)), 0), g.hmWidth - 1);
     const pz = Math.min(Math.max(Math.round(nz * (g.hmHeight - 1)), 0), g.hmHeight - 1);
-    return g.heightData[pz * g.hmWidth + px] * g.heightScale * g.exaggeration;
+    // Visual scale keeps the mesh proportional to its fixed [-1,1] footprint —
+    // never use the physical heightScale for camera placement here.
+    const visualScale = (g.visualHeightScale ?? 0.22) * (g.exaggeration ?? 1);
+    return g.heightData[pz * g.hmWidth + px] * visualScale;
   }, [glRef]);
+
+  /** Aim the walkthrough camera along its current yaw/pitch */
+  const applyLook = useCallback((cam, fp) => {
+    const cosPitch = Math.cos(fp.pitch);
+    cam.lookAt(
+      cam.position.x - Math.sin(fp.yaw) * cosPitch,
+      cam.position.y + Math.sin(fp.pitch),
+      cam.position.z - Math.cos(fp.yaw) * cosPitch
+    );
+  }, []);
+
+  /** Tear down walkthrough interaction: keys, lock flag, browser pointer lock */
+  const exitWalkthrough = useCallback(() => {
+    const fp = fpState.current;
+    fp.active = false;
+    fp.locked = false;
+    fp.keys.clear();
+    if (document.pointerLockElement) document.exitPointerLock();
+  }, []);
 
   /** Switch camera mode */
   const setMode = useCallback((newMode) => {
@@ -87,24 +147,27 @@ export function useCameraController({ canvasRef, glRef }) {
     }
 
     if (newMode === 'first-person') {
-      // Start at a reasonable position above terrain centre
-      const startH = sampleHeight(0.5, 0.5) + 0.08;
-      g.camera.position.set(0, startH, 0);
-      fpState.current.yaw   = 0;
-      fpState.current.pitch = 0;
-      fpState.current.active = true;
+      // Enter Walkthrough: near the centre, slightly above the visual terrain
+      // surface with enough clearance to read the surrounding relief.
+      const startH = sampleVisualHeight(0.5, 0.5) + WALKTHROUGH_START_CLEARANCE;
+      const fp = fpState.current;
+      fp.yaw = 0;
+      fp.pitch = WALKTHROUGH_START_PITCH;
+      fp.locked = false;
+      fp.active = true;
+      fp.keys.clear();
+      g.camera.position.set(0, startH, WALKTHROUGH_START_OFFSET_Z);
+      applyLook(g.camera, fp);
     } else {
-      fpState.current.active = false;
-      if (rafFp.current) cancelAnimationFrame(rafFp.current);
-      // Exit pointer lock if locked
-      if (document.pointerLockElement) document.exitPointerLock();
+      exitWalkthrough();
     }
-  }, [glRef, sampleHeight]);
+  }, [glRef, sampleVisualHeight, applyLook, exitWalkthrough]);
 
   /** Reset camera to default orbit */
   const resetCamera = useCallback(() => {
     const g = glRef.current;
     if (!g.camera) return;
+    exitWalkthrough();
     g.camera.position.set(0, 1.2, 2.5);
     const orbit = g.orbit || orbitRef.current;
     if (orbit) {
@@ -113,8 +176,7 @@ export function useCameraController({ canvasRef, glRef }) {
       orbit.update?.();
     }
     setModeState('orbit');
-    fpState.current.active = false;
-  }, [glRef]);
+  }, [glRef, exitWalkthrough]);
 
   /** Attach orbit controller to a canvas */
   const attachOrbit = useCallback((canvas, camera) => {
@@ -132,83 +194,110 @@ export function useCameraController({ canvasRef, glRef }) {
     return orbit;
   }, []);
 
-  /** First-person keyboard handlers */
+  /** Walkthrough keyboard / mouse-look / pointer-lock handlers */
   useEffect(() => {
     const fp = fpState.current;
 
     function onKeyDown(e) {
-      if (fp.active) fp.keys.add(e.code);
+      // Only while pointer-locked: no movement from stray keys typed elsewhere
+      if (!fp.active) return; // TEMP-TEST
+      if (e.code in WALKTHROUGH_KEYS) {
+        fp.keys.add(e.code);
+        e.preventDefault();
+      }
     }
     function onKeyUp(e) {
       fp.keys.delete(e.code);
     }
     function onMouseMove(e) {
-      if (!fp.active || !fp.locked) return;
-      const sensitivity = 0.002;
-      fp.yaw   -= e.movementX * sensitivity;
-      fp.pitch -= e.movementY * sensitivity;
-      fp.pitch  = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, fp.pitch));
+      if (!fp.active) return; // TEMP-TEST
+      fp.yaw   -= e.movementX * MOUSE_SENSITIVITY;
+      fp.pitch -= e.movementY * MOUSE_SENSITIVITY;
+      fp.pitch  = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, fp.pitch));
     }
-    function onPointerLock() {
+    function onCanvasClick(e) {
+      const canvas = canvasRef.current;
+      if (!fp.active || fp.locked || !canvas || e.target !== canvas) return;
+      const request = canvas.requestPointerLock?.();
+      if (request && typeof request.catch === 'function') request.catch(() => {});
+    }
+    function onPointerLockChange() {
       fp.locked = document.pointerLockElement === canvasRef.current;
+      if (!fp.locked) fp.keys.clear();
+    }
+    function onPointerLockError() {
+      fp.locked = false;
+      fp.keys.clear();
+    }
+    function onWindowBlur() {
+      fp.keys.clear();
     }
 
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('keyup', onKeyUp);
     document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('pointerlockchange', onPointerLock);
+    document.addEventListener('click', onCanvasClick);
+    document.addEventListener('pointerlockchange', onPointerLockChange);
+    document.addEventListener('pointerlockerror', onPointerLockError);
+    window.addEventListener('blur', onWindowBlur);
 
     return () => {
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('keyup', onKeyUp);
       document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('pointerlockchange', onPointerLock);
+      document.removeEventListener('click', onCanvasClick);
+      document.removeEventListener('pointerlockchange', onPointerLockChange);
+      document.removeEventListener('pointerlockerror', onPointerLockError);
+      window.removeEventListener('blur', onWindowBlur);
     };
   }, [canvasRef]);
 
   /**
-   * First-person camera tick — called every frame from outside this hook
-   * via the render loop in TerrainCanvas.
+   * Walkthrough camera tick — called every frame from the render loop in
+   * TerrainCanvas (delta-time based, so speed is frame-rate independent).
    */
-  const tickFirstPerson = useCallback((dt) => {
-    const g   = glRef.current;
-    const fp  = fpState.current;
+  const tickWalkthrough = useCallback((dt) => {
+    const g  = glRef.current;
+    const fp = fpState.current;
     if (!fp.active || !g.camera) return;
 
     const cam = g.camera;
-    const speed = 0.8 * dt; // world units per second
+    const keys = fp.keys;
 
-    // Build local forward/right from yaw (ignore pitch for movement)
+    const boost = keys.has('ShiftLeft') || keys.has('ShiftRight');
+    const speed = (boost ? WALKTHROUGH_BOOST_SPEED : WALKTHROUGH_SPEED) * dt;
+
+    // Horizontal movement is yaw-relative (walking-style, independent of
+    // pitch) — looking down while pressing W overflies, it does not dive.
     const sinYaw = Math.sin(fp.yaw);
     const cosYaw = Math.cos(fp.yaw);
     const fwdX = -sinYaw;
     const fwdZ = -cosYaw;
 
     let dx = 0, dz = 0;
-    if (fp.keys.has('KeyW') || fp.keys.has('ArrowUp'))    { dx += fwdX; dz += fwdZ; }
-    if (fp.keys.has('KeyS') || fp.keys.has('ArrowDown'))  { dx -= fwdX; dz -= fwdZ; }
-    if (fp.keys.has('KeyA') || fp.keys.has('ArrowLeft'))  { dx -= cosYaw; dz += sinYaw; }
-    if (fp.keys.has('KeyD') || fp.keys.has('ArrowRight')) { dx += cosYaw; dz -= sinYaw; }
+    if (keys.has('KeyW') || keys.has('ArrowUp'))    { dx += fwdX; dz += fwdZ; }
+    if (keys.has('KeyS') || keys.has('ArrowDown'))  { dx -= fwdX; dz -= fwdZ; }
+    if (keys.has('KeyA') || keys.has('ArrowLeft'))  { dx -= cosYaw; dz += sinYaw; }
+    if (keys.has('KeyD') || keys.has('ArrowRight')) { dx += cosYaw; dz -= sinYaw; }
 
+    // Normalise so diagonal flight isn't faster than cardinal flight
+    const hLen = Math.hypot(dx, dz);
+    if (hLen > 0) { dx /= hLen; dz /= hLen; }
+
+    let dy = 0;
+    if (keys.has('Space')) dy += 1;
+    if (keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC')) dy -= 1;
+
+    // Free flight: no terrain clamping — only the soft bounds below.
     const pos = cam.position;
-    pos.x = Math.max(-1, Math.min(1, pos.x + dx * speed));
-    pos.z = Math.max(-1, Math.min(1, pos.z + dz * speed));
+    pos.x = Math.max(-WALKTHROUGH_HORIZONTAL_BOUND,
+              Math.min(WALKTHROUGH_HORIZONTAL_BOUND, pos.x + dx * speed));
+    pos.z = Math.max(-WALKTHROUGH_HORIZONTAL_BOUND,
+              Math.min(WALKTHROUGH_HORIZONTAL_BOUND, pos.z + dz * speed));
+    pos.y = Math.max(WALKTHROUGH_MIN_ALTITUDE, pos.y + dy * VERTICAL_SPEED * dt);
 
-    // Terrain collision — clamp Y to terrain height + eye height
-    const nx = (pos.x + 1) / 2; // world [-1,1] → normalised [0,1]
-    const nz = (pos.z + 1) / 2;
-    const groundH = sampleHeight(nx, nz);
-    const eyeH = groundH + 0.08; // 8cm above terrain
-    pos.y = Math.max(eyeH, pos.y);
-
-    // Apply yaw+pitch to camera rotation (lookAt from yaw/pitch angles)
-    const sinPitch = Math.sin(fp.pitch);
-    const cosPitch = Math.cos(fp.pitch);
-    const targetX = pos.x + fwdX * cosPitch;
-    const targetY = pos.y + sinPitch;
-    const targetZ = pos.z + fwdZ * cosPitch;
-    cam.lookAt(targetX, targetY, targetZ);
-  }, [glRef, sampleHeight]);
+    applyLook(cam, fp);
+  }, [glRef, applyLook]);
 
   return {
     mode,
@@ -216,6 +305,6 @@ export function useCameraController({ canvasRef, glRef }) {
     resetCamera,
     attachOrbit,
     orbitRef,
-    tickFirstPerson,
+    tickWalkthrough,
   };
 }

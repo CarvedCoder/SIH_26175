@@ -78,6 +78,11 @@ SPECS: List[tuple] = [
         "CITABLE eval of the calibration net vs frozen gates (val [+test])",
     ),
     (
+        "eval_postprocess",
+        "eval-postprocess",
+        "ablation + boundary-aware eval of AGL post-processing on a frozen split",
+    ),
+    (
         "infer",
         "infer",
         "image -> AGL/DSM with the flagship (demo path, supports Track-2 anchoring)",

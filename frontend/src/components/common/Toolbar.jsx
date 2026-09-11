@@ -10,7 +10,7 @@
  *   - Measure: Elevation Probe / Height / Distance / Slope
  *   - Compare: Estimated DSM / Reference DEM / Error Map
  *   - Terrain: Exaggeration (1×–5×) / Wireframe / Contours
- *   - Camera:  First Person / Orbit / Top View
+ *   - Camera:  Orbit / Walkthrough / Top View
  *   - Reset:   Return to default camera and visual settings
  *
  * DESIGN.md:
@@ -171,8 +171,6 @@ export default function Toolbar({
         zIndex: 20,
         opacity: disabled ? 0.4 : 1,
         pointerEvents: disabled ? 'none' : 'auto',
-        overflowX: 'auto',
-        WebkitOverflowScrolling: 'touch',
       }}
     >
       {/* ── 1. Layers Menu ── */}
@@ -515,7 +513,7 @@ export default function Toolbar({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {[
               { id: 'orbit',        label: 'Orbit (Arcball View)' },
-              { id: 'first-person', label: 'First Person (WASD)' },
+              { id: 'first-person', label: 'Walkthrough (Free Flight)' },
               { id: 'top',          label: 'Top View (Overhead 2D)' },
             ].map(c => (
               <PopoverButton
