@@ -12,9 +12,11 @@ Fusion:
               bad variant; recommended)
     "mean"    per-pixel mean (slightly smoother; sensitive to outliers)
 
-The returned spread map doubles as the TTA-disagreement signal for
-confidence estimation. Runtime cost = ~1 + N_augmentations forward passes
-— measure before enabling in production (task rule: TTA off by default).
+Returns {'agl', 'spread', 'augmentations', 'stack'}: ``stack`` is the list
+of ORIENTATION-ALIGNED per-variant predictions (identity first) — callers
+feed the non-identity entries to confidence.estimate_confidence as the
+TTA-disagreement signal, and ``spread`` is the per-pixel std over the stack
+(doubles as a diagnostic map).
 
 Honesty note: variants that cannot recompute the RAW Dn backbone for the
 flipped image (e.g. a cached-Dn-only deployment) may flip the cached Dn
@@ -48,7 +50,7 @@ def tta_fuse(
     aggregation: str = "median",
     include_identity: bool = True,
 ) -> dict:
-    """Run the augmented ensemble -> {'agl', 'spread', 'augmentations'}.
+    """Run the augmented ensemble -> {'agl','spread','augmentations','stack'}.
 
     predict_agl_fn(rgb_u8_transformed) -> AGL [H,W] float32 on the SAME
     grid (the caller guarantees grid-preserving prediction).
@@ -81,4 +83,5 @@ def tta_fuse(
         "agl": agl.astype(np.float32),
         "spread": spread.astype(np.float32),
         "augmentations": augs,
+        "stack": [p.astype(np.float32) for p in preds],
     }

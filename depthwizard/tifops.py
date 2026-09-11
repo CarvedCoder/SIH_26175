@@ -165,6 +165,10 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
         clamp_min=ckpt.get("clamp_min", 0.0),
         sem_classes=sem_classes,
         sem_aux_head=sem_aux_head,
+        # head-only checkpoints (predicted semantics) store sem_input=False;
+        # legacy ckpts omit it and default to the GT-input design (True) so
+        # they rebuild bit-identically.
+        sem_input=bool(ckpt.get("sem_input", True)),
     ).to(device)
     net.load_state_dict(ckpt["model_state"])
     net.eval()

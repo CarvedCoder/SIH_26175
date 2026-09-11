@@ -78,11 +78,16 @@ VARIANT_LADDER = {
     "v5_semantic_wls": (
         {"enabled": True, "method": "semantic_wls", "spike_removal": True}, False,
     ),
-    "v6_tta": ({"enabled": True, "method": "none", "tta": True}, False),
+    "v6_tta": (
+        # TTA ONLY — spike removal disabled so the ladder entry measures the
+        # marginal effect of the flip/rot180 ensemble, nothing else.
+        {"enabled": True, "method": "none", "tta": True,
+         "spike_removal": False}, False,
+    ),
     "v7_sem_conf_wls": (
         {
             "enabled": True,
-            "method": "semantic_wls",
+            "method": "full",  # semantic + confidence + WLS (no TTA)
             "spike_removal": True,
         },
         True,  # caller-built confidence supplied
@@ -90,7 +95,7 @@ VARIANT_LADDER = {
     "v8_full": (
         {
             "enabled": True,
-            "method": "semantic_wls",
+            "method": "full",  # semantic + confidence + WLS core
             "spike_removal": True,
             "tta": True,
         },
@@ -99,7 +104,7 @@ VARIANT_LADDER = {
     "v9_full_planar": (
         {
             "enabled": True,
-            "method": "semantic_wls",
+            "method": "full",  # + EXPERIMENTAL planar stage on top
             "spike_removal": True,
             "tta": True,
             "planar": True,
@@ -131,6 +136,11 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
     p.add_argument("--no-visualize", action="store_true",
                    help="skip per-tile diagnostic figures")
     p.add_argument("--visualize-tiles", type=int, default=4)
+    p.add_argument("--zoom-crop", type=int, default=96,
+                   help="half-size of zoomed diagnostic crops (px)")
+    p.add_argument("--save-arrays-tiles", type=int, default=6,
+                   help="dump raw_depth/raw_agl/refined arrays for the first "
+                        "N eval tiles (task Sec. 3 evidence; 0 disables)")
     p.add_argument("--band-px", type=int, default=2,
                    help="boundary band half-width in px for edge metrics")
     p.add_argument("--out-tag", default="postprocess_ablation")
@@ -222,32 +232,41 @@ def _make_tta_predict_fn(model, device, backbone_holder):
 
 
 # ---------------------------------------------------------------------------
-# Diagnostics figure
+# Diagnostics figures (full-tile + zoomed crops) and eval-tile array dumps
 # ---------------------------------------------------------------------------
 
 
-def _diagnostic_figure(stem, rgb, agl_raw, agl_ref, agl_gt, onehot, variant,
+def _diagnostic_figure(stem, rgb, dn, agl_raw, agl_ref, agl_gt, onehot, variant,
                        out_png, band_px=2):
+    """Full-tile diagnostic: RGB, raw depth (Dn), raw/refined/GT AGL, both
+    error maps, the difference map, the gradient-difference map, and the GT
+    building boundary band overlay (task Sec. 16 panel list)."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    from .postprocess.metrics import boundary_bands
+    from depthwizard.postprocess.metrics import boundary_bands, gradient_error
 
     vmax = float(np.nanpercentile(agl_gt, 99)) if np.isfinite(agl_gt).any() else 1.0
     err_raw = np.abs(agl_raw - agl_gt)
     err_ref = np.abs(agl_ref - agl_gt)
     diff = agl_ref - agl_raw
-    fig, axes = plt.subplots(2, 4, figsize=(19, 9), constrained_layout=True)
+    # gradient-difference map: |grad(refined) - grad(GT)| (sharpness fidelity)
+    gy_r, gx_r = np.gradient(np.nan_to_num(agl_ref, nan=0.0))
+    gy_t, gx_t = np.gradient(np.nan_to_num(agl_gt, nan=0.0))
+    gdiff = 0.5 * (np.abs(gy_r - gy_t) + np.abs(gx_r - gx_t))
+    fig, axes = plt.subplots(2, 5, figsize=(23, 9), constrained_layout=True)
     panels = [
         (rgb, "RGB", None),
+        (dn, "raw depth Dn (normalized)", "viridis"),
         (agl_raw, "raw AGL (m)", "magma"),
         (agl_ref, f"refined AGL — {variant} (m)", "magma"),
         (agl_gt, "GT AGL (m)", "magma"),
         (err_raw, "|err| raw (m)", "inferno"),
         (err_ref, "|err| refined (m)", "inferno"),
         (diff, "refined - raw (m)", "coolwarm"),
+        (gdiff, "|grad diff| (m/px)", "cividis"),
         (None, "GT building boundary band", None),
     ]
     bmask = None
@@ -262,22 +281,138 @@ def _diagnostic_figure(stem, rgb, agl_raw, agl_ref, agl_gt, onehot, variant,
                 ax.imshow(overlay)
             ax.set_title(title)
         else:
-            kw = {} if cmap is None else {"cmap": cmap, "vmin": 0.0}
+            kw = {} if cmap is None else {"cmap": cmap}
             if title.startswith(("raw AGL", "refined", "GT AGL")):
-                kw["vmax"] = vmax
+                kw["vmin"], kw["vmax"] = 0.0, vmax
+            if title.startswith("raw depth"):
+                kw["vmin"], kw["vmax"] = 0.0, 1.0
             if title.startswith("refined - raw"):
-                kw = {"cmap": cmap, "vmin": -2.0, "vmax": 2.0}
+                lim = float(np.nanpercentile(np.abs(diff), 99)) or 2.0
+                kw.update({"vmin": -lim, "vmax": lim})
             if title.startswith("|err|"):
-                kw["vmax"] = float(np.nanpercentile(err_raw, 99))
+                kw["vmax"] = float(np.nanpercentile(err_raw, 99)) or 1.0
+            if title.startswith("|grad diff|"):
+                kw["vmax"] = float(np.nanpercentile(gdiff, 99)) or 1.0
             im_ = ax.imshow(im, **kw)
             if cmap:
                 fig.colorbar(im_, ax=ax, fraction=0.046, pad=0.02)
         ax.set_title(title, fontsize=9)
         ax.axis("off")
-    fig.suptitle(f"{stem} — post-processing diagnostics", fontsize=11)
+    gerr = gradient_error(agl_ref, agl_gt)
+    fig.suptitle(
+        f"{stem} — post-processing diagnostics — {variant}  "
+        f"(grad MAE {gerr['grad_mae']:.3f} m/px)", fontsize=11,
+    )
     out_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_png, dpi=110)
     plt.close(fig)
+
+
+def _crop_locations(rgb, agl_raw, agl_gt, onehot, band_px=2):
+    """Pick structurally interesting crop centres (task Sec. 16):
+    roof interior, building-ground edge, building-vegetation edge, road,
+    terrain transition, worst raw-error outlier."""
+    from scipy import ndimage
+
+    h, w = agl_gt.shape
+    locs = []
+    cls = onehot.argmax(axis=0) if onehot is not None else None
+    valid = np.isfinite(agl_gt)
+
+    def add(name, mask):
+        if mask is not None and mask.any():
+            yy, xx = np.nonzero(mask)
+            i = int(len(yy) // 2)  # median-ish member = interior
+            order = np.argsort(xx + yy * 1.0)
+            locs.append((name, int(yy[order[i]]), int(xx[order[i]])))
+
+    if cls is not None:
+        building = (cls == 0) & valid
+        labels, n = ndimage.label(building)
+        if n:
+            sizes = ndimage.sum(np.ones_like(labels), labels, range(1, n + 1))
+            big = int(np.argmax(sizes)) + 1
+            add("roof (largest building)", labels == big)
+        ground = (cls == 4) & valid
+        veg = (cls == 1) & valid
+        road = (cls == 2) & valid
+        # boundary between building and X: erode both sides of the class edge
+        b_edge = ndimage.binary_dilation(building, iterations=band_px) & ~building
+        add("building-ground edge", b_edge & ground)
+        add("building-vegetation edge", b_edge & veg)
+        add("road", road)
+        # terrain transition: strongest GT gradient inside ground-only areas
+        gy, gx = np.gradient(np.nan_to_num(agl_gt, nan=0.0))
+        gm = np.abs(gy) + np.abs(gx)
+        gm[~(ground & ~b_edge)] = 0.0
+        if gm.any():
+            y, x = np.unravel_index(int(np.argmax(gm)), gm.shape)
+            locs.append(("terrain transition", int(y), int(x)))
+    # worst raw outlier
+    err = np.abs(agl_raw - agl_gt) * valid
+    if err.any():
+        y, x = np.unravel_index(int(np.argmax(err)), err.shape)
+        locs.append(("worst raw outlier", int(y), int(x)))
+    return locs
+
+
+def _zoom_crops_figure(stem, rgb, agl_raw, agl_ref, agl_gt, onehot, variant,
+                       out_png, crop=96, band_px=2):
+    """Zoomed crops (RGB / GT / raw / refined / err-raw / err-ref) around
+    roofs, building-ground edges, vegetation boundaries, roads, terrain
+    transitions and the worst outlier — diagnostic ONLY."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    locs = _crop_locations(rgb, agl_raw, agl_gt, onehot, band_px)
+    if not locs:
+        return
+    h, w = agl_gt.shape
+    vmax = float(np.nanpercentile(agl_gt, 99)) or 1.0
+    err_raw = np.abs(agl_raw - agl_gt)
+    err_ref = np.abs(agl_ref - agl_gt)
+    emax = float(np.nanpercentile(err_raw, 99)) or 1.0
+    rows, cols = len(locs), 6
+    fig, axes = plt.subplots(rows, cols, figsize=(3.0 * cols, 3.0 * rows),
+                             constrained_layout=True, squeeze=False)
+    for r, (name, cy, cx) in enumerate(locs):
+        y0, y1 = max(0, cy - crop // 2), min(h, cy + crop // 2)
+        x0, x1 = max(0, cx - crop // 2), min(w, cx + crop // 2)
+        panels = [
+            (rgb[y0:y1, x0:x1], "RGB", {}),
+            (agl_gt[y0:y1, x0:x1], "GT AGL", {"cmap": "magma", "vmin": 0, "vmax": vmax}),
+            (agl_raw[y0:y1, x0:x1], "raw AGL", {"cmap": "magma", "vmin": 0, "vmax": vmax}),
+            (agl_ref[y0:y1, x0:x1], "refined", {"cmap": "magma", "vmin": 0, "vmax": vmax}),
+            (err_raw[y0:y1, x0:x1], "|err| raw", {"cmap": "inferno", "vmin": 0, "vmax": emax}),
+            (err_ref[y0:y1, x0:x1], "|err| ref", {"cmap": "inferno", "vmin": 0, "vmax": emax}),
+        ]
+        for c, (im, title, kw) in enumerate(panels):
+            ax = axes[r][c]
+            ax.imshow(im, **kw)
+            ax.set_title(title if r == 0 else "", fontsize=8)
+            ax.axis("off")
+        axes[r][0].set_ylabel(name, fontsize=8)
+    fig.suptitle(f"{stem} — zoomed diagnostics — {variant}", fontsize=11)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=110)
+    plt.close(fig)
+
+
+def _save_eval_arrays(arr_dir, dn, agl_raw, agl_gt, onehot, refined, variant):
+    """Per-eval-tile array dump (task Sec. 3): raw_depth / raw_agl /
+    refined_agl / final product + GT layers — machine-comparable evidence."""
+    arr_dir.mkdir(parents=True, exist_ok=True)
+    np.save(arr_dir / "raw_depth_dn.npy", dn.astype(np.float32))
+    np.save(arr_dir / "raw_agl.npy", agl_raw.astype(np.float32))
+    np.save(arr_dir / "agl_gt.npy", agl_gt.astype(np.float32))
+    # The evaluated product is the AGL-domain rDSM (Track-1 semantics):
+    # at deployment DSM = refined AGL + DEM (anchoring, unchanged) — the
+    # ablation never anchors, so refined AGL IS the final model product here.
+    np.save(arr_dir / f"refined_agl_{variant}.npy", refined.astype(np.float32))
+    if onehot is not None:
+        np.save(arr_dir / "gt_sem_onehot.npy", onehot.astype(np.float32))
 
 
 # ---------------------------------------------------------------------------
@@ -373,7 +508,14 @@ def run(args) -> int:
         conf_map = estimate_confidence(agl_raw, rgb_u8)
 
         do_tta = tta_fn is not None and tta_budget != 0
-        if any("tta" in m or m == "v9_full_planar" for m in method_subset):
+        # BUG FIX (found pre-run): this used to test '"tta" in variant NAME',
+        # which is False for 'v8_full' — TTA would never activate for it.
+        # Select by the variant CONFIG (kw['tta']) instead, which is the
+        # actual contract.
+        wants_tta_any = any(
+            VARIANT_LADDER[m][0].get("tta") for m in method_subset
+        )
+        if wants_tta_any:
             if tta_fn is None:
                 tta_fn = _make_tta_predict_fn(model, device, backbone_holder)
             do_tta = tta_budget != 0
@@ -409,15 +551,25 @@ def run(args) -> int:
                 refined, agl_gt, onehot_gt, band_px=args.band_px
             )
             per_variant_tiles[name].append(m)
+            if idx < args.save_arrays_tiles:
+                _save_eval_arrays(
+                    out_dir / "arrays" / stem, dn, agl_raw, agl_gt,
+                    onehot_gt, refined, name,
+                )
             if (
                 not args.no_visualize
                 and idx < args.visualize_tiles
                 and name != "v0_raw"
             ):
                 _diagnostic_figure(
-                    f"{stem}_{name}", rgb_u8, agl_raw, refined, agl_gt,
+                    f"{stem}_{name}", rgb_u8, dn, agl_raw, refined, agl_gt,
                     onehot_gt, name, viz_dir / f"{stem}_{name}.png",
                     band_px=args.band_px,
+                )
+                _zoom_crops_figure(
+                    f"{stem}_{name}", rgb_u8, agl_raw, refined, agl_gt,
+                    onehot_gt, name, viz_dir / f"{stem}_{name}_zoom.png",
+                    crop=args.zoom_crop, band_px=args.band_px,
                 )
         print(
             f"  [{idx + 1}/{n_tiles}] {stem}  fwd {fwd_sec * 1000:.0f} ms"
@@ -451,7 +603,36 @@ def run(args) -> int:
         }
 
     summaries = {name: flat_summary(name) for name in method_subset}
-    baseline = summaries.get("v0_raw", {})
+
+    # Acceptance baselines must be TILE-ALIGNED: a TTA-budget variant only
+    # covered the first N tiles, so comparing it against the v0 summary over
+    # ALL tiles is invalid (different tile sets). Restrict v0 to exactly the
+    # tiles each candidate covered — task rule: same validation set for the
+    # comparison (fair-subset when a budget caps a variant).
+    def aligned_baseline(name):
+        if "v0_raw" not in per_variant_tiles:
+            return {}
+        idx = [i for i, t in enumerate(per_variant_tiles[name]) if t is not None]
+        if not idx or len(idx) == n_tiles:
+            return summaries.get("v0_raw", {})
+        v0_on_idx = [per_variant_tiles["v0_raw"][i] for i in idx
+                     if per_variant_tiles["v0_raw"][i] is not None]
+        if not v0_on_idx:
+            return {}
+        g = summarize_tile_metrics(v0_on_idx)
+        return {
+            "mae": g.get("global", {}).get("mae", float("nan")),
+            "rmse": g.get("global", {}).get("rmse", float("nan")),
+            "bias": g.get("global", {}).get("bias", float("nan")),
+            "negative_fraction": g.get("global", {}).get(
+                "negative_fraction", float("nan")
+            ),
+            "building_mae": g.get("region_building", {}).get("mae", float("nan")),
+            "boundary_mae": g.get("boundary_building", {}).get("mae", float("nan")),
+            "grad_mae": g.get("gradient", {}).get("grad_mae", float("nan")),
+            "seam_mae": g.get("seam", {}).get("seam_mae", float("nan")),
+            "n_tiles": len(v0_on_idx),
+        }
 
     csv_path = out_dir / "ablation.csv"
     cols = [
@@ -468,17 +649,23 @@ def run(args) -> int:
             row.update({c: summaries[name].get(c, "") for c in cols[1:]})
             w.writerow(row)
 
-    # acceptance vs baseline
+    # acceptance vs tile-aligned baseline
     verdicts = {}
     for name in method_subset:
         if name == "v0_raw":
             verdicts[name] = {"verdict": "BASELINE", "rules": {}}
             continue
+        base = aligned_baseline(name)
         res = evaluate_acceptance(
-            baseline, summaries[name],
+            base, summaries[name],
             summaries[name].get("mean_shift_m"), acc_cfg,
         )
-        verdicts[name] = {"verdict": res.verdict, "rules": res.rules}
+        verdicts[name] = {
+            "verdict": res.verdict,
+            "rules": res.rules,
+            "baseline_n_tiles": base.get("n_tiles"),
+            "candidate_n_tiles": summaries[name].get("n_tiles"),
+        }
 
     report = {
         "created": datetime.now(timezone.utc).isoformat(),
@@ -514,8 +701,8 @@ def run(args) -> int:
         f"- semantics: {report['semantics_source']}",
         "",
         "| variant | MAE | RMSE | bias | bldg MAE | boundary MAE | grad MAE |"
-        " seam | neg frac | ms/tile | verdict |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        " seam | neg frac | ms/tile | n_tiles | verdict |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for name in method_subset:
         s = summaries[name]
@@ -530,8 +717,16 @@ def run(args) -> int:
             f"| {s.get('seam_mae', float('nan')):.3f} "
             f"| {s.get('negative_fraction', float('nan')):.4f} "
             f"| {s.get('runtime_ms_per_tile', float('nan')):.0f} "
+            f"| {int(s.get('n_tiles', 0))} "
             f"| {v} |"
         )
+    lines += [
+        "",
+        "NOTE: variants with an n_tiles smaller than the split size were "
+        "capped by the TTA budget; their acceptance verdicts were computed "
+        "against the v0 baseline RESTRICTED to the same tiles (tile-aligned "
+        "comparison).",
+    ]
     (out_dir / "report.md").write_text("\n".join(lines), encoding="utf-8")
 
     print(f"\n[done] results -> {out_dir}")

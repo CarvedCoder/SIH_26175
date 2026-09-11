@@ -173,7 +173,7 @@ PRESETS: Dict[str, Dict[str, Any]] = {
     "planar": {"enabled": True, "method": "planar", "spike_removal": False},
     "full": {
         "enabled": True,
-        "method": "semantic_wls",  # core = semantic + conf + WLS
+        "method": "full",  # composed core: semantic + confidence + WLS
         "spike_removal": True,
         "confidence_weight": 1.0,
         "semantic_edge_weight": 2.0,

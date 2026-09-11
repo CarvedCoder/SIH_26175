@@ -5,7 +5,8 @@
  * based on current camera mode:
  *   - Orbit: Left Drag (Rotate), Right Drag / Shift (Pan), Scroll (Zoom)
  *   - Top-view: Right Drag (Pan), Scroll (Zoom)
- *   - First-person: Click (Lock Cursor), WASD / Arrows (Move), Mouse (Look), Esc (Unlock)
+ *   - Walkthrough (internal mode id 'first-person'): Click (Lock Cursor),
+ *     WASD (Move), Space / Ctrl (Altitude), Shift (Boost), Mouse (Look), Esc (Unlock)
  *
  * Design matches DESIGN.md:
  *   - Dark translucent background (rgba(13, 17, 23, 0.92)) with 1px var(--dw-rim)
@@ -13,8 +14,8 @@
  *   - Collapsible with persistent preference in localStorage
  */
 
-import { useState, useEffect } from 'react';
-import { Keyboard, ChevronDown, ChevronUp, MousePointer, Compass, Eye } from 'lucide-react';
+import { useState } from 'react';
+import { Keyboard, ChevronDown, ChevronUp, Move3d, Compass, Eye } from 'lucide-react';
 
 const STORAGE_KEY = 'dw_controls_hint_collapsed';
 
@@ -63,13 +64,16 @@ export default function ControlsHint({ cameraMode = 'orbit' }) {
       ],
     },
     'first-person': {
-      label: 'Fly Mode',
-      icon: MousePointer,
+      label: 'Walkthrough',
+      icon: Move3d,
       controls: [
         { key: 'Click Canvas', label: 'Lock Cursor' },
         { key: 'W A S D', label: 'Move' },
+        { key: 'Space', label: 'Rise' },
+        { key: 'Ctrl / C', label: 'Descend' },
+        { key: 'Shift', label: 'Boost' },
         { key: 'Mouse', label: 'Look' },
-        { key: 'Esc', label: 'Unlock' },
+        { key: 'Esc', label: 'Release' },
       ],
     },
   }[cameraMode] || {

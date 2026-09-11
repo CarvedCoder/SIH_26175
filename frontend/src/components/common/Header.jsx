@@ -663,8 +663,8 @@ export default function Header({ onNavigate }) {
                 <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '6px 10px', fontFamily: 'var(--dw-font-data)', fontSize: 13 }}>
                   <span style={{ color: 'var(--dw-accent)' }}>Orbit Mode:</span>
                   <span>Left-drag rotate · Right-drag pan · Scroll zoom</span>
-                  <span style={{ color: 'var(--dw-accent)' }}>First Person:</span>
-                  <span>W/A/S/D walk · Mouse look · Terrain-clamped</span>
+                  <span style={{ color: 'var(--dw-accent)' }}>Walkthrough:</span>
+                  <span>W/A/S/D fly · Space/Ctrl altitude · Shift boost · Mouse look</span>
                   <span style={{ color: 'var(--dw-accent)' }}>Top View:</span>
                   <span>Orthographic 2D/3D nadir view</span>
                   <span style={{ color: 'var(--dw-accent)' }}>Elevation Probe:</span>

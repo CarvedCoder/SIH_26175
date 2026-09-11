@@ -497,13 +497,13 @@ class DepthWizardPredictor:
                     sem = _resize_sem_probs(
                         sem[y0 : y0 + h2, x0 : x0 + w2], h, w
                     )
-                return self._pack(out, sem)
+                return self._pack(out, sem, want_semantics)
             y0, x0 = (h - TILE) // 2, (w - TILE) // 2
             pred, sem = _forward(
                 minmax_normalize(raw_dn[y0 : y0 + TILE, x0 : x0 + TILE]),
                 rgb_u8[y0 : y0 + TILE, x0 : x0 + TILE],
             )
-            return self._pack(pred, sem)
+            return self._pack(pred, sem, want_semantics)
 
         if mode == "tiles":
             ny, nx, hp, wp = tile_bounds(h, w)
@@ -538,13 +538,20 @@ class DepthWizardPredictor:
                             sem_out[:, y : y + TILE, x : x + TILE] = sem
             if want_semantics and sem_out is not None:
                 sem_out = sem_out[:, :h, :w]
-            return self._pack(out[:h, :w], sem_out)
+            return self._pack(out[:h, :w], sem_out, want_semantics)
 
         raise ValueError(f"unknown mode '{mode}' (auto|crop|resize|tiles)")
 
     @staticmethod
-    def _pack(pred: np.ndarray, sem_probs: np.ndarray | None) -> dict | np.ndarray:
-        if sem_probs is None:
+    def _pack(
+        pred: np.ndarray, sem_probs: np.ndarray | None, want_semantics: bool
+    ) -> dict | np.ndarray:
+        # predict() keeps the LEGACY contract: a bare [H,W] array.
+        # predict_with_semantics() ALWAYS returns a dict (sem_probs=None
+        # when the checkpoint has no auxiliary head) — its callers index
+        # out["pred"], so a bare array would crash them (bug found by
+        # model_tests/test_postprocess.py, headless-checkpoint path).
+        if not want_semantics:
             return pred
         return {"pred": np.asarray(pred, dtype=np.float32), "sem_probs": sem_probs}
 

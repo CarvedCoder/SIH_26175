@@ -1,7 +1,8 @@
 /**
  * DepthWizard — CameraHUD (Phase 7)
  *
- * Navigation HUD shown only in first-person camera mode (§22).
+ * Navigation HUD shown only in Walkthrough mode (internal camera id
+ * 'first-person', §22).
  * Four data-face readout panels:
  *   ALTITUDE — camera Y position (m or scene units, from elevation_mode)
  *   HEADING  — camera yaw as compass bearing (°)
@@ -16,7 +17,7 @@
  *   - --dw-panel background with 1px --dw-rim border
  *   - No card shadows
  *   - Instrument-panel style: label above value
- *   - Shown only in first-person mode (renders null otherwise)
+ *   - Shown only in Walkthrough mode (renders null otherwise)
  *
  * Spec §22.
  */
@@ -30,7 +31,7 @@ import { useEffect, useState, useRef } from 'react';
  * }} props
  */
 export default function CameraHUD({ terrainRef, cameraMode, elevationMode }) {
-  // Only render in first-person mode
+  // Only render in Walkthrough mode (internal id 'first-person')
   if (cameraMode !== 'first-person') return null;
 
   return <HUDContent terrainRef={terrainRef} elevationMode={elevationMode} />;

@@ -169,6 +169,7 @@ def refine_agl(
         notes.append(f"spike_removal: {int(spike_mask.sum())} pixels replaced")
 
     # ---- stage 3: TTA fusion ----------------------------------------------
+    tta_stack: list[np.ndarray] = []
     if config.tta:
         if tta_predict_fn is None:
             notes.append("tta requested but no tta_predict_fn — TTA skipped")
@@ -180,15 +181,19 @@ def refine_agl(
                 rgb,
                 aggregation=config.tta_aggregation,
             )
-            spread_valid = np.isfinite(fused["agl"]) & valid
-            tta_signal = np.where(spread_valid, fused["agl"], np.nan)
-            if config.tta_aggregation == "median":
-                signal = np.where(valid, tta_signal, np.nan).astype(np.float64)
+            # BOTH aggregations replace the signal (bug fix: previously only
+            # 'median' did, silently ignoring a 'mean' TTA fusion). NaN keeps
+            # the input's invalid pattern exactly.
+            ok = np.isfinite(fused["agl"]) & valid
+            signal = np.where(ok, fused["agl"], np.nan).astype(np.float64)
+            # non-identity aligned predictions feed the confidence estimator
+            # (TTA disagreement is the strongest deployment-available
+            # instability signal — see confidence.py signal 3)
+            tta_stack = list(fused["stack"])[1:]
             notes.append(
                 f"tta: fused {fused['augmentations']} ({config.tta_aggregation})"
             )
             tta_augs = tuple(fused["augmentations"])
-            # TTA spread feeds the confidence map below (stage 4, conf_wls)
 
     # ---- stage 4: core refinement ------------------------------------------
     method = config.effective_method
@@ -220,9 +225,14 @@ def refine_agl(
             valid=valid,
         ).astype(np.float64)
 
-    elif method in ("wls", "conf_wls", "semantic_wls"):
+    elif method in ("wls", "conf_wls", "semantic_wls", "full"):
+        # "full" = semantic + confidence + WLS core (+ planar below when
+        # config.planar) — the composed V8 pipeline of the ablation ladder.
         conf = None
-        if method == "conf_wls" or (method == "semantic_wls" and confidence is not None):
+        wants_conf = method in ("conf_wls", "full") or (
+            method == "semantic_wls" and confidence is not None
+        )
+        if wants_conf:
             if confidence is not None and config.confidence_weight > 0:
                 conf = np.clip(
                     np.asarray(confidence, dtype=np.float64), 0.0, 1.0
@@ -233,14 +243,12 @@ def refine_agl(
                     "confidence: caller-supplied relative map (NOT calibrated "
                     "probabilities) modulating the WLS data term"
                 )
-            elif method == "conf_wls":
+            elif method in ("conf_wls", "full"):
                 from .confidence import estimate_confidence
 
-                tta_spread = None
-                if config.tta and tta_augs:
-                    tta_spread = None  # spread already fused into signal
                 conf_map = estimate_confidence(
-                    signal.astype(np.float32), rgb, valid=valid
+                    signal.astype(np.float32), rgb, valid=valid,
+                    tta_stack=tta_stack or None,
                 )
                 conf = (
                     np.clip(conf_map.astype(np.float64), 0.0, 1.0)
@@ -254,10 +262,10 @@ def refine_agl(
                     "probabilities) — see depthwizard/postprocess/confidence.py"
                 )
 
-        sem = sem_probs if method == "semantic_wls" else None
-        if method == "semantic_wls" and sem is None:
+        sem = sem_probs if method in ("semantic_wls", "full") else None
+        if method in ("semantic_wls", "full") and sem is None:
             notes.append(
-                "semantic_wls selected but no sem_probs supplied — running "
+                f"{method} selected but no sem_probs supplied — running "
                 "RGB-only WLS (honest degradation, semantics NOT fabricated)"
             )
 
@@ -274,7 +282,8 @@ def refine_agl(
             confidence=conf,
             sem_probs=sem,
             semantic_edge_weight=(
-                config.semantic_edge_weight if method == "semantic_wls" else 0.0
+                config.semantic_edge_weight
+                if method in ("semantic_wls", "full") else 0.0
             ),
             semantic_hard_boundary=config.semantic_hard_boundary,
             tol=config.wls_tol,
@@ -284,6 +293,33 @@ def refine_agl(
         )
         out = res.z.astype(np.float64)
         wls_iters, wls_conv = res.iterations, res.converged
+
+        # optional EXPERIMENTAL planar stage rides on top of "full" (and on
+        # plain "planar" below) — predicted building regions only, never GT.
+        if method == "full" and config.planar:
+            if sem_probs is not None:
+                from .planar import planar_refine
+                from .semantic import building_mask_from_probs
+
+                bmask = building_mask_from_probs(sem_probs)
+                out, planar_stats = planar_refine(
+                    out.astype(np.float32), bmask,
+                    min_area=config.planar_min_area,
+                    max_residual=config.planar_max_residual,
+                    min_inlier_frac=config.planar_min_inlier_frac,
+                    inlier_tol=config.planar_inlier_tol,
+                    valid=valid,
+                )
+                out = out.astype(np.float64)
+                notes.append(
+                    "planar: EXPERIMENTAL robust plane replacement applied "
+                    "(inside predicted building components only)"
+                )
+            else:
+                notes.append(
+                    "planar requested within 'full' but no sem_probs — "
+                    "planar stage skipped (no fabricated building regions)"
+                )
 
     elif method == "planar":
         if sem_probs is None:
@@ -313,8 +349,11 @@ def refine_agl(
     refined = np.where(valid, out, np.nan).astype(np.float32)
     calib = calibration_report(raw, refined, valid)
     if config.preserve_mean and valid.any():
+        # mean_shift = refined_mean - raw_mean, so restoring the raw mean
+        # means SUBTRACTING it (a historic sign bug here doubled the shift
+        # instead of cancelling it — pinned by unit test).
         shift = calib["mean_shift"]
-        refined[valid] = (refined[valid] + shift).astype(np.float32)
+        refined[valid] = (refined[valid] - shift).astype(np.float32)
         calib = calibration_report(raw, refined, valid)
         notes.append(f"preserve_mean: restored global mean (shift {shift:+.4f} m)")
 

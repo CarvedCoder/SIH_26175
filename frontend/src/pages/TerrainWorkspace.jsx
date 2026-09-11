@@ -20,6 +20,7 @@ import TerrainCanvas from '../components/TerrainViewer/TerrainCanvas.jsx';
 import Minimap from '../components/TerrainViewer/Minimap.jsx';
 import CameraHUD from '../components/TerrainViewer/CameraHUD.jsx';
 import ControlsHint from '../components/TerrainViewer/ControlsHint.jsx';
+import WalkthroughPrompt from '../components/TerrainViewer/WalkthroughPrompt.jsx';
 import LayerControl, { LAYER_META } from '../components/TerrainViewer/LayerControl.jsx';
 import Toolbar from '../components/common/Toolbar.jsx';
 import ElevationProbe from '../components/Analysis/ElevationProbe.jsx';
@@ -62,7 +63,7 @@ export default function TerrainWorkspace() {
   const {
     mode: cameraMode,
     setMode: setCameraMode,
-    tickFirstPerson,
+    tickWalkthrough,
   } = useCameraController({
     canvasRef: canvasPlaceholder,
     glRef: glPlaceholder,
@@ -80,11 +81,11 @@ export default function TerrainWorkspace() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Register first-person tick in canvas render loop
+  // Register walkthrough tick in canvas render loop
   useEffect(() => {
-    terrainRef.current?.setFpTick(cameraMode === 'first-person' ? tickFirstPerson : null);
+    terrainRef.current?.setFpTick(cameraMode === 'first-person' ? tickWalkthrough : null);
     terrainRef.current?.setCameraMode(cameraMode);
-  }, [cameraMode, tickFirstPerson]);
+  }, [cameraMode, tickWalkthrough]);
 
   // ── Minimap metadata ──
   const [minimapMeta, setMinimapMeta] = useState(null);
@@ -198,6 +199,9 @@ export default function TerrainWorkspace() {
   /** Handle clicks on the terrain canvas to feed active measurement tool */
   const handleTerrainClick = (e) => {
     if (isLoading) return;
+    // In Walkthrough, canvas clicks capture the cursor for mouse look —
+    // measurement picks stay in Orbit / Top View where clicking makes sense.
+    if (cameraMode === 'first-person') return;
     const pt = terrainRef.current?.getTerrainPointFromEvent?.(e);
     if (!pt) return;
 
@@ -278,21 +282,27 @@ export default function TerrainWorkspace() {
           />
         )}
 
-        {/* Elevation Probe (task 9.1) */}
+        {/* Elevation Probe (task 9.1) — paused during Walkthrough, where the
+            cursor is captured and hover sampling has no meaningful target */}
         {!isLoading && (
           <ElevationProbe
             terrainRef={terrainRef}
-            enabled={activeTool === 'probe' || activeTool === 'none'}
+            enabled={(activeTool === 'probe' || activeTool === 'none') && cameraMode !== 'first-person'}
           />
         )}
 
-        {/* Navigation HUD — bottom-right, first-person mode only (Phase 7) */}
+        {/* Navigation HUD — bottom-right, walkthrough mode only (Phase 7) */}
         {!isLoading && (
           <CameraHUD
             terrainRef={terrainRef}
             cameraMode={cameraMode}
             elevationMode={state.results?.elevation_mode ?? 'relative'}
           />
+        )}
+
+        {/* Walkthrough entry cue — click-to-capture hint, hidden once locked */}
+        {!isLoading && (
+          <WalkthroughPrompt cameraMode={cameraMode} />
         )}
 
         {/* 3D Viewport Controls Guide (bottom-left) */}

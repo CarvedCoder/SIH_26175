@@ -105,10 +105,17 @@ class CalibrationNet(nn.Module):
         clamp_min: float = 0.0,
         sem_classes: int = 0,
         sem_aux_head: bool = False,
+        sem_input: bool = True,
     ):
         super().__init__()
         self.clamp_min = clamp_min
         self.sem_classes = int(sem_classes)
+        # ``sem_input``: whether the K one-hot channels are part of in_ch
+        # (Exp 4/5 GT-input design). False = PREDICTED-semantics deployment
+        # design: the aux head reads encoder features of a Dn+RGB model and
+        # NO semantic input block exists (in_ch excludes K). Default True
+        # reconstructs every existing checkpoint bit-identically.
+        self.sem_input = bool(sem_input)
         w1, w2, w3 = widths
         self.enc1 = _conv_block(in_ch, w1)
         self.enc2 = _conv_block(w1, w2)
@@ -125,6 +132,8 @@ class CalibrationNet(nn.Module):
             self.head.bias.copy_(torch.tensor([a0, b0], dtype=torch.float32))
         self.sem_aux_head = None
         if sem_aux_head and self.sem_classes > 0:
+            # head K is sem_classes regardless of sem_input: the legend K
+            # is a property of the project, not of the input design.
             self.sem_aux_head = nn.Conv2d(w1, self.sem_classes, 1)
 
     def forward(
@@ -153,7 +162,7 @@ class CalibrationNet(nn.Module):
         # (the model must remain evaluable without privileged GT semantics;
         # callers flag the zero-fill in their outputs — plan risk R8).
         sem_zero_filled = False
-        if self.sem_classes > 0 and sem is None:
+        if self.sem_input and self.sem_classes > 0 and sem is None:
             sem = torch.zeros(
                 dn.shape[0],
                 self.sem_classes,
@@ -165,7 +174,10 @@ class CalibrationNet(nn.Module):
         parts = [dn]
         if rgb is not None:
             parts.append(rgb)
-        if sem is not None:
+        if sem is not None and self.sem_input:
+            # head-only designs (sem_input=False) NEVER take sem inputs —
+            # a caller passing GT sem there is a train-time bug, so ignore
+            # rather than silently changing the architecture's input width.
             parts.append(sem)
         if dem is not None:
             parts.append(dem)

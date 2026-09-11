@@ -452,6 +452,8 @@ function SceneBridge({ canvasRef, glRef, orbitControlsRef, materialRef, sceneSta
       }
     }
 
+    // Walkthrough mode (internal id 'first-person') — tick is registered
+    // from TerrainWorkspace via setFpTick; free-flight movement, no clamp.
     if (g.cameraMode === 'first-person' && typeof g.fpTick === 'function') {
       g.fpTick(dt);
     }

@@ -3,17 +3,20 @@
 A pixel is REPLACED by its local median only when ALL of:
 
 1. strong deviation      |x - med_local| > tau * (1.4826 * MAD_local + eps)
-2. neighbour disagreement the window's other pixels do NOT deviate from
-   their medians with the same sign beyond frac (isolated-ness): a genuine
-   roof edge is a CONTIGUOUS band of similarly-deviating pixels, a spike
-   is not;
+2. neighbour disagreement
+   a. the window's other pixels do NOT deviate from their medians with
+      the SAME SIGN beyond frac (isolated-ness), AND
+   b. NO 4-neighbour is itself a strong same-sign outlier (contiguity):
+      a genuine roof edge/corner is a CONNECTED band of co-deviating
+      pixels — an isolated spike touches none. This is what distinguishes
+      `isolated spike` from `building roof edge` (task Sec. 9).
 3. weak edge support     the local RGB gradient is below max_rgb_grad —
    strong image edges are presumed geometry until proven otherwise.
 
 The replacement value is the local median (robust), and only the outlier
-pixels change — never their neighbours. Roof edges fail test 2 (many
-co-deviating pixels along the edge) and test 3 (building outlines are
-strong RGB edges), so they survive. Pinned by unit tests.
+pixels change — never their neighbours. Roof edges/corners fail test 2
+(connected co-deviating ring) and roof outlines fail test 3 (strong RGB
+edges), so they survive. Pinned by unit tests.
 """
 
 from __future__ import annotations
@@ -41,6 +44,16 @@ def _shifted_med_mad(a: np.ndarray, radius: int, valid: np.ndarray):
         med = np.nanmedian(st, axis=0)
         mad = np.nanmedian(np.abs(st - med[None]), axis=0)
     return med, mad
+
+
+def _shift_or(m: np.ndarray) -> np.ndarray:
+    """True where ANY 4-neighbour of the pixel is True in ``m``."""
+    out = np.zeros_like(m)
+    out[1:, :] |= m[:-1, :]
+    out[:-1, :] |= m[1:, :]
+    out[:, 1:] |= m[:, :-1]
+    out[:, :-1] |= m[:, 1:]
+    return out
 
 
 def remove_spikes(
@@ -71,17 +84,24 @@ def remove_spikes(
     sigma = 1.4826 * np.nan_to_num(mad, nan=0.0) + 1e-3  # robust sigma, metres
     resid = np.where(valid, f - np.nan_to_num(med, nan=0.0), 0.0)
 
-    strong = valid & (np.abs(resid) > tau * sigma)
+    strong_pos = valid & (resid > tau * sigma)   # too high vs neighbourhood
+    strong_neg = valid & (resid < -tau * sigma)  # too low
+    strong = strong_pos | strong_neg
 
-    # isolation: fraction of the window deviating from ITS median with the
-    # same sign. Approximated cheaply: compare the centre's residual sign
-    # with the residual of the median-filtered deviation map — a contiguous
-    # edge makes neighbouring |resid| large too, so a simple threshold on a
-    # smoothed |resid| detects it (box mean over the same window).
-    same_sign_support = _box_mean(
-        (np.abs(resid) > tau * sigma).astype(np.float64), radius
-    )
+    # 2a. same-sign support fraction over the window. Sign-aware (the
+    # docstring says "deviating with the same sign"): at a step edge BOTH
+    # sides deviate with opposite signs, and an unsigned count would
+    # over-count support; here each side only counts its own sign.
+    sup_pos = _box_mean(strong_pos.astype(np.float64), radius)
+    sup_neg = _box_mean(strong_neg.astype(np.float64), radius)
+    same_sign_support = np.where(resid >= 0, sup_pos, sup_neg)
     isolated = same_sign_support < min_isolation
+
+    # 2b. contiguity: a strong same-sign 4-neighbour means this pixel is
+    # part of a connected band (roof edge / roof corner ring) — protected.
+    nb_pos = _shift_or(strong_pos)
+    nb_neg = _shift_or(strong_neg)
+    has_band_neighbour = np.where(resid >= 0, nb_pos, nb_neg)
 
     # RGB edge protection: L1 gradient magnitude, [0,1] units
     rgbf = rgb[..., :3].astype(np.float64) / 255.0
@@ -91,7 +111,7 @@ def remove_spikes(
     )
     weak_edge = g < max_rgb_grad
 
-    spike = strong & isolated & weak_edge
+    spike = strong & isolated & ~has_band_neighbour & weak_edge
     out = signal.copy()
     out[spike] = np.nan_to_num(med, nan=0.0)[spike].astype(np.float32)
     return out, spike

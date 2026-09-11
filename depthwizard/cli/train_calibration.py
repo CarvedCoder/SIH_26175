@@ -232,7 +232,12 @@ def run(args) -> int:
     use_dem = args.use_dem
     use_sem = args.use_sem or bool(mcfg.get("use_sem", False))
     sem_aux_head = args.sem_aux_head or bool(mcfg.get("sem_aux_head", False))
-    sem_classes = NUM_PROJECT_CLASSES if use_sem else 0
+    # PREDICTED-semantics deployment design (exp4_sem.yaml honesty note):
+    # --sem-aux-head WITHOUT --use-sem trains a Dn+RGB model whose aux head
+    # PREDICTS semantics from its own (deployment-identical) encoder
+    # features — no privileged GT input channels, no train/deploy shift.
+    # The legacy --use-sem path (GT one-hot inputs) is unchanged.
+    sem_classes = NUM_PROJECT_CLASSES if (use_sem or sem_aux_head) else 0
     device = resolve_device(args.device)
     torch.manual_seed(tcfg.get("seed", 42))
     np.random.seed(tcfg.get("seed", 42))
@@ -444,6 +449,7 @@ def run(args) -> int:
         clamp_min=mcfg.get("clamp_min", 0.0),
         sem_classes=sem_classes,
         sem_aux_head=sem_aux_head,
+        sem_input=use_sem,  # False = head-only (predicted semantics)
     ).to(device)
     n_par = sum(p.numel() for p in net.parameters())
     print(f"[i] CalibrationNet in_ch={in_ch}  params={n_par:,}")
@@ -601,6 +607,7 @@ def run(args) -> int:
                     "use_sem": use_sem,  # Exp 4/5 marker (Phase 4)
                     "sem_classes": sem_classes,  # K of the one-hot block
                     "sem_aux_head": sem_aux_head,
+                    "sem_input": use_sem,  # False = head-only checkpoint
                     "in_ch": in_ch,  # explicit, future-proofs the
                     # checkpoint against future
                     # variants (derive_in_ch source)
