@@ -34,7 +34,13 @@ import torch.nn.functional as F
 from .calibration_net import masked_huber_loss, masked_l1_loss
 
 # Reserved for a later additive implementation (documented, not invented).
-SUPPORTED_WEIGHT_KEYS = ("w_grad", "w_smooth", "w_sem", "w_conf")
+SUPPORTED_WEIGHT_KEYS = (
+    "w_grad",
+    "w_slope",
+    "w_smooth",
+    "w_sem",
+    "w_conf",
+)
 
 
 @dataclass
@@ -42,6 +48,7 @@ class LossConfig:
     main: str = "l1"  # "l1" | "huber"
     huber_delta: float = 5.0
     w_grad: float = 0.0
+    w_slope: float = 0.0
     w_smooth: float = 0.0
     w_sem: float = 0.0
     # w_conf: reserved (optional confidence weighting) — not implemented
@@ -54,6 +61,7 @@ class LossConfig:
             main=tcfg.get("loss", "l1"),
             huber_delta=float(tcfg.get("huber_delta", 5.0)),
             w_grad=float(tcfg.get("w_grad", 0.0)),
+            w_slope=float(tcfg.get("w_slope", 0.0)),
             w_smooth=float(tcfg.get("w_smooth", 0.0)),
             w_sem=float(tcfg.get("w_sem", 0.0)),
         )
@@ -86,6 +94,49 @@ def gradient_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     total = l_dy[m_dy].sum() + l_dx[m_dx].sum()
     return total / n
 
+def slope_angle_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    gsd_m: float = 0.33,
+) -> torch.Tensor:
+    """L1 loss between predicted and target slope angles in radians.
+
+    Uses central differences, matching metrics.slope_error().
+    GAMUS GSD = 0.33 m/pixel.
+    """
+    if gsd_m <= 0:
+        raise ValueError("gsd_m must be > 0")
+
+    # Central differences; exclude 1-pixel border just like evaluation.
+    gy_p = (
+        pred[..., 2:, 1:-1] - pred[..., :-2, 1:-1]
+    ) / (2.0 * gsd_m)
+
+    gx_p = (
+        pred[..., 1:-1, 2:] - pred[..., 1:-1, :-2]
+    ) / (2.0 * gsd_m)
+
+    gy_t = (
+        target[..., 2:, 1:-1] - target[..., :-2, 1:-1]
+    ) / (2.0 * gsd_m)
+
+    gx_t = (
+        target[..., 1:-1, 2:] - target[..., 1:-1, :-2]
+    ) / (2.0 * gsd_m)
+
+    slope_p = torch.atan(
+        torch.sqrt(gx_p.square() + gy_p.square() + 1e-8)
+    )
+    slope_t = torch.atan(
+        torch.sqrt(gx_t.square() + gy_t.square() + 1e-8)
+    )
+
+    valid = torch.isfinite(slope_t) & torch.isfinite(slope_p)
+
+    if not valid.any():
+        return pred.sum() * 0.0
+
+    return torch.abs(slope_p[valid] - slope_t[valid]).mean()
 
 def edge_aware_smoothness(pred: torch.Tensor, rgb: torch.Tensor) -> torch.Tensor:
     """|grad pred| * exp(-|grad rgb|), averaged — smooth where RGB is flat,
@@ -160,6 +211,10 @@ class DepthLoss:
             g = gradient_loss(pred, target)
             total = total + self.cfg.w_grad * g
             parts["grad"] = float(g.detach())
+        if self.cfg.w_slope > 0.0:
+            s = slope_angle_loss(pred, target, gsd_m=0.33)
+            total = total + self.cfg.w_slope * s
+            parts["slope"] = float(s.detach())
         if self.cfg.w_smooth > 0.0 and rgb is not None:
             s = edge_aware_smoothness(pred, rgb)
             total = total + self.cfg.w_smooth * s
