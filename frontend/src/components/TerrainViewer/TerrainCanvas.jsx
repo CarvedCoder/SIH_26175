@@ -312,7 +312,7 @@ function buildTerrainTileGeometry(heightData, hmWidth, hmHeight, segs, heightSca
       normal[i * 3 + 2] = 0;
 
       uv[i * 2] = u;
-      uv[i * 2 + 1] = 1 - v;
+      uv[i * 2 + 1] = v;
     }
   }
 
@@ -877,7 +877,7 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     hmTex.magFilter = THREE.LinearFilter;
     hmTex.wrapS = THREE.ClampToEdgeWrapping;
     hmTex.wrapT = THREE.ClampToEdgeWrapping;
-    hmTex.flipY = false;
+    hmTex.flipY = true;
     hmTex.needsUpdate = true;
 
     const oldHmTex = material.uniforms.uHeightmap?.value;
