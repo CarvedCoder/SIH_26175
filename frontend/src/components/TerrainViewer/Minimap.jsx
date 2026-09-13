@@ -138,7 +138,19 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
         // (terrain UV/flipY places image row 0 at z=+1 near-edge / canvas bottom)
         ctx.translate(0, SIZE);
         ctx.scale(1, -1);
-        ctx.drawImage(bgRef.current, 0, 0, SIZE, SIZE);
+
+        // Cover-fit: scale to fill the square minimap while preserving
+        // the source image's aspect ratio (centre-cropped, never stretched).
+        const img = bgRef.current;
+        const iw = img.naturalWidth  || img.width;
+        const ih = img.naturalHeight || img.height;
+        const scale = Math.max(SIZE / iw, SIZE / ih);
+        const sw = SIZE / scale;
+        const sh = SIZE / scale;
+        const sx = (iw - sw) / 2;
+        const sy = (ih - sh) / 2;
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, SIZE, SIZE);
+
         ctx.setTransform(1, 0, 0, 1, 0, 0); // reset before overlay
         // Darken overlay for readability
         ctx.fillStyle = 'rgba(7,9,14,0.38)';
