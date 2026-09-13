@@ -170,6 +170,12 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
         help="weight of the gradient (boundary) loss (default 0)",
     )
     p.add_argument(
+        "--w-slope",
+        type=float,
+        default=None,
+        help="weight of the slope-angle loss (default 0)",
+    )
+    p.add_argument(
         "--w-smooth",
         type=float,
         default=None,
@@ -477,6 +483,11 @@ def run(args) -> int:
         huber_delta=float(tcfg.get("huber_delta", 5.0)),
         w_grad=(
             args.w_grad if args.w_grad is not None else float(tcfg.get("w_grad", 0.0))
+        ),
+        w_slope=(
+            args.w_slope
+            if args.w_slope is not None
+            else float(tcfg.get("w_slope", 0.0))
         ),
         w_smooth=(
             args.w_smooth

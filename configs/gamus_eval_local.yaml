@@ -1,0 +1,69 @@
+# GAMUS integration configuration — Phase 2/3 of the GAMUS plan.
+#
+# This file makes ONE config cover BOTH datasets:
+#   * paths:  = the DFC2019 Track-1 layout (unchanged, used by dfc2019
+#               commands and by `stats --datasets dfc2019`)
+#   * dataset: = the GAMUS source (raw HDF5, used by gamus commands)
+#
+# GAMUS source policy (user decision, binding):
+#   PRIMARY : raw HDF5 + lazy per-file hf_hub_download (source: hf) —
+#             keeps float32 heights, CC-BY-4.0 license, no 80 GB
+#             materialization; only needed tiles are downloaded.
+#   OFFLINE : source: local + local_root (pre-downloaded raw-layout subset,
+#             or tools/make_fake_gamus.py fixtures for network-free runs).
+#   OPTIONAL: backend: dataset4eo (NOT the default; raises with the
+#             float16 + license rationale until implemented).
+#
+# Commands (runbook):
+#   # 1) freeze the OFFICIAL GAMUS splits into a reusable manifest
+#   python model.py splits --dataset gamus \
+#       --gamus-source hf --out outputs/splits/gamus_splits.json
+#   # 2) inspect (bounded download in hf mode)
+#   python model.py inspect --dataset gamus --gamus-source hf --limit 16 \
+#       --report-dir outputs/reports_gamus
+#   # 3) precompute the ViT-B depth cache (namespaced: <tag>/gamus/)
+#   python model.py depth --dataset gamus --gamus-source hf \
+#       --out-dir outputs/depth_cache --limit 512 --device auto
+#   # 4) per-dataset statistics — THE GATE before any mixed training
+#   python model.py stats --config configs/gamus.yaml \
+#       --datasets dfc2019 gamus --out outputs/stats/dataset_stats.json
+#   # 5) (after human review) mark verified, then mixed configs may use it
+#   python model.py stats --config configs/gamus.yaml \
+#       --datasets dfc2019 gamus --mark-verified \
+#       --out outputs/stats/dataset_stats.json
+
+paths:
+  rgb_dir: Train-Track1-RGB/Track1-RGB
+  truth_dir: Train-Track1-Truth/Track1-Truth
+  splits_json: outputs/splits/splits.json
+  depth_cache_dir: outputs/depth_cache
+  affine_json: outputs/baseline/global_affine_gamus.json
+  outputs_dir: outputs
+
+dataset:
+  name: gamus
+  source: local
+  backend: hdf5
+  local_root: gamus_full
+  manifest: outputs/splits/gamus_splits.json
+  limit: 0
+  load_semantics: true
+
+model:
+  use_rgb: true
+  widths: [16, 32, 64]
+  clamp_min: 0.0
+
+train:
+  crop_size: 512
+  batch_size: 1
+  epochs: 40
+  lr: 0.001
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1
+  huber_delta: 5.0
+  workers: 1
+  val_subset: 859
+  patience: 10
+  seed: 42
