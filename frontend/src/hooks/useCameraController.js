@@ -85,6 +85,23 @@ export function useCameraController({ canvasRef, glRef }) {
     active: false,
   });
 
+  /* ── Resolve the actual <canvas> DOM element ─────────────────────────
+   * R3F wraps the WebGL canvas inside its own container div, so
+   * canvasRef.current may point to the wrapper rather than the true
+   * <canvas>. This helper always returns the real canvas element. */
+  const resolveCanvas = useCallback(() => {
+    const ref = canvasRef?.current;
+    if (!ref) return null;
+    // If the ref itself is a canvas, use it directly
+    if (ref instanceof HTMLCanvasElement) return ref;
+    // If it's a DOM element (R3F wrapper div), find the canvas inside
+    if (ref instanceof HTMLElement) return ref.querySelector('canvas') ?? ref;
+    // If it's a ref object { current: ... }
+    if (ref.current instanceof HTMLCanvasElement) return ref.current;
+    if (ref.current instanceof HTMLElement) return ref.current.querySelector('canvas') ?? ref.current;
+    return null;
+  }, [canvasRef]);
+
   /** Sample *visual* terrain height (rendered world Y) at normalised [0,1] coords */
   const sampleVisualHeight = useCallback((nx, nz) => {
     const g = glRef.current;
@@ -113,7 +130,9 @@ export function useCameraController({ canvasRef, glRef }) {
     fp.active = false;
     fp.locked = false;
     fp.keys.clear();
-    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.pointerLockElement) {
+      try { document.exitPointerLock(); } catch { /* ignore */ }
+    }
   }, []);
 
   /** Switch camera mode */
@@ -130,6 +149,7 @@ export function useCameraController({ canvasRef, glRef }) {
     setModeState(newMode);
 
     if (newMode === 'orbit') {
+      exitWalkthrough();
       g.camera.position.set(0, 1.2, 2.5);
       if (orbit) {
         orbit.target?.set(0, 0, 0);
@@ -138,6 +158,7 @@ export function useCameraController({ canvasRef, glRef }) {
     }
 
     if (newMode === 'top') {
+      exitWalkthrough();
       g.camera.position.set(0, 5, 0);
       g.camera.lookAt(0, 0, 0);
       if (orbit) {
@@ -158,8 +179,6 @@ export function useCameraController({ canvasRef, glRef }) {
       fp.keys.clear();
       g.camera.position.set(0, startH, WALKTHROUGH_START_OFFSET_Z);
       applyLook(g.camera, fp);
-    } else {
-      exitWalkthrough();
     }
   }, [glRef, sampleVisualHeight, applyLook, exitWalkthrough]);
 
@@ -199,8 +218,7 @@ export function useCameraController({ canvasRef, glRef }) {
     const fp = fpState.current;
 
     function onKeyDown(e) {
-      // Only while pointer-locked: no movement from stray keys typed elsewhere
-      if (!fp.active) return; // TEMP-TEST
+      if (!fp.active || !fp.locked) return;
       if (e.code in WALKTHROUGH_KEYS) {
         fp.keys.add(e.code);
         e.preventDefault();
@@ -209,21 +227,48 @@ export function useCameraController({ canvasRef, glRef }) {
     function onKeyUp(e) {
       fp.keys.delete(e.code);
     }
+
+    /* Escape key exits walkthrough cleanly even when pointer lock
+     * is already released (browser auto-releases on Escape). */
+    function onKeyDownGlobal(e) {
+      if (e.code === 'Escape' && fp.active) {
+        fp.locked = false;
+        fp.keys.clear();
+      }
+    }
+
     function onMouseMove(e) {
-      if (!fp.active) return; // TEMP-TEST
+      // Only process mouse look while pointer is locked — prevents
+      // erratic camera rotation from normal mouse movement before
+      // the user has clicked to capture the cursor.
+      if (!fp.active || !fp.locked) return;
       fp.yaw   -= e.movementX * MOUSE_SENSITIVITY;
       fp.pitch -= e.movementY * MOUSE_SENSITIVITY;
       fp.pitch  = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, fp.pitch));
     }
+
     function onCanvasClick(e) {
-      const canvas = canvasRef.current;
-      if (!fp.active || fp.locked || !canvas || e.target !== canvas) return;
+      if (!fp.active || fp.locked) return;
+      // Resolve the actual canvas element — R3F nests it inside a wrapper
+      const canvas = resolveCanvas();
+      if (!canvas) return;
+      // Accept clicks on the canvas itself or any element inside
+      // the terrain viewport container
+      if (e.target !== canvas && !canvas.contains(e.target) && !e.target?.closest?.('[aria-label="3D terrain viewer"]')) {
+        return;
+      }
       const request = canvas.requestPointerLock?.();
       if (request && typeof request.catch === 'function') request.catch(() => {});
     }
+
     function onPointerLockChange() {
-      fp.locked = document.pointerLockElement === canvasRef.current;
-      if (!fp.locked) fp.keys.clear();
+      const canvas = resolveCanvas();
+      // Check if any element in our canvas container has the lock
+      const lockEl = document.pointerLockElement;
+      fp.locked = !!(lockEl && (lockEl === canvas || canvas?.contains(lockEl) || lockEl.closest?.('[aria-label="3D terrain viewer"]')));
+      if (!fp.locked) {
+        fp.keys.clear();
+      }
     }
     function onPointerLockError() {
       fp.locked = false;
@@ -234,6 +279,7 @@ export function useCameraController({ canvasRef, glRef }) {
     }
 
     document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onKeyDownGlobal);
     document.addEventListener('keyup', onKeyUp);
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('click', onCanvasClick);
@@ -243,6 +289,7 @@ export function useCameraController({ canvasRef, glRef }) {
 
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keydown', onKeyDownGlobal);
       document.removeEventListener('keyup', onKeyUp);
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('click', onCanvasClick);
@@ -250,7 +297,7 @@ export function useCameraController({ canvasRef, glRef }) {
       document.removeEventListener('pointerlockerror', onPointerLockError);
       window.removeEventListener('blur', onWindowBlur);
     };
-  }, [canvasRef]);
+  }, [canvasRef, resolveCanvas]);
 
   /**
    * Walkthrough camera tick — called every frame from the render loop in
@@ -262,7 +309,16 @@ export function useCameraController({ canvasRef, glRef }) {
     if (!fp.active || !g.camera) return;
 
     const cam = g.camera;
+
+    // Always apply look (so the camera orientation stays correct even
+    // if the user just moved the mouse without pressing any movement keys)
+    applyLook(cam, fp);
+
+    // Movement only while pointer is locked
+    if (!fp.locked) return;
+
     const keys = fp.keys;
+    if (keys.size === 0) return;
 
     const boost = keys.has('ShiftLeft') || keys.has('ShiftRight');
     const speed = (boost ? WALKTHROUGH_BOOST_SPEED : WALKTHROUGH_SPEED) * dt;

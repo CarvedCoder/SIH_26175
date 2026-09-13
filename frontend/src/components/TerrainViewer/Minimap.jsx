@@ -85,7 +85,7 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
       // TODO: accept terrain CRS bounds from terrainMeta for precise mapping
     }
 
-    // Normalised → canvas (flip Z so north = top)
+    // Normalised → canvas (z=-1 far/top → y=0, z=+1 near/bottom → y=SIZE)
     return {
       x: nx * SIZE,
       y: nz * SIZE,
@@ -134,7 +134,18 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
       ctx.fillStyle = '#0d1117'; // --dw-panel fallback
       ctx.fillRect(0, 0, SIZE, SIZE);
       if (bgRef.current) {
-        ctx.drawImage(bgRef.current, 0, 0, SIZE, SIZE);
+        // Cover-fit: scale to fill the square minimap while preserving
+        // the source image's aspect ratio (centre-cropped, never stretched).
+        const img = bgRef.current;
+        const iw = img.naturalWidth  || img.width;
+        const ih = img.naturalHeight || img.height;
+        const scale = Math.max(SIZE / iw, SIZE / ih);
+        const sw = SIZE / scale;
+        const sh = SIZE / scale;
+        const sx = (iw - sw) / 2;
+        const sy = (ih - sh) / 2;
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, SIZE, SIZE);
+
         // Darken overlay for readability
         ctx.fillStyle = 'rgba(7,9,14,0.38)';
         ctx.fillRect(0, 0, SIZE, SIZE);

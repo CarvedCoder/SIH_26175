@@ -877,7 +877,7 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     hmTex.magFilter = THREE.LinearFilter;
     hmTex.wrapS = THREE.ClampToEdgeWrapping;
     hmTex.wrapT = THREE.ClampToEdgeWrapping;
-    hmTex.flipY = false;
+    hmTex.flipY = true;
     hmTex.needsUpdate = true;
 
     const oldHmTex = material.uniforms.uHeightmap?.value;

@@ -55,31 +55,26 @@ export default function TerrainWorkspace() {
   const isLoading = state.status === AppState.TERRAIN_LOADING;
 
   // ── Camera controller ──
-  // canvasRef and glRef are exposed from TerrainCanvas via terrainRef.getCanvas/getRef
-  // We wire these after first mount via a stable placeholder ref
-  const canvasPlaceholder = useRef({ current: null });
-  const glPlaceholder     = useRef({ current: {} });
+  // viewportRef points to the terrain viewport container div — the camera
+  // controller's resolveCanvas() will find the actual R3F <canvas> inside it.
+  const viewportRef = useRef(null);
+  const glPlaceholder = useRef({ current: {} });
 
   const {
     mode: cameraMode,
     setMode: setCameraMode,
     tickWalkthrough,
   } = useCameraController({
-    canvasRef: canvasPlaceholder,
+    canvasRef: viewportRef,
     glRef: glPlaceholder,
   });
 
-  // After TerrainCanvas mounts, connect the real refs into the camera controller
+  // After TerrainCanvas mounts, connect the real glRef into the camera controller
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!terrainRef.current) return;
-      const realCanvas = terrainRef.current.getCanvas?.();
-      const realGl     = terrainRef.current.getRef?.();
-      if (realCanvas) canvasPlaceholder.current = realCanvas.current ? realCanvas : { current: realCanvas };
-      if (realGl)     Object.assign(glPlaceholder, { current: realGl.current ?? realGl });
-    }, 100);
-    return () => clearTimeout(timer);
-  }, []);
+    if (!terrainRef.current) return;
+    const realGl = terrainRef.current.getRef?.();
+    if (realGl) Object.assign(glPlaceholder, { current: realGl.current ?? realGl });
+  });
 
   // Register walkthrough tick in canvas render loop
   useEffect(() => {
@@ -261,6 +256,7 @@ export default function TerrainWorkspace() {
 
       {/* Terrain viewport — fills remaining space */}
       <div
+        ref={viewportRef}
         onClick={handleTerrainClick}
         style={{
           flex: 1,
