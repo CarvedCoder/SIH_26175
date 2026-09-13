@@ -312,7 +312,7 @@ function buildTerrainTileGeometry(heightData, hmWidth, hmHeight, segs, heightSca
       normal[i * 3 + 2] = 0;
 
       uv[i * 2] = u;
-      uv[i * 2 + 1] = v;
+      uv[i * 2 + 1] = 1 - v;
     }
   }
 

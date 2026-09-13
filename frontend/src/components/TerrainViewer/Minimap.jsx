@@ -134,11 +134,6 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
       ctx.fillStyle = '#0d1117'; // --dw-panel fallback
       ctx.fillRect(0, 0, SIZE, SIZE);
       if (bgRef.current) {
-        // Flip vertically so the image orientation matches the 3D terrain
-        // (terrain UV/flipY places image row 0 at z=+1 near-edge / canvas bottom)
-        ctx.translate(0, SIZE);
-        ctx.scale(1, -1);
-
         // Cover-fit: scale to fill the square minimap while preserving
         // the source image's aspect ratio (centre-cropped, never stretched).
         const img = bgRef.current;
@@ -151,7 +146,6 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
         const sy = (ih - sh) / 2;
         ctx.drawImage(img, sx, sy, sw, sh, 0, 0, SIZE, SIZE);
 
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // reset before overlay
         // Darken overlay for readability
         ctx.fillStyle = 'rgba(7,9,14,0.38)';
         ctx.fillRect(0, 0, SIZE, SIZE);
