@@ -17,7 +17,8 @@ Flow:
          Dn min-max normalized at the granularity the net consumes
          (per 1024 tile in tiles mode — the training contract)
          modes: crop (center 1024) | resize (letterboxed 1024, aspect
-         preserved) | tiles (any size, edge-pad, per-tile Dn)
+         preserved) | tiles (any size, overlapping windows + weighted
+         stitching — depthwizard.tiling, per-window Dn)
       -> optional Track-2 anchoring  DSM = AGL + ground  [ANCHORED (not learned)]
       -> outputs: dsm.npy (+ dsm.tif when georeferenced) (+ _anchored), preview PNG
       -> scene payload (downsampled grid + RGB PNG + stats) for the webapp
@@ -41,6 +42,7 @@ from rasterio import CRS, Affine
 
 from .anchoring import ANCHORED_LABEL, AnchorResult, anchor
 from .normalize import minmax_normalize
+from .tiling import OverlapStitcher, TilingConfig, iter_tile_windows
 
 TILE = 1024  # training tile size; crop/resize/tiles all target it
 MAX_GRID_SIDE = 512  # webapp mesh grid cap (stride-downsampled)
@@ -192,28 +194,37 @@ def letterbox_to_tile(
     return np.ascontiguousarray(canvas), (y0, x0, h2, w2)
 
 
+def _window_tile(arr: np.ndarray, window, tile: int = TILE) -> np.ndarray:
+    """Extract one TileWindow's region from [H,W] or [H,W,C], edge-padded
+    up to (tile, tile) when the window extends past the source (only
+    possible when an axis is smaller than tile — see iter_tile_windows)."""
+    vh, vw = window.valid_height, window.valid_width
+    region = arr[
+        window.row_off : window.row_off + vh, window.col_off : window.col_off + vw
+    ]
+    if vh == tile and vw == tile:
+        return region
+    pad2 = ((0, tile - vh), (0, tile - vw))
+    pad = pad2 + ((0, 0),) if arr.ndim == 3 else pad2
+    return np.pad(region, pad, mode="edge")
+
+
 def normalize_dn_per_tile(raw: np.ndarray, tile: int = TILE) -> np.ndarray:
-    """Per-tile min-max normalization of RAW relative depth — the training
+    """Per-window min-max normalization of RAW relative depth — the training
     contract (dataset.py normalizes each cached 1024 tile independently).
 
-    The raw map is edge-padded to the tile grid FIRST, then each padded
-    tile is normalized in isolation and the padding is cropped away, so
-    inference tiles see exactly the Dn distribution training tiles saw:
-    full [0,1] range per tile, zero cross-tile magnitude coupling.
+    Each OVERLAPPING inference window (depthwizard.tiling) is normalized in
+    isolation, exactly as each training tile was, and the results are
+    weighted-stitched (OverlapStitcher) so windows that disagree at a shared
+    border blend smoothly instead of leaving a hard seam.
     """
     h, w = raw.shape
-    ny, nx, hp, wp = tile_bounds(h, w, tile)
-    padded = np.pad(
-        raw.astype(np.float32, copy=False), ((0, hp - h), (0, wp - w)), mode="edge"
-    )
-    out = np.empty((hp, wp), dtype=np.float32)
-    for i in range(ny):
-        for j in range(nx):
-            y, x = i * tile, j * tile
-            out[y : y + tile, x : x + tile] = minmax_normalize(
-                padded[y : y + tile, x : x + tile]
-            )
-    return out[:h, :w]
+    cfg = TilingConfig(tile_size=tile)
+    stitcher = OverlapStitcher(h, w, cfg)
+    for window in iter_tile_windows(h, w, cfg):
+        tile_raw = _window_tile(raw.astype(np.float32, copy=False), window, tile)
+        stitcher.add_tile(window, minmax_normalize(tile_raw))
+    return stitcher.finalize()
 
 
 def center_crop_to_tile(arr: np.ndarray, size: int = TILE) -> np.ndarray:
@@ -350,25 +361,26 @@ class DepthWizardPredictor:
 
     # ------------------------------------------------------------------
     def _backbone_raw_per_tile(self, rgb_u8: np.ndarray) -> np.ndarray:
-        """RAW relative depth for multi-tile images, computed per 1024 tile.
+        """RAW relative depth for multi-tile images, computed per 1024 window.
 
         Mirrors the cache-builder recipe (precompute_depth.py): the backbone
-        sees exactly ONE 1024x1024 tile per forward (same per-object
-        resolution as training), never a squeezed whole scene.
+        sees exactly ONE 1024x1024 window per forward (same per-object
+        resolution as training), never a squeezed whole scene. Windows
+        OVERLAP and the per-window raw depths are weighted-stitched
+        (depthwizard.tiling.OverlapStitcher) so no seam is introduced where
+        two independent backbone passes disagree.
         """
         h, w = rgb_u8.shape[:2]
-        ny, nx, hp, wp = tile_bounds(h, w)
-        rgb_pad = np.pad(
-            rgb_u8, ((0, hp - h), (0, wp - w), (0, 0)), mode="edge"
-        )
-        raw = np.empty((hp, wp), dtype=np.float32)
-        for i in range(ny):
-            for j in range(nx):
-                y, x = i * TILE, j * TILE
-                raw[y : y + TILE, x : x + TILE] = self._backbone.raw_depth(
-                    rgb_pad[y : y + TILE, x : x + TILE]
-                )
-        return raw[:h, :w]
+        cfg = TilingConfig(tile_size=TILE)
+        stitcher = OverlapStitcher(h, w, cfg)
+        for window in iter_tile_windows(h, w, cfg):
+            tile_rgb = _window_tile(rgb_u8, window, TILE)
+            raw_tile = self._backbone.raw_depth(tile_rgb)
+            stitcher.add_tile(window, raw_tile)
+        out = stitcher.finalize()
+        if np.isnan(out).any():
+            raise RuntimeError("backbone returned NaN raw depth in a covered window")
+        return out
 
     def resolve_dn(
         self, rgb_u8: np.ndarray, stem: str = "", dn_path: Path | str | None = None
@@ -436,8 +448,9 @@ class DepthWizardPredictor:
                  squeeze), min-max normalized over the canvas, prediction
                  cropped back to the content region and mapped to the
                  source grid.
-        tiles  : any size, edge-padded 1024 tiles, Dn normalized PER TILE
-                 (the training recipe), full-coverage output.
+        tiles  : any size, overlapping edge-padded 1024 windows, Dn
+                 normalized PER WINDOW (the training recipe), weighted-
+                 stitched (depthwizard.tiling) — seam-free, full coverage.
         """
         return self._predict_impl(rgb_u8, raw_dn, mode, want_semantics=False)
 
@@ -506,39 +519,42 @@ class DepthWizardPredictor:
             return self._pack(pred, sem, want_semantics)
 
         if mode == "tiles":
-            ny, nx, hp, wp = tile_bounds(h, w)
-            dn_pad = np.pad(
-                raw_dn.astype(np.float32, copy=False),
-                ((0, hp - h), (0, wp - w)),
-                mode="edge",
-            )
-            rgb_pad = np.pad(rgb_u8, ((0, hp - h), (0, wp - w), (0, 0)), mode="edge")
-            out = np.zeros((hp, wp), dtype=np.float32)
+            cfg = TilingConfig(tile_size=TILE)
+            windows = iter_tile_windows(h, w, cfg)
+            stitcher = OverlapStitcher(h, w, cfg)
+            sem_stitchers: list[OverlapStitcher] | None = []
+            print(f"[i] tiles: {len(windows)} windows of {TILE} (overlap {cfg.overlap})")
+            for window in windows:
+                tile_dn = _window_tile(raw_dn, window, TILE)
+                tile_rgb = _window_tile(rgb_u8, window, TILE)
+                # Per-window normalization — the EXACT training contract
+                # (each training tile was min-max normalized alone).
+                pred, sem = _forward(minmax_normalize(tile_dn), tile_rgb)
+                stitcher.add_tile(window, pred)
+                if want_semantics and sem is not None:
+                    if not sem_stitchers:
+                        sem_stitchers = [
+                            OverlapStitcher(h, w, cfg) for _ in range(sem.shape[0])
+                        ]
+                    for k, st in enumerate(sem_stitchers):
+                        st.add_tile(window, sem[k])
+            out = stitcher.finalize()
+            if np.isnan(out).any():
+                raise RuntimeError(
+                    "tiled forward left uncovered NaN pixels — stitcher bug"
+                )
             sem_out: np.ndarray | None = None
-            print(f"[i] tiles: {ny}x{nx} = {ny * nx} tiles of {TILE}")
-            for i in range(ny):
-                for j in range(nx):
-                    y, x = i * TILE, j * TILE
-                    # Per-tile normalization — the EXACT training contract
-                    # (each training tile was min-max normalized alone).
-                    pred, sem = _forward(
-                        minmax_normalize(dn_pad[y : y + TILE, x : x + TILE]),
-                        rgb_pad[y : y + TILE, x : x + TILE],
+            if want_semantics:
+                if sem_stitchers:
+                    sem_out = np.stack(
+                        [st.finalize() for st in sem_stitchers], axis=0
                     )
-                    out[y : y + TILE, x : x + TILE] = pred
-                    if want_semantics:
-                        if sem is None:
-                            sem_out = None  # checkpoint has no aux head
-                        elif sem_out is None:
-                            k = sem.shape[0]
-                            sem_out = np.full(
-                                (k, hp, wp), np.nan, dtype=np.float32
-                            )
-                        if sem is not None and sem_out is not None:
-                            sem_out[:, y : y + TILE, x : x + TILE] = sem
-            if want_semantics and sem_out is not None:
-                sem_out = sem_out[:, :h, :w]
-            return self._pack(out[:h, :w], sem_out, want_semantics)
+                    if np.isnan(sem_out).any():
+                        raise RuntimeError(
+                            "semantic stitching left uncovered NaN pixels"
+                        )
+                # else: checkpoint has no aux head -> sem_probs stays None
+            return self._pack(out, sem_out, want_semantics)
 
         raise ValueError(f"unknown mode '{mode}' (auto|crop|resize|tiles)")
 

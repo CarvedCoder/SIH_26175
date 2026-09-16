@@ -179,9 +179,62 @@ class TerrainService:
     # Browser artifacts: heightmap + RGB texture (idempotent generation)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _fill_invalid(arr: np.ndarray) -> np.ndarray:
+        """Replace NaN/inf samples with the mean of their finite 8-neighbours,
+        iterating until filled (crater-free hole filling without scipy).
+
+        Depth-model DSMs occasionally contain small invalid patches; writing
+        them to the scene minimum punched visible pits into the terrain.
+        """
+        mask = ~np.isfinite(arr)
+        if not mask.any():
+            return arr
+        arr = arr.astype(np.float32, copy=True)
+        arr[~np.isfinite(arr)] = np.nan
+        remaining = mask
+        # Each pass fills every hole adjacent to a finite pixel; hole depth
+        # shrinks from both sides, so the cap is never hit in practice.
+        for _ in range(64):
+            if not remaining.any():
+                break
+            filled_sum = np.zeros_like(arr)
+            filled_count = np.zeros_like(arr, dtype=np.int32)
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dx == 0 and dy == 0:
+                        continue
+                    shifted = np.full_like(arr, np.nan)
+                    ys = slice(max(0, -dy), arr.shape[0] - max(0, dy))
+                    xs = slice(max(0, -dx), arr.shape[1] - max(0, dx))
+                    ys_src = slice(max(0, dy), arr.shape[0] - max(0, -dy))
+                    xs_src = slice(max(0, dx), arr.shape[1] - max(0, -dx))
+                    shifted[ys, xs] = arr[ys_src, xs_src]
+                    finite = np.isfinite(shifted)
+                    filled_sum[finite] += np.nan_to_num(shifted[finite])
+                    filled_count += finite.astype(np.int32)
+            fillable = remaining & (filled_count > 0)
+            arr[fillable] = filled_sum[fillable] / filled_count[fillable]
+            remaining = ~np.isfinite(arr)
+        # Any survivor (an all-invalid raster edge region) gets the global mean
+        if remaining.any():
+            valid = arr[np.isfinite(arr)]
+            arr[remaining] = valid.mean() if valid.size else 0.0
+        return arr
+
     def get_heightmap_path(self, scene_id: str) -> Path:
-        """8-bit grayscale PNG of the predicted heights, normalized to
-        [0, 255] (the 3D renderer reads the RED channel as elevation).
+        """16-bit grayscale PNG of the predicted heights, normalised to
+        [0, 65535]. The renderer decodes both bytes — the previous 8-bit
+        encoding left only 256 elevation levels, which terraced visibly
+        once vertical exaggeration was applied.
+
+        Quality pipeline (each step matters for sharp building edges):
+          1. NaN/inf holes are neighbour-filled BEFORE normalisation.
+          2. Downsample to the 1024-px cap with a LANCZOS filter — a real
+             low-pass before decimation — instead of dropping every
+             stride-th pixel, which aliased single-pixel noise into
+             spikes. LANCZOS also keeps step edges (building walls) far
+             sharper than a box average.
 
         Idempotent: regenerated only when missing. Capped at 1024 px on
         the long side (the mesh geometry never needs more).
@@ -202,26 +255,36 @@ class TerrainService:
             return out_path
 
         dsm = np.load(depth_path).astype(np.float32, copy=False)
-        valid = dsm[np.isfinite(dsm)]
-        if valid.size == 0:
-            raise ValueError(f"DSM for scene '{scene_id}' has no finite values.")
-        lo, hi = float(valid.min()), float(valid.max())
+        dsm = self._fill_invalid(dsm)
+        if not np.isfinite(dsm).all() and dsm.size:
+            valid = dsm[np.isfinite(dsm)]
+            if valid.size == 0:
+                raise ValueError(
+                    f"DSM for scene '{scene_id}' has no finite values."
+                )
+        lo, hi = float(dsm.min()), float(dsm.max())
         if hi - lo < 1e-6:
-            normalized = np.full_like(dsm, 128, dtype=np.uint8)
+            normalized = np.full_like(dsm, 0.5)
         else:
-            normalized = (
-                np.clip((dsm - lo) / (hi - lo), 0.0, 1.0) * 255.0
-            ).astype(np.uint8)
-            normalized[np.isnan(dsm)] = 0
+            normalized = np.clip((dsm - lo) / (hi - lo), 0.0, 1.0)
 
-        stride = max(1, int(np.ceil(max(normalized.shape) / 1024)))
-        if stride > 1:
-            normalized = normalized[::stride, ::stride]
+        # Filter-then-decimate via LANCZOS (float mode keeps precision).
+        max_side = max(normalized.shape)
+        if max_side > 1024:
+            scale = 1024.0 / max_side
+            new_size = (
+                max(1, round(normalized.shape[1] * scale)),
+                max(1, round(normalized.shape[0] * scale)),
+            )
+            img = Image.fromarray(normalized.astype(np.float32), mode="F")
+            img = img.resize(new_size, Image.LANCZOS)
+            normalized = np.asarray(img, dtype=np.float32)
 
+        encoded = (np.clip(normalized, 0.0, 1.0) * 65535.0).round().astype(np.uint16)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(normalized, mode="L").save(out_path, format="PNG")
+        Image.fromarray(encoded, mode="I;16").save(out_path, format="PNG")
         logger.info(
-            "terrain artifact generated: %s (lo=%.3f hi=%.3f)",
+            "terrain artifact generated: %s (16-bit, lo=%.3f hi=%.3f)",
             out_path.name, lo, hi,
         )
         return out_path
@@ -311,17 +374,19 @@ class TerrainService:
     def _pixel_size(self, scene_id: str) -> tuple[float, float] | None:
         """(gsd_x, gsd_y) metres per pixel — None when not georeferenced.
 
-        Honesty contract (mirrors depthwizard.geo.pixel_size_metres): a
-        scene without a real CRS has NO metric scale and this service
-        refuses to invent one.
+        Routes through depthwizard.geo.pixel_size_metres (the single source
+        of truth for metric pixel size) instead of reading raw transform
+        coefficients: a geographic-CRS scene would otherwise report degrees
+        mislabeled as metres. A scene without a real CRS has NO metric
+        scale and this service refuses to invent one.
         """
+        from depthwizard.geo import pixel_size_metres
+
         dsm_path = self.get_dsm_path(scene_id)
         if not dsm_path.is_file():
             return None
         with rasterio.open(dsm_path) as ds:
-            if ds.crs is None:
-                return None
-            return abs(float(ds.transform.a)), abs(float(ds.transform.e))
+            return pixel_size_metres(ds.crs, ds.transform)
 
     def sample_elevation(self, scene_id: str, x: int, y: int) -> float:
         dsm = self._load_dsm_array(scene_id)
@@ -465,11 +530,18 @@ class TerrainService:
 
     def renderer_fields(self, scene_id: str) -> dict:
         """Top-level fields of the 3D renderer contract (TerrainCanvas):
-        heightmap_url, texture_url, height_scale, min/max_elevation.
+        heightmap_url, texture_url, height_scale, min/max_elevation, and
+        the physical world footprint (world_width_m / world_depth_m) the
+        mesh is sized against.
 
         ``height_scale`` is the max AGL in metres so vertical displacement
         is at true metric proportion; the frontend's exaggeration control
-        scales from there.
+        scales from there. The world footprint is raster dims × GSD via
+        pixel_size_metres — for non-georeferenced scenes (JPG/PNG, no CRS)
+        there is no honest metric scale, so a DOCUMENTED fallback of one
+        metre per pixel is used and ``is_georeferenced_scale`` reports
+        False so the frontend/UI can label it as an assumed scale. No GPS
+        coordinates are ever invented.
         """
         from backend.app.services.result_service import result_service
 
@@ -477,6 +549,16 @@ class TerrainService:
         files = result_service.get_result_files(scene_id)
         depth_path = files["depth"]
         stats = result_service._load_array_stats(depth_path)
+
+        gsd = self._pixel_size(scene_id)
+        if gsd is not None:
+            world_width_m = scene.dimensions.width * gsd[0]
+            world_depth_m = scene.dimensions.height * gsd[1]
+            is_georeferenced_scale = True
+        else:
+            world_width_m = float(scene.dimensions.width)
+            world_depth_m = float(scene.dimensions.height)
+            is_georeferenced_scale = False
 
         return {
             "heightmap_url": (
@@ -486,6 +568,9 @@ class TerrainService:
             "height_scale": stats["maximum"],
             "min_elevation": stats["minimum"],
             "max_elevation": stats["maximum"],
+            "world_width_m": float(world_width_m),
+            "world_depth_m": float(world_depth_m),
+            "is_georeferenced_scale": is_georeferenced_scale,
         }
 
 

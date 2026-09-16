@@ -9,7 +9,10 @@
  *   6.2 — Camera position marker: amber dot at projected 2D position, updated every frame
  *   6.3 — Camera heading arrow: rotates with camera yaw
  *   6.4 — FOV cone: filled --dw-fov triangle showing camera view frustum
- *   6.5 — Coordinate mapping: georeferenced world→CRS→image pixel; non-geo: normalised
+ *   6.5 — Coordinate mapping: georeferenced world→terrain CRS bounds→minimap
+ *          image bounds→image pixel→canvas; non-geo: normalised. Mapping runs
+ *          through the actual cover-fit crop rect, so non-square source images
+ *          align exactly (§58).
  *   6.6 — Selected point marker: secondary dot at last terrain click; preserved across layers
  *   6.7 — Navigation trail: breadcrumb path in first-person mode; max 200 points, oldest culled
  *
@@ -41,10 +44,11 @@ const TRAIL_MAX = 200;
  *   terrainRef: React.RefObject,
  *   cameraMode: 'orbit'|'first-person'|'top',
  *   minimapMeta: import('../../types/api.js').MinimapMeta|null,
+ *   terrainMeta: { bounds?: { min_x: number, min_y: number, max_x: number, max_y: number } }|null,
  *   selectedPoint: { x: number, z: number }|null,
  * }} props
  */
-export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedPoint }) {
+export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMeta, selectedPoint }) {
   const [collapsed, setCollapsed] = useState(false);
   const canvasRef   = useRef(null);
   const bgRef       = useRef(null);  // loaded HTMLImageElement for the source photo
@@ -73,24 +77,56 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, selectedP
    * @returns {{ x: number, y: number }} canvas pixel
    */
   const worldToCanvas = useCallback((wx, wz) => {
-    // Normalised terrain position [0,1]
-    const nx = (wx + 1) / 2;
-    const nz = (wz + 1) / 2;
+    // World → normalised terrain [0,1]. The plane spans the physical
+    // footprint (g.worldWidth/worldDepth, metres) when known — the legacy
+    // [-1,1] footprint otherwise. TerrainCanvas always sets both fields.
+    const g = terrainRef.current?.getRef?.().current ?? {};
+    const w = typeof g.worldWidth === 'number' && g.worldWidth > 0 ? g.worldWidth : 2;
+    const d = typeof g.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2;
+    const nx = wx / w + 0.5;
+    const nz = wz / d + 0.5;
 
-    if (minimapMeta?.coordinate_system !== 'image' && minimapMeta?.bounds) {
-      // Georeferenced: map through image bounds
-      const { min_x, max_x, min_y, max_y } = minimapMeta.bounds;
-      // terrain bounds are in CRS space; we project normalised terrain → CRS → image pixel
-      // (Frontend has no terrain CRS bounds here — use normalised approximation)
-      // TODO: accept terrain CRS bounds from terrainMeta for precise mapping
+    // Normalised terrain → normalised source image. When both the terrain
+    // and the minimap image carry CRS bounds (§58), route through them so a
+    // minimap whose extent differs from the terrain footprint still maps
+    // precisely; when the extents are identical this reduces to identity.
+    let u = nx;
+    let v = nz;
+    const tBounds = terrainMeta?.bounds;
+    const mBounds = minimapMeta?.bounds;
+    if (minimapMeta?.coordinate_system !== 'image' && tBounds && mBounds) {
+      const cx = tBounds.min_x + nx * (tBounds.max_x - tBounds.min_x);
+      const cy = tBounds.min_y + nz * (tBounds.max_y - tBounds.min_y);
+      u = (cx - mBounds.min_x) / (mBounds.max_x - mBounds.min_x || 1);
+      v = (cy - mBounds.min_y) / (mBounds.max_y - mBounds.min_y || 1);
+      u = Math.min(1, Math.max(0, u));
+      v = Math.min(1, Math.max(0, v));
     }
 
-    // Normalised → canvas (z=-1 far/top → y=0, z=+1 near/bottom → y=SIZE)
+    // Image-normalised → canvas, through the same cover-fit crop used to
+    // draw the background (centre-cropped, never stretched) so the marker
+    // lands on the visible portion of the image.
+    const img = bgRef.current;
+    if (img) {
+      const iw = img.naturalWidth || img.width;
+      const ih = img.naturalHeight || img.height;
+      const scale = Math.max(SIZE / iw, SIZE / ih);
+      const sw = SIZE / scale;
+      const sh = SIZE / scale;
+      const sx = (iw - sw) / 2;
+      const sy = (ih - sh) / 2;
+      return {
+        x: (sx + u * sw) * scale,
+        y: (sy + v * sh) * scale,
+      };
+    }
+
+    // No background image yet — fall back to direct normalised mapping
     return {
-      x: nx * SIZE,
-      y: nz * SIZE,
+      x: u * SIZE,
+      y: v * SIZE,
     };
-  }, [minimapMeta]);
+  }, [minimapMeta, terrainMeta, terrainRef]);
 
   /* ── Get current camera yaw from glRef ────────────────────────────── */
   const getCameraYaw = useCallback(() => {

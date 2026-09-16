@@ -12,6 +12,8 @@ Package layout (v2, modular — everything fires from the repo-root ``model.py``
       tifops.py                    checkpoint loading + predict-fn factory
       backbone.py                  live Depth Anything V2 (cache-miss fallback)
       inference.py                 image -> AGL/DSM pipeline (CLI + service share it)
+      tiling.py                    overlapping inference windows + weighted stitching
+      mosaic.py                    adjacent GeoTIFFs -> one contiguous raster
       anchoring.py                 AGL + ground/DTM -> absolute DSM (Track 2)
       streaming.py                 memory-light pooled metric accumulators
       cli/                        COMMAND MODULES (one per pipeline stage)

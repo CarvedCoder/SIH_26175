@@ -39,6 +39,8 @@ const VERT = /* glsl */ `
   uniform float uExaggeration;
   uniform float uHeightScale;
   uniform float uProgress;       // 0 -> 1, progressive reveal
+  uniform vec2 uHeightmapSize;   // (width, height) in texels
+  uniform vec2 uWorldSize;       // (worldWidth, worldDepth) in world units
 
   varying vec2 vUv;
   varying vec3 vNormal;
@@ -57,10 +59,27 @@ const VERT = /* glsl */ `
     vec3 pos = position;
     pos.y = mix(0.0, displaced, uProgress);
 
+    // Analytic normal from heightmap central differences, in WORLD scale —
+    // always consistent with the current uHeightScale/uExaggeration and the
+    // GPU's own texture sampling (CPU-baked normals went stale whenever the
+    // exaggeration slider moved). ClampToEdge wrapping makes the one-sided
+    // difference at the borders automatic.
+    vec2 texel = 1.0 / uHeightmapSize;
+    float hL = texture2D(uHeightmap, uv - vec2(texel.x, 0.0)).r;
+    float hR = texture2D(uHeightmap, uv + vec2(texel.x, 0.0)).r;
+    float hD = texture2D(uHeightmap, uv - vec2(0.0, texel.y)).r;
+    float hU = texture2D(uHeightmap, uv + vec2(0.0, texel.y)).r;
+    float vScale = uHeightScale * uExaggeration * uProgress;
+    float stepX = max(uWorldSize.x * texel.x, 1e-6);
+    float stepZ = max(uWorldSize.y * texel.y, 1e-6);
+    // uv.y = 1 - v and world z grows with v, hence the hD/hU order here
+    float dhdx = (hR - hL) * vScale / (2.0 * stepX);
+    float dhdz = (hD - hU) * vScale / (2.0 * stepZ);
+    vNormal = normalize(vec3(-dhdx, 1.0, -dhdz));
+
     vec4 viewPos = modelViewMatrix * vec4(pos, 1.0);
     vViewDist = -viewPos.z;
 
-    vNormal = normalize(normalMatrix * normal);
     gl_Position = projectionMatrix * viewPos;
   }
 `;
@@ -92,6 +111,8 @@ const FRAG = /* glsl */ `
   uniform float uElevationSpan;
   uniform float uMinElevation;
   uniform float uFogEnabled;     // 0=off, 1=on
+  uniform float uFogNear;        // fog start distance (world units, scene-scaled)
+  uniform float uFogFar;         // fog full distance (world units, scene-scaled)
   uniform vec3 uFogColor;        // matches background [0.028, 0.035, 0.055]
 
   varying vec2 vUv;
@@ -170,9 +191,10 @@ const FRAG = /* glsl */ `
       shadow = mix(shadow, contourColor, clamp(contour * 0.45 + majorContour * 0.35, 0.0, 0.85));
     }
 
-    // Optional atmospheric depth fog
+    // Optional atmospheric depth fog (near/far scale with the physical
+    // scene size — see loadTerrainData's uFogNear/uFogFar computation)
     if (uFogEnabled > 0.5) {
-      float fogFactor = clamp((vViewDist - 1.2) / 6.0, 0.0, 0.85);
+      float fogFactor = clamp((vViewDist - uFogNear) / max(uFogFar - uFogNear, 0.001), 0.0, 0.85);
       shadow = mix(shadow, uFogColor, fogFactor);
     }
 
@@ -187,32 +209,130 @@ const HI_SEGS = 256;
 const DEFAULT_CAMERA_POS = [0, 1.2, 2.5];
 
 /**
- * Visual vertical scale used for the mesh's Y-displacement, decoupled from
- * the backend's `height_scale` (which is a physical/real-world elevation
- * factor used for measurements — see ElevationProbe.jsx, StructureInspector.jsx).
- * The ground plane spans a fixed footprint of [-1, 1] (2 world units wide)
- * regardless of scene mode, so a real-world `height_scale` (which can be in
- * the hundreds for absolute/meters-based scenes) produces wildly
- * disproportionate spikes if used directly as the mesh multiplier. This
- * constant keeps rendered terrain proportional across both relative and
- * absolute scenes; the `exaggeration` slider (1x-5x) still scales on top of it.
+ * Visual vertical scale for meshes whose footprint the backend could not
+ * describe physically (missing world_width_m/world_depth_m — a legacy API
+ * response). The ground plane then spans the legacy fixed footprint of
+ * [-1, 1] (2 world units wide), so a real-world `height_scale` (which can
+ * be in the hundreds) would produce wildly disproportionate spikes if used
+ * directly; this constant keeps rendered terrain proportional in that
+ * fallback case.
+ *
+ * When the backend DOES provide the physical footprint (the normal path),
+ * the plane is sized to world_width_m × world_depth_m metres and the
+ * vertical axis uses the scene's real elevation span in metres
+ * (see loadTerrainData) — vertical and horizontal are then both true
+ * metric proportion, and the exaggeration slider (1x-5x) scales on top.
  */
 const BASE_VISUAL_HEIGHT_SCALE = 0.22;
+
+/** Legacy fallback footprint (world units) when the API response carries
+ * no physical world size. Matches the pre-metric [-1,1] plane. */
+const LEGACY_WORLD_SIZE = 2.0;
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 
 /**
- * Decode a PNG image URL into a Float32Array of normalised [0,1] red-channel values.
+ * Decode a heightmap PNG into a Float32Array of normalised [0,1] values.
+ *
+ * The backend writes 16-BIT grayscale PNGs (65536 elevation levels). The
+ * browser canvas API silently quantises those to 8 bits, which re-introduces
+ * the terracing the 16-bit encoding exists to avoid — so 16-bit files are
+ * parsed directly here (PNG chunk walk + native DecompressionStream inflate
+ * + row-filter reconstruction). Legacy 8-bit files fall back to the canvas
+ * path.
  */
 async function decodeHeightmap(url) {
   const resolved = resolveAssetUrl(url);
   const res = await fetch(resolved);
+  if (!res.ok) throw new Error(`heightmap fetch failed: ${res.status}`);
+
+  const buf = await res.arrayBuffer();
+  try {
+    const parsed = await decodePngGray16(buf);
+    if (parsed) return parsed;
+  } catch (err) {
+    console.warn('[terrain] 16-bit heightmap decode failed, falling back to 8-bit canvas decode', err);
+  }
+  return decodeHeightmapViaCanvas(resolved);
+}
+
+/** Parse a non-interlaced 16-bit grayscale PNG (color type 0, bit depth 16).
+ *  Returns { data: Float32Array, width, height } or null for other variants. */
+async function decodePngGray16(buf) {
+  const bytes = new Uint8Array(buf);
+  const SIG = [137, 80, 78, 71, 13, 10, 26, 10];
+  for (let i = 0; i < 8; i++) {
+    if (bytes[i] !== SIG[i]) throw new Error('not a PNG');
+  }
+  const dv = new DataView(buf);
+  let p = 8;
+  let width = 0, height = 0, bitDepth = 0, colorType = 0, interlace = 0;
+  const idat = [];
+  while (p + 8 <= bytes.length) {
+    const len = dv.getUint32(p);
+    const type = String.fromCharCode(bytes[p + 4], bytes[p + 5], bytes[p + 6], bytes[p + 7]);
+    const data = bytes.subarray(p + 8, p + 8 + len);
+    if (type === 'IHDR') {
+      width = dv.getUint32(p + 8);
+      height = dv.getUint32(p + 12);
+      bitDepth = bytes[p + 16];
+      colorType = bytes[p + 17];
+      interlace = bytes[p + 20];
+    } else if (type === 'IDAT') {
+      idat.push(data);
+    } else if (type === 'IEND') {
+      break;
+    }
+    p += 12 + len;
+  }
+  if (colorType !== 0 || bitDepth !== 16 || interlace !== 0) return null;
+
+  // Inflate the image stream with the native DecompressionStream.
+  const stream = new Blob(idat).stream().pipeThrough(new DecompressionStream('deflate'));
+  const raw = new Uint8Array(await new Response(stream).arrayBuffer());
+
+  // Reconstruct filtered scanlines (bpp = 2 bytes per 16-bit gray sample).
+  const bpp = 2;
+  const stride = width * bpp;
+  const out = new Uint8Array(height * stride);
+  let src = 0;
+  for (let y = 0; y < height; y++) {
+    const filter = raw[src++];
+    const row = out.subarray(y * stride, (y + 1) * stride);
+    const prev = y > 0 ? out.subarray((y - 1) * stride, y * stride) : null;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? row[x - bpp] : 0;              // left
+      const b = prev ? prev[x] : 0;                        // up
+      const c = (prev && x >= bpp) ? prev[x - bpp] : 0;    // upper-left
+      let v = raw[src + x];
+      if (filter === 1) v += a;
+      else if (filter === 2) v += b;
+      else if (filter === 3) v += (a + b) >> 1;
+      else if (filter === 4) {
+        const pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c);
+        v += (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
+      }
+      row[x] = v & 0xff;
+    }
+    src += stride;
+  }
+
+  // Big-endian 16-bit samples → normalised float
+  const data = new Float32Array(width * height);
+  for (let i = 0; i < data.length; i++) {
+    data[i] = ((out[i * 2] << 8) | out[i * 2 + 1]) / 65535;
+  }
+  return { data, width, height };
+}
+
+/** Legacy 8-bit path: canvas decode of the red channel (256 levels). */
+async function decodeHeightmapViaCanvas(resolvedUrl) {
+  const res = await fetch(resolvedUrl);
   const blob = await res.blob();
   const bitmap = await createImageBitmap(blob);
 
   const { width, height } = bitmap;
   let ctx;
-
   if (typeof OffscreenCanvas !== 'undefined') {
     const oc = new OffscreenCanvas(width, height);
     ctx = oc.getContext('2d');
@@ -222,54 +342,33 @@ async function decodeHeightmap(url) {
     c.height = height;
     ctx = c.getContext('2d');
   }
-
   ctx.drawImage(bitmap, 0, 0);
   const pixels = ctx.getImageData(0, 0, width, height).data;
-
   const data = new Float32Array(width * height);
-  for (let i = 0; i < width * height; i++) {
-    data[i] = pixels[i * 4] / 255;
-  }
-
+  for (let i = 0; i < data.length; i++) data[i] = pixels[i * 4] / 255;
   bitmap.close();
   return { data, width, height };
 }
 
-/**
- * Box-blur a heightmap in place-safe fashion (returns a new Float32Array).
- * Reduces per-pixel noise so individual vertices don't spike into thin
- * needles once displaced and exaggerated. `radius` in pixels; radius=1
- * means a 3x3 average, radius=2 means 5x5, etc.
- */
-function smoothHeightData(data, width, height, radius = 2) {
-  if (radius <= 0) return data;
-  const out = new Float32Array(data.length);
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      let sum = 0;
-      let count = 0;
-      for (let dy = -radius; dy <= radius; dy++) {
-        const sy = y + dy;
-        if (sy < 0 || sy >= height) continue;
-        for (let dx = -radius; dx <= radius; dx++) {
-          const sx = x + dx;
-          if (sx < 0 || sx >= width) continue;
-          sum += data[sy * width + sx];
-          count++;
-        }
-      }
-      out[y * width + x] = count > 0 ? sum / count : data[y * width + x];
-    }
-  }
-
-  return out;
+/** Bilinear heightmap sample at normalised [0,1] coords — matches the GPU's
+ *  LinearFilter sampling so CPU geometry agrees with shader displacement. */
+function sampleHeightBilinear(data, w, h, u, v) {
+  const fx = Math.min(Math.max(u, 0), 1) * (w - 1);
+  const fy = Math.min(Math.max(v, 0), 1) * (h - 1);
+  const x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const x1 = Math.min(x0 + 1, w - 1), y1 = Math.min(y0 + 1, h - 1);
+  const tx = fx - x0, ty = fy - y0;
+  const a = data[y0 * w + x0], b = data[y0 * w + x1];
+  const c = data[y1 * w + x0], d = data[y1 * w + x1];
+  return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
 }
 
 /**
  * Build a PlaneGeometry tile representing a subsection [uMin, uMax] x [vMin, vMax]
+ * of a ground plane spanning worldWidth x worldDepth world units (metres on
+ * the physical-scale path; the legacy 2x2 footprint in the fallback).
  */
-function buildTerrainTileGeometry(heightData, hmWidth, hmHeight, segs, heightScale, exaggeration, tx, ty, numTiles = 2) {
+function buildTerrainTileGeometry(heightData, hmWidth, hmHeight, segs, heightScale, exaggeration, tx, ty, numTiles = 2, worldWidth = LEGACY_WORLD_SIZE, worldDepth = LEGACY_WORLD_SIZE) {
   const uMin = tx / numTiles;
   const uMax = (tx + 1) / numTiles;
   const vMin = ty / numTiles;
@@ -281,7 +380,6 @@ function buildTerrainTileGeometry(heightData, hmWidth, hmHeight, segs, heightSca
   const numIndices = wSegs * hSegs * 6;
 
   const position = new Float32Array(num * 3);
-  const normal = new Float32Array(num * 3);
   const uv = new Float32Array(num * 2);
   const index = numIndices > 65536 ? new Uint32Array(numIndices) : new Uint16Array(numIndices);
 
@@ -293,23 +391,18 @@ function buildTerrainTileGeometry(heightData, hmWidth, hmHeight, segs, heightSca
       const fracX = ix / wSegs;
       const u = uMin + fracX * (uMax - uMin);
 
-      const x = (u - 0.5) * 2; // [-1, 1]
-      const z = (v - 0.5) * 2; // [-1, 1]
+      const x = (u - 0.5) * worldWidth;
+      const z = (v - 0.5) * worldDepth;
 
       let h = 0;
       if (heightData && hmWidth && hmHeight) {
-        const px = Math.min(Math.max(Math.round(u * (hmWidth - 1)), 0), hmWidth - 1);
-        const py = Math.min(Math.max(Math.round(v * (hmHeight - 1)), 0), hmHeight - 1);
-        h = heightData[py * hmWidth + px] * heightScale * exaggeration;
+        // Bilinear — matches the shader's LinearFilter texture sampling
+        h = sampleHeightBilinear(heightData, hmWidth, hmHeight, u, v) * heightScale * exaggeration;
       }
 
       position[i * 3] = x;
       position[i * 3 + 1] = h;
       position[i * 3 + 2] = z;
-
-      normal[i * 3] = 0;
-      normal[i * 3 + 1] = 1;
-      normal[i * 3 + 2] = 0;
 
       uv[i * 2] = u;
       uv[i * 2 + 1] = 1 - v;
@@ -333,53 +426,17 @@ function buildTerrainTileGeometry(heightData, hmWidth, hmHeight, segs, heightSca
     }
   }
 
-  computeNormals(position, index, normal, wSegs, hSegs);
-
+  // Normals are computed analytically in the vertex shader from the
+  // heightmap (see VERT) — no CPU normal attribute is needed. Three.js
+  // ShaderMaterial without a 'normal' attribute works because the shader
+  // never reads the built-in `normal` varying input.
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(position, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setIndex(new THREE.BufferAttribute(index, 1));
   geo.computeBoundingSphere();
   geo.computeBoundingBox();
   return geo;
-}
-
-function computeNormals(position, index, normal, wSegs, hSegs) {
-  const totalVerts = (wSegs + 1) * (hSegs + 1);
-  const count = new Float32Array(totalVerts);
-
-  for (let i = 0; i < index.length; i += 3) {
-    const ia = index[i], ib = index[i + 1], ic = index[i + 2];
-
-    const ax = position[ib * 3] - position[ia * 3];
-    const ay = position[ib * 3 + 1] - position[ia * 3 + 1];
-    const az = position[ib * 3 + 2] - position[ia * 3 + 2];
-    const bx = position[ic * 3] - position[ia * 3];
-    const by = position[ic * 3 + 1] - position[ia * 3 + 1];
-    const bz = position[ic * 3 + 2] - position[ia * 3 + 2];
-
-    const nx = ay * bz - az * by;
-    const ny = az * bx - ax * bz;
-    const nz = ax * by - ay * bx;
-
-    for (const vi of [ia, ib, ic]) {
-      normal[vi * 3] += nx;
-      normal[vi * 3 + 1] += ny;
-      normal[vi * 3 + 2] += nz;
-      count[vi]++;
-    }
-  }
-
-  for (let i = 0; i < totalVerts; i++) {
-    if (count[i] === 0) continue;
-    const len = Math.hypot(normal[i * 3], normal[i * 3 + 1], normal[i * 3 + 2]);
-    if (len > 0) {
-      normal[i * 3] /= len;
-      normal[i * 3 + 1] /= len;
-      normal[i * 3 + 2] /= len;
-    }
-  }
 }
 
 function createEmptyTexture() {
@@ -484,7 +541,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     hmHeight: 0,
     heightScale: 1.0,
     visualHeightScale: BASE_VISUAL_HEIGHT_SCALE,
-    exaggeration: 1.5,
+    exaggeration: 2.5,
     progress: 0.0,
     progressCurrent: 0.0,
     textureReady: 0,
@@ -499,6 +556,11 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     minElevation: 0.0,
     maxElevation: 100.0,
     elevationSpan: 100.0,
+    // Physical world footprint in world units (metres when the backend
+    // reports a scale; LEGACY_WORLD_SIZE fallback for legacy responses).
+    worldWidth: LEGACY_WORLD_SIZE,
+    worldDepth: LEGACY_WORLD_SIZE,
+    isGeoreferencedScale: false,
   });
 
   // Create initial Three.js ShaderMaterial
@@ -517,8 +579,10 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       uniforms: {
         uHeightmap: { value: emptyHm },
         uTexture: { value: emptyRgb },
-        uExaggeration: { value: 1.5 },
+        uExaggeration: { value: 2.5 },
         uHeightScale: { value: BASE_VISUAL_HEIGHT_SCALE },
+        uHeightmapSize: { value: new THREE.Vector2(1, 1) },
+        uWorldSize: { value: new THREE.Vector2(LEGACY_WORLD_SIZE, LEGACY_WORLD_SIZE) },
         uProgress: { value: 0.0 },
         uSunDir: { value: new THREE.Vector3(sunDir[0], sunDir[1], sunDir[2]) },
         uSunColor: { value: new THREE.Color(1.0, 0.95, 0.85) },
@@ -530,6 +594,8 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         uElevationSpan: { value: 100.0 },
         uMinElevation: { value: 0.0 },
         uFogEnabled: { value: 0.0 },
+        uFogNear: { value: 1.7 },
+        uFogFar: { value: 8.5 },
         uFogColor: { value: new THREE.Color(0.028, 0.035, 0.055) },
       },
       wireframe: false,
@@ -727,25 +793,28 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           const hit = hits[0];
           const wx = hit.point.x;
           const wz = hit.point.z;
-          const nx = Math.max(0, Math.min(1, (wx + 1) / 2));
-          const nz = Math.max(0, Math.min(1, (wz + 1) / 2));
+          // world → normalised [0,1] using the plane's real footprint
+          const nx = Math.max(0, Math.min(1, wx / (g.worldWidth ?? LEGACY_WORLD_SIZE) + 0.5));
+          const nz = Math.max(0, Math.min(1, wz / (g.worldDepth ?? LEGACY_WORLD_SIZE) + 0.5));
           const elevation = this.sampleElevation(nx, nz) ?? hit.point.y;
           return { x: wx, z: wz, elevation };
         }
       }
 
       // Mathematical approximation fallback
-      let wx = ndcX;
-      let wz = -ndcY;
+      const halfW = (g.worldWidth ?? LEGACY_WORLD_SIZE) / 2;
+      const halfD = (g.worldDepth ?? LEGACY_WORLD_SIZE) / 2;
+      let wx = ndcX * halfW;
+      let wz = -ndcY * halfD;
       if (g.orbit?.target && g.camera) {
-        const dist = g.camera.position.distanceTo ? g.camera.position.distanceTo(g.orbit.target) : 2.5;
+        const dist = g.camera.position.distanceTo ? g.camera.position.distanceTo(g.orbit.target) : halfD * 1.25;
         wx = (g.orbit.target.x ?? 0) + ndcX * dist * 0.45;
         wz = (g.orbit.target.z ?? 0) - ndcY * dist * 0.45;
       }
-      const nx = Math.max(0, Math.min(1, (wx + 1) / 2));
-      const nz = Math.max(0, Math.min(1, (wz + 1) / 2));
+      const nx = Math.max(0, Math.min(1, wx / (g.worldWidth ?? LEGACY_WORLD_SIZE) + 0.5));
+      const nz = Math.max(0, Math.min(1, wz / (g.worldDepth ?? LEGACY_WORLD_SIZE) + 0.5));
       const elevation = this.sampleElevation(nx, nz) ?? 0;
-      return { x: nx * 2 - 1, z: nz * 2 - 1, elevation };
+      return { x: wx, z: wz, elevation };
     },
   }));
 
@@ -821,17 +890,25 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
 
     const { heightmap_url, texture_url, height_scale, min_elevation, max_elevation } = terrainMeta;
 
+    // Physical world footprint (real-world terrain scale). The backend
+    // computes raster dims × GSD from the CRS+transform; for non-
+    // georeferenced scenes it applies a documented 1 m/pixel fallback and
+    // flags it via is_georeferenced_scale=false. Missing fields (legacy
+    // API) fall back to the legacy 2x2 normalized footprint.
+    const worldWidthKnown = typeof terrainMeta.world_width_m === 'number' && terrainMeta.world_width_m > 0;
+    const worldDepthKnown = typeof terrainMeta.world_depth_m === 'number' && terrainMeta.world_depth_m > 0;
+    g.worldWidth = worldWidthKnown ? terrainMeta.world_width_m : LEGACY_WORLD_SIZE;
+    g.worldDepth = worldDepthKnown ? terrainMeta.world_depth_m : LEGACY_WORLD_SIZE;
+    g.isGeoreferencedScale = terrainMeta.is_georeferenced_scale === true;
+    console.info('[terrain] world scale:', {
+      width_m: g.worldWidth, depth_m: g.worldDepth,
+      georeferenced_scale: g.isGeoreferencedScale,
+    });
+
     const hs = typeof height_scale === 'number' && height_scale > 0 ? height_scale : 1.0;
     // Physical height_scale — kept as-is for real-world elevation math
     // (ElevationProbe, StructureInspector, CameraHUD all read g.heightScale).
     g.heightScale = hs;
-    // Visual height_scale — used only for mesh Y-displacement so the terrain
-    // stays proportional to its fixed [-1,1] footprint regardless of the
-    // backend's physical units. See BASE_VISUAL_HEIGHT_SCALE comment above.
-    g.visualHeightScale = BASE_VISUAL_HEIGHT_SCALE;
-    if (material.uniforms.uHeightScale) {
-      material.uniforms.uHeightScale.value = g.visualHeightScale;
-    }
 
     const minElev = typeof min_elevation === 'number' ? min_elevation : 0.0;
     const maxElev = typeof max_elevation === 'number' ? max_elevation : (minElev + hs * 100.0);
@@ -839,8 +916,42 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     g.minElevation = minElev;
     g.maxElevation = maxElev;
     g.elevationSpan = span;
+
+    // Visual height scale: with a physical footprint the vertical axis uses
+    // the scene's REAL elevation span in metres — the mesh is then in true
+    // metric proportion on both axes. The legacy constant only applies when
+    // the world size is unknown (see BASE_VISUAL_HEIGHT_SCALE doc).
+    g.visualHeightScale = (worldWidthKnown || worldDepthKnown) ? span : BASE_VISUAL_HEIGHT_SCALE;
+    if (material.uniforms.uHeightScale) {
+      material.uniforms.uHeightScale.value = g.visualHeightScale;
+    }
     if (material.uniforms.uMinElevation) material.uniforms.uMinElevation.value = minElev;
     if (material.uniforms.uElevationSpan) material.uniforms.uElevationSpan.value = span;
+
+    // Fog range scales with the physical scene diagonal so the effect stays
+    // atmospheric rather than blanketing a metric world (or vanishing on it).
+    const diag = Math.hypot(g.worldWidth, g.worldDepth);
+    if (material.uniforms.uFogNear) material.uniforms.uFogNear.value = 0.6 * diag;
+    if (material.uniforms.uFogFar) material.uniforms.uFogFar.value = 3.0 * diag;
+
+    // Frame the whole scene: orbit distances and the default camera pose
+    // must scale with the physical footprint (a 204.8 m terrain needs a
+    // stand-off distance proportional to its size).
+    const sceneD = Math.max(g.worldWidth, g.worldDepth, LEGACY_WORLD_SIZE);
+    if (g.camera) {
+      g.camera.position.set(0, sceneD * 0.6, sceneD * 1.25);
+      g.camera.lookAt(0, 0, 0);
+      if (g.camera.far < diag * 10) {
+        g.camera.far = diag * 10;
+        g.camera.updateProjectionMatrix();
+      }
+    }
+    if (g.orbit) {
+      g.orbit.target?.set(0, 0, 0);
+      g.orbit.maxDistance = sceneD * 4;
+      g.orbit.minDistance = Math.min(0.3, sceneD * 0.02);
+      g.orbit.update?.();
+    }
 
     // Remove existing placeholder tiles if present
     if (g.tiles && g.tiles.length > 0) {
@@ -851,28 +962,22 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
       g.tiles = [];
     }
 
-    // Decode heightmap
+    // Decode heightmap (16-bit path — full 65536-level precision, no blur:
+    // the backend already low-pass filtered before downsampling, and a
+    // frontend box blur destroyed building edges).
     const decoded = await decodeHeightmap(heightmap_url);
     if (g.disposed) return;
     const { width, height } = decoded;
-    // Smooth to remove per-pixel noise that would otherwise spike into
-    // thin vertical needles once displaced and exaggerated.
-    const data = smoothHeightData(decoded.data, width, height, 2);
+    const data = decoded.data;
 
     g.heightData = data;
     g.hmWidth = width;
     g.hmHeight = height;
 
-    // Create 32-bit float heightmap texture for Three.js
-    const uint8 = new Uint8Array(data.length * 4);
-    for (let i = 0; i < data.length; i++) {
-      const val = Math.round(data[i] * 255);
-      uint8[i * 4] = val;
-      uint8[i * 4 + 1] = val;
-      uint8[i * 4 + 2] = val;
-      uint8[i * 4 + 3] = 255;
-    }
-    const hmTex = new THREE.DataTexture(uint8, width, height, THREE.RGBAFormat);
+    // Upload as a single-channel FLOAT texture — the previous 8-bit RGBA
+    // upload re-quantised the decoded heights to 256 levels, reintroducing
+    // on the GPU the exact terracing the 16-bit PNG pipeline removes.
+    const hmTex = new THREE.DataTexture(data, width, height, THREE.RedFormat, THREE.FloatType);
     hmTex.minFilter = THREE.LinearFilter;
     hmTex.magFilter = THREE.LinearFilter;
     hmTex.wrapS = THREE.ClampToEdgeWrapping;
@@ -884,6 +989,16 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     material.uniforms.uHeightmap.value = hmTex;
     g.activeTextures.add(hmTex);
 
+    // Shader-normal uniforms: texture resolution (for central-difference
+    // steps) and the world footprint (to convert height gradient into
+    // world-space slope). Geometry tiles must know both too.
+    if (material.uniforms.uHeightmapSize) {
+      material.uniforms.uHeightmapSize.value.set(width, height);
+    }
+    if (material.uniforms.uWorldSize) {
+      material.uniforms.uWorldSize.value.set(g.worldWidth, g.worldDepth);
+    }
+
     if (oldHmTex && oldHmTex.dispose) {
       oldHmTex.dispose();
       g.activeTextures.delete(oldHmTex);
@@ -894,7 +1009,7 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     for (let idx = 0; idx < 4; idx++) {
       const tx = idx % 2;
       const ty = Math.floor(idx / 2);
-      const loGeo = buildTerrainTileGeometry(data, width, height, LO_SEGS / 2, g.visualHeightScale, g.exaggeration, tx, ty, 2);
+      const loGeo = buildTerrainTileGeometry(data, width, height, LO_SEGS / 2, g.visualHeightScale, g.exaggeration, tx, ty, 2, g.worldWidth, g.worldDepth);
       const tileMesh = new THREE.Mesh(loGeo, material);
       tileMesh.frustumCulled = true;
       scene.add(tileMesh);
@@ -913,7 +1028,7 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
       g.tiles.forEach((m, idx) => {
         const tx = idx % 2;
         const ty = Math.floor(idx / 2);
-        const hiGeo = buildTerrainTileGeometry(data, width, height, HI_SEGS / 2, g.visualHeightScale, g.exaggeration, tx, ty, 2);
+        const hiGeo = buildTerrainTileGeometry(data, width, height, HI_SEGS / 2, g.visualHeightScale, g.exaggeration, tx, ty, 2, g.worldWidth, g.worldDepth);
         const oldGeo = m.geometry;
         m.geometry = hiGeo;
         oldGeo?.dispose?.();
