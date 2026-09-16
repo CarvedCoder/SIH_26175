@@ -56,14 +56,16 @@ const DistanceMeasurement = forwardRef(function DistanceMeasurement(
       setPointB(point);
       setStep(2);
 
-      // Compute distances
-      // Point coordinates: world x, z [-1, 1], elevation in units
-      // If absolute, scale world [-1, 1] by real geographic width/height from metadata
-      const widthMeters = state.terrain?.width ?? (isAbsolute ? 200.0 : 100.0);
-      const heightMeters = state.terrain?.height ?? (isAbsolute ? 200.0 : 100.0);
+      // Compute distances. Terrain clicks give WORLD coordinates, which on
+      // the physical-scale path are already metres (the mesh spans
+      // world_width_m × world_depth_m); the legacy fallback plane spans
+      // scene units. Elevation is physical metres when absolute.
+      const knownScale =
+        typeof state.terrain?.world_width_m === 'number' &&
+        state.terrain.world_width_m > 0;
 
-      const dx = (point.x - pointA.x) * (widthMeters / 2.0);
-      const dz = (point.z - pointA.z) * (heightMeters / 2.0);
+      const dx = point.x - pointA.x;
+      const dz = point.z - pointA.z;
       const dy = Math.abs(point.elevation - pointA.elevation);
 
       const horizDist = Math.hypot(dx, dz);

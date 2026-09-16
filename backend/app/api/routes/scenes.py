@@ -306,6 +306,131 @@ def _cleanup_failed_upload(staging_path: Path, scene_dir: Path) -> None:
         scene_dir.rmdir()
 
 
+@router.post("/{scene_id}/mosaic", response_model=SceneCreateResponse)
+async def mosaic_scene_inputs(
+    scene_id: str,
+    files: list[UploadFile] = File(...),
+):
+    """Opt-in multi-file upload: merge spatially adjacent GeoTIFFs into one
+    contiguous scene input BEFORE processing (depthwizard.mosaic).
+
+    The single-file upload contract is untouched — this endpoint exists for
+    survey datasets that arrive as several adjacent GeoTIFFs. All inputs
+    must be genuinely georeferenced, share one CRS and one ground
+    resolution, and touch/overlap each other; otherwise the mosaic is
+    rejected with 400 (inputs are never silently resized or reprojected).
+    Mosaicking a processed scene is refused with 409 so results can never
+    go stale against a replaced input.
+    """
+    from depthwizard.mosaic import MosaicError, mosaic_rasters, write_mosaic
+
+    _require_scene(scene_id)
+    if result_service.get_result_files(scene_id).get("depth") is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Scene already has processing results — mosaicking would "
+            "replace its input and leave them stale. Delete the scene and "
+            "upload the mosaic instead.",
+        )
+    if len(files) < 2:
+        raise HTTPException(
+            status_code=422,
+            detail="Mosaic upload needs at least 2 GeoTIFF files "
+            "(a single file needs no mosaic).",
+        )
+
+    ensure_directories()
+    settings = get_settings()
+    staged: list[tuple[str, Path]] = []
+    received_total = 0
+    try:
+        for index, file in enumerate(files):
+            original_filename = Path(file.filename or "").name
+            extension = Path(original_filename).suffix.lower()
+            if extension not in GEOTIFF_EXTENSIONS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"'{original_filename or 'file ' + str(index + 1)}' is not "
+                    "a GeoTIFF (.tif/.tiff) — only georeferenced rasters can "
+                    "be mosaicked.",
+                )
+            staging_path = UPLOAD_STAGING_DIR / (
+                f"{scene_id}_mosaic_{index}{extension}"
+            )
+            received = 0
+            try:
+                with staging_path.open("wb") as destination:
+                    while chunk := await file.read(_UPLOAD_CHUNK):
+                        received += len(chunk)
+                        received_total += len(chunk)
+                        if received > settings.max_upload_bytes or (
+                            received_total > settings.max_upload_bytes
+                        ):
+                            raise HTTPException(
+                                status_code=413,
+                                detail="Uploaded files exceed the maximum "
+                                "allowed size.",
+                            )
+                        destination.write(chunk)
+            finally:
+                await file.close()
+            staged.append((original_filename, staging_path))
+
+        # Validate + merge BEFORE touching any permanent scene state.
+        try:
+            result = mosaic_rasters([p for _, p in staged])
+        except MosaicError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        mosaic_staging = UPLOAD_STAGING_DIR / f"{scene_id}_mosaic_merged.tif"
+        write_mosaic(result, mosaic_staging)
+        metadata = _inspect_raster(mosaic_staging)
+
+        scene_dir = get_scene_raw_dir(scene_id)
+        for old in scene_dir.glob("input.*"):
+            old.unlink()
+        mosaic_staging.replace(scene_dir / designated_input_name(".tif"))
+        _store_scene_metadata(
+            scene_id, f"mosaic({'+'.join(name for name, _ in staged)})", metadata
+        )
+        logger.info(
+            "scene mosaic: %s inputs=%d merged=%dx%d",
+            scene_id, len(staged), metadata["width"], metadata["height"],
+        )
+    except HTTPException:
+        for _, path in staged:
+            path.unlink(missing_ok=True)
+        (UPLOAD_STAGING_DIR / f"{scene_id}_mosaic_merged.tif").unlink(missing_ok=True)
+        raise
+    except OSError:
+        logger.exception("failed to persist mosaic for scene %s", scene_id)
+        raise HTTPException(status_code=500, detail="Failed to store the mosaic.")
+
+    return SceneCreateResponse(
+        scene_id=scene_id,
+        filename=f"mosaic({'+'.join(name for name, _ in staged)})",
+        status=SceneStatus.READY,
+        format=metadata["format"],
+        dimensions=SceneDimensions(
+            width=metadata["width"],
+            height=metadata["height"],
+            channels=metadata["channels"],
+        ),
+        georeference=SceneGeoReference(
+            available=metadata["georeferenced"],
+            crs=metadata["crs"],
+            min_x=metadata["min_x"],
+            min_y=metadata["min_y"],
+            max_x=metadata["max_x"],
+            max_y=metadata["max_y"],
+            pixel_width=metadata["pixel_width"],
+            pixel_height=metadata["pixel_height"],
+        ),
+        processing_path=metadata["processing_path"],
+        capabilities=_build_capabilities(metadata["georeferenced"]),
+    )
+
+
 @router.get("", response_model=list[SceneSummary])
 async def list_scenes():
     """List registered scenes (most recent first)."""

@@ -74,9 +74,13 @@ function HUDContent({ terrainRef, elevationMode }) {
       const heading = computeHeading(cam);
 
       // ── Slope ──
-      // Sample heightmap gradient at camera ground position
-      const nx = Math.max(0, Math.min(1, (pos.x + 1) / 2));
-      const nz = Math.max(0, Math.min(1, (pos.z + 1) / 2));
+      // Sample heightmap gradient at camera ground position. World →
+      // normalised via the plane's physical footprint (worldWidth/Depth,
+      // metres) when known; legacy [-1,1] fallback otherwise.
+      const hw = (typeof g.worldWidth === 'number' && g.worldWidth > 0 ? g.worldWidth : 2) / 2;
+      const hd = (typeof g.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2) / 2;
+      const nx = Math.max(0, Math.min(1, pos.x / (2 * hw) + 0.5));
+      const nz = Math.max(0, Math.min(1, pos.z / (2 * hd) + 0.5));
       const slope = computeSlope(g, nx, nz);
 
       setReadouts({ altitude, heading, slope, posX: pos.x, posZ: pos.z });

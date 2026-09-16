@@ -46,39 +46,75 @@ from model_tests.test_inference import _make_checkpoint
 # ---------------------------------------------------------------------------
 
 def test_normalize_dn_per_tile_full_range_no_cross_tile_leakage():
-    """Each 1024 tile must be stretched to [0,1] in isolation — a
-    locally low-contrast tile must NOT receive a compressed sub-range."""
+    """Each OVERLAPPING window is stretched to [0,1] in isolation before
+    weighted stitching — a locally low-contrast region must still reach
+    near-0/near-1 values (no whole-scene normalization leakage)."""
     raw = np.zeros((2048, 2048), dtype=np.float32)
     raw[0:1024, 0:1024] = np.linspace(0.0, 1.0, 1024 * 1024).reshape(1024, 1024)
     raw[0:1024, 1024:] = np.linspace(2.0, 2.4, 1024 * 1024).reshape(1024, 1024)
     raw[1024:, 0:1024] = np.linspace(-5.0, 5.0, 1024 * 1024).reshape(1024, 1024)
-    raw[1024:, 1024:] = 7.0  # flat tile -> documented 0.5 fallback
+    raw[1024:, 1024:] = 7.0  # flat quadrant -> window fallback around 0.5
 
     dn = normalize_dn_per_tile(raw)
 
     assert dn.shape == raw.shape
-    t = dn[0:1024, 0:1024]
-    assert t.min() == pytest.approx(0.0, abs=1e-6)
-    assert t.max() == pytest.approx(1.0, abs=1e-6)
-    t = dn[0:1024, 1024:]
-    assert t.min() == pytest.approx(0.0, abs=1e-6)
-    assert t.max() == pytest.approx(1.0, abs=1e-6)
-    t = dn[1024:, 0:1024]
-    assert t.min() == pytest.approx(0.0, abs=1e-6)
-    assert t.max() == pytest.approx(1.0, abs=1e-6)
-    # flat tile falls back to the constant 0.5, never leaks a neighbor's range
-    assert np.all(dn[1024:, 1024:] == 0.5)
+    assert not np.isnan(dn).any()
+    assert dn.min() >= 0.0 and dn.max() <= 1.0
+    # Interior of each quadrant (away from blend borders at 768/1024):
+    # the locally low-contrast 2.0..2.4 quadrant spans only 0.4/12 of the
+    # GLOBAL range — whole-scene normalization would squash it to a
+    # sliver. Per-window normalization keeps it near-full-range.
+    for r0, r1, c0, c1 in [
+        (0, 700, 0, 700),
+        (0, 700, 1100, 2048),
+        (1100, 2048, 0, 700),
+    ]:
+        q = dn[r0:r1, c0:c1]
+        assert q.max() - q.min() > 0.5, "quadrant compressed by global normalization"
 
 
 def test_normalize_dn_per_tile_crops_padding_and_normalizes_padded_tiles():
-    """Non-multiple-of-1024 sizes: normalization happens on the EDGE-PADDED
-    tile (what the net consumes) and the output crops back exactly."""
+    """Non-multiple-of-1024 sizes: normalization happens on each window's
+    EDGE-PADDED tile (what the net consumes), the output crops back exactly,
+    and full coverage is preserved (no NaN gaps from the stitcher)."""
     raw = np.linspace(0.0, 10.0, 1500 * 700, dtype=np.float32).reshape(1500, 700)
     dn = normalize_dn_per_tile(raw)
     assert dn.shape == (1500, 700)
-    # the padded 1024-grid has 2x1 tiles; each normalized tile spans [0,1]
-    assert dn[0:1024, :].max() == pytest.approx(1.0, abs=1e-5)
-    assert dn[1024:, :].max() == pytest.approx(1.0, abs=1e-5)
+    assert not np.isnan(dn).any()
+    assert dn.min() >= 0.0 and dn.max() <= 1.0
+
+
+def test_predictor_tiles_mode_is_seam_free(tmp_path):
+    """Tiled inference of a smooth ramp with per-window-perturbed forwards
+    must not produce a hard discontinuity at the OLD 1024px tile boundary —
+    the defect overlapping windows + weighted stitching exist to remove."""
+    pytest.importorskip("torch")
+
+    ckpt, _a0, _b0 = _make_checkpoint(tmp_path)
+    pred = DepthWizardPredictor(ckpt, device="cpu", live_backbone=False)
+
+    call_idx = {"n": 0}
+
+    def biased_predict(dn, rgb=None):
+        # each window's forward independently off by a constant — exactly
+        # how independent per-window inference disagrees at shared borders
+        call_idx["n"] += 1
+        return dn + (0.4 if call_idx["n"] % 2 else -0.4)
+
+    pred._predict_fn = biased_predict
+
+    h = w = 2048
+    yy, xx = np.mgrid[0:h, 0:w]
+    truth = (xx + yy).astype(np.float32) / (h + w)  # smooth ramp in [0,1]
+    rgb = np.zeros((h, w, 3), dtype=np.uint8)
+
+    out = pred.predict(rgb, truth * 10.0, mode="tiles")
+    # minmax per window cancels the scale; the forward adds the bias
+    assert out.shape == (h, w)
+    # no hard seam across the old tile boundary at x=1024: the step along
+    # a row must stay far below the injected +-0.4 disagreement
+    row = out[h // 2, :]
+    assert np.abs(np.diff(row)).max() < 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +220,10 @@ def test_predictor_tiles_mode_feeds_per_tile_normalized_dn(tmp_path):
     out = pred.predict(rgb, raw, mode="tiles")
 
     assert out.shape == (2048, 2048)
-    assert len(seen) == 4
+    # Overlapping windows: 2048 = stride 768 grid with starts [0, 768, 1024]
+    # per axis -> 3x3 = 9 forward passes, each still a 1024x1024 tile whose
+    # Dn spans the full [0,1] range (no whole-scene normalization leakage).
+    assert len(seen) == 9
     for tile in seen:
         assert tile.shape == (1024, 1024)
         assert tile.min() == pytest.approx(0.0, abs=1e-6)
@@ -213,7 +252,10 @@ def test_predictor_live_backbone_runs_at_training_tile_granularity(tmp_path):
     res = pred.resolve_dn(rgb, stem="multi")
     assert res.source == "live"
     assert res.raw.shape == (2048, 2048)
-    assert calls == [(1024, 1024)] * 4  # one pass per tile — training granularity
+    # one 1024x1024 pass per OVERLAPPING window (starts [0, 768, 1024] per
+    # axis -> 3x3 = 9), never the squeezed whole scene — training granularity
+    assert calls == [(1024, 1024)] * 9
+    assert not np.isnan(res.raw).any()
 
     # single-tile inputs keep the whole-image pass
     calls.clear()

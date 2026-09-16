@@ -132,8 +132,12 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
           const dist = cam.position.distance ? cam.position.distance(orb.target) : 2.5;
           const wx = targetX + ndcX * dist * 0.45;
           const wz = targetZ - ndcY * dist * 0.45;
-          nx = Math.max(0, Math.min(1, (wx + 1) / 2));
-          nz = Math.max(0, Math.min(1, (wz + 1) / 2));
+          // world → normalised via the plane's physical footprint (metres
+          // when known; legacy [-1,1] fallback)
+          const w = typeof g.worldWidth === 'number' && g.worldWidth > 0 ? g.worldWidth : 2;
+          const d = typeof g.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2;
+          nx = Math.max(0, Math.min(1, wx / w + 0.5));
+          nz = Math.max(0, Math.min(1, wz / d + 0.5));
         }
       }
 

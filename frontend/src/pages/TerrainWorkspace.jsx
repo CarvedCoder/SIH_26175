@@ -18,8 +18,10 @@ import { useRef, useEffect, useState } from 'react';
 import Header from '../components/common/Header.jsx';
 import TerrainCanvas from '../components/TerrainViewer/TerrainCanvas.jsx';
 import Minimap from '../components/TerrainViewer/Minimap.jsx';
+import SceneSwitcher from '../components/TerrainViewer/SceneSwitcher.jsx';
 import CameraHUD from '../components/TerrainViewer/CameraHUD.jsx';
 import ControlsHint from '../components/TerrainViewer/ControlsHint.jsx';
+import Joystick from '../components/TerrainViewer/Joystick.jsx';
 import WalkthroughPrompt from '../components/TerrainViewer/WalkthroughPrompt.jsx';
 import LayerControl, { LAYER_META } from '../components/TerrainViewer/LayerControl.jsx';
 import Toolbar from '../components/common/Toolbar.jsx';
@@ -64,6 +66,8 @@ export default function TerrainWorkspace() {
     mode: cameraMode,
     setMode: setCameraMode,
     tickWalkthrough,
+    setJoystickInput,
+    setJoystickVertical,
   } = useCameraController({
     canvasRef: viewportRef,
     glRef: glPlaceholder,
@@ -95,6 +99,17 @@ export default function TerrainWorkspace() {
       .catch(() => { /* minimap is optional — silently skip */ });
     return () => { cancelled = true; };
   }, [state.scene?.scene_id, isLoading]);
+
+  // Scene switches (batch switcher) must not carry the previous scene's
+  // selections, measurements or layer texture cache into the new terrain.
+  useEffect(() => {
+    setSelectedPoint(null);
+    setSelectedLocation(null);
+    setSelectedStructure(null);
+    setRefineBbox(null);
+    setActiveTool('none');
+    layerCache.current = {};
+  }, [state.scene?.scene_id]);
 
   // ── Layer system (Phase 8) ──
   const [activeLayer, setActiveLayer] = useState('solid');
@@ -274,8 +289,15 @@ export default function TerrainWorkspace() {
             terrainRef={terrainRef}
             cameraMode={cameraMode}
             minimapMeta={minimapMeta}
+            terrainMeta={state.terrain}
             selectedPoint={selectedPoint}
           />
+        )}
+
+        {/* Multi-image batch switcher — top-centre; arrows cycle, numbered
+            chips jump. Only appears when a batch of separate scenes exists. */}
+        {!isLoading && (
+          <SceneSwitcher disabled={isLoading} />
         )}
 
         {/* Elevation Probe (task 9.1) — paused during Walkthrough, where the
@@ -299,6 +321,12 @@ export default function TerrainWorkspace() {
         {/* Walkthrough entry cue — click-to-capture hint, hidden once locked */}
         {!isLoading && (
           <WalkthroughPrompt cameraMode={cameraMode} />
+        )}
+
+        {/* Touch joystick — walkthrough only; feeds the SAME movement code
+            path as the keyboard (setJoystickInput merges in the tick) */}
+        {!isLoading && cameraMode === 'first-person' && (
+          <Joystick onMove={setJoystickInput} onVertical={setJoystickVertical} />
         )}
 
         {/* 3D Viewport Controls Guide (bottom-left) */}

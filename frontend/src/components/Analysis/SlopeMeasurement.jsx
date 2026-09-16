@@ -54,11 +54,11 @@ const SlopeMeasurement = forwardRef(function SlopeMeasurement(
       setPointB(point);
       setStep(2);
 
-      const widthMeters = state.terrain?.width ?? (isAbsolute ? 200.0 : 100.0);
-      const heightMeters = state.terrain?.height ?? (isAbsolute ? 200.0 : 100.0);
-
-      const dx = (point.x - pointA.x) * (widthMeters / 2.0);
-      const dz = (point.z - pointA.z) * (heightMeters / 2.0);
+      // Terrain clicks give WORLD coordinates — already metres on the
+      // physical-scale path (mesh spans world_width_m × world_depth_m),
+      // scene units on the legacy fallback. Elevation is metric when absolute.
+      const dx = point.x - pointA.x;
+      const dz = point.z - pointA.z;
       const horizDist = Math.hypot(dx, dz);
       const elevDiff = Math.abs(point.elevation - pointA.elevation);
 

@@ -23,7 +23,9 @@ export const AppState = {
 const Action = {
   START_UPLOAD:       'START_UPLOAD',
   UPLOAD_SUCCESS:     'UPLOAD_SUCCESS',
+  UPLOAD_BATCH:       'UPLOAD_BATCH',
   UPLOAD_FAIL:        'UPLOAD_FAIL',
+  SWITCH_SCENE:       'SWITCH_SCENE',
   START_PROCESSING:   'START_PROCESSING',
   PROCESSING_UPDATE:  'PROCESSING_UPDATE',
   PROCESSING_DONE:    'PROCESSING_DONE',
@@ -84,6 +86,7 @@ const Action = {
  * @property {Object|null} terrain  - from GET /scenes/{id}/terrain
  * @property {Object|null} validation
  * @property {AppError|null} error
+ * @property {SceneInfo[]} sceneQueue - current multi-upload batch (session-only)
  * @property {Object[]} recentScenes
  */
 
@@ -97,6 +100,10 @@ const initialState = {
   terrain: null,
   validation: null,
   error: null,
+  // Current multi-upload batch, in upload order (session-only — switching
+  // tabs in the terrain workspace cycles through these). Adjacent GeoTIFF
+  // tiles that merged into one mosaic scene never land here.
+  sceneQueue: [],
   recentScenes: (() => {
     try {
       const stored = localStorage.getItem('dw_recent');
@@ -187,6 +194,70 @@ function reducer(state, action) {
 
     case Action.UPLOAD_FAIL:
       return { ...state, status: AppState.FAILED, error: action.payload };
+
+    case Action.UPLOAD_BATCH: {
+      // Multi-file upload of NON-adjacent imagery: `scene` is the first /
+      // active one, `queue` holds every uploaded scene in order. All are
+      // registered in recents; the switcher cycles the queue.
+      const { scene, queue } = action.payload;
+      const now = Date.now();
+      const batchEntries = queue.map(s => ({
+        scene_id: s.scene_id,
+        filename: s.filename,
+        processing_path: s.processing_path,
+        ts: now,
+      }));
+      const merged = [...batchEntries];
+      for (const s of state.recentScenes) {
+        if (!merged.some(m => m.scene_id === s.scene_id)) merged.push(s);
+      }
+      const recent = merged.slice(0, 10);
+      try { localStorage.setItem('dw_recent', JSON.stringify(recent)); } catch {}
+      return {
+        ...state,
+        status: AppState.SCENE_READY,
+        scene,
+        sceneQueue: queue,
+        error: null,
+        recentScenes: recent,
+      };
+    }
+
+    case Action.SWITCH_SCENE: {
+      // Jump to another scene from the current batch (terrain workspace
+      // switcher). Completed scenes land in RESULTS_READY so the terrain
+      // reloads immediately; unprocessed ones go back to SCENE_READY.
+      const targetId = action.payload;
+      if (targetId === state.scene?.scene_id) return state;
+      const fromQueue = state.sceneQueue.find(s => s.scene_id === targetId);
+      const fromRecent = state.recentScenes.find(s => s.scene_id === targetId);
+      const source = fromQueue ?? fromRecent;
+      if (!source) return state;
+      const hasResults = !!source.results || !!fromRecent?.results;
+      const results = source.results ?? fromRecent?.results ?? null;
+      const scene = {
+        scene_id: source.scene_id,
+        filename: source.filename,
+        format: source.format ?? (source.filename?.match(/\.tiff?$/i) ? 'GeoTIFF' : 'PNG'),
+        width: source.width ?? 0,
+        height: source.height ?? 0,
+        georeferenced: source.processing_path === 'absolute_dsm' || source.elevation_mode === 'absolute',
+        crs: source.crs ?? null,
+        processing_path: source.processing_path ?? (source.elevation_mode === 'relative' ? 'relative_dsm' : 'absolute_dsm'),
+        reference_available: !!results?.reference_dem_available,
+      };
+      return {
+        ...state,
+        status: hasResults ? AppState.RESULTS_READY : AppState.SCENE_READY,
+        scene,
+        results,
+        terrain: null,
+        validation: null,
+        job: null,
+        jobId: null,
+        error: null,
+      };
+    }
 
     case Action.START_PROCESSING:
       return { ...state, status: AppState.PROCESSING, jobId: action.payload, job: null, error: null };
@@ -310,7 +381,9 @@ export function AppProvider({ children }) {
   const actions = useMemo(() => ({
     startUpload: () => dispatch({ type: Action.START_UPLOAD }),
     uploadSuccess: (scene) => dispatch({ type: Action.UPLOAD_SUCCESS, payload: scene }),
+    uploadBatch: (scene, queue) => dispatch({ type: Action.UPLOAD_BATCH, payload: { scene, queue } }),
     uploadFail: (err) => dispatch({ type: Action.UPLOAD_FAIL, payload: err }),
+    switchScene: (sceneId) => dispatch({ type: Action.SWITCH_SCENE, payload: sceneId }),
     startProcessing: (jobId) => dispatch({ type: Action.START_PROCESSING, payload: jobId }),
     processingUpdate: (job) => dispatch({ type: Action.PROCESSING_UPDATE, payload: job }),
     processingDone: (results) => dispatch({ type: Action.PROCESSING_DONE, payload: results }),

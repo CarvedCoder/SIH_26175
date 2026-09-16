@@ -144,3 +144,24 @@ class TerrainResponse(BaseModel):
     )
     min_elevation: float | None = None
     max_elevation: float | None = None
+
+    # -- physical world footprint (real-world terrain scale) ----------------
+    world_width_m: float | None = Field(
+        default=None,
+        description="Real-world width (east-west) of the terrain footprint "
+        "in metres = raster width × GSD. For non-georeferenced scenes an "
+        "assumed 1 m/pixel fallback is used and "
+        "is_georeferenced_scale is False.",
+    )
+    world_depth_m: float | None = Field(
+        default=None,
+        description="Real-world depth (north-south) of the terrain footprint "
+        "in metres = raster height × GSD (same fallback rule as "
+        "world_width_m).",
+    )
+    is_georeferenced_scale: bool | None = Field(
+        default=None,
+        description="True when world_width_m/world_depth_m come from a real "
+        "CRS+transform GSD; False means the 1 m/pixel fallback was applied "
+        "(never invented GPS coordinates).",
+    )

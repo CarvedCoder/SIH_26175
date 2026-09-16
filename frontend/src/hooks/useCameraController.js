@@ -3,10 +3,13 @@
  *
  * Manages three camera modes for the terrain viewer:
  *   5.1 — Orbit: mouse drag rotates, scroll zooms, right-drag pans
- *   5.2 — Walkthrough (internal id 'first-person'): creative-style free
- *         flight — WASD strafe/advance, Space/Ctrl altitude, Shift boost,
- *         pointer-lock mouse look. The camera is never clamped to the
- *         terrain; only a small safety floor keeps it near the scene.
+ *   5.2 — Walkthrough (internal id 'first-person'): human-scale free flight
+ *         over the PHYSICAL terrain footprint — WASD strafe/advance at
+ *         metres/second, Space/Ctrl altitude, Shift boost, pointer-lock
+ *         mouse look, plus a touch joystick (no pointer lock needed). Entry
+ *         stands at a 1.7 m eye height above the terrain surface. The
+ *         camera is never clamped to the terrain; only soft, scene-scaled
+ *         bounds keep it near the slab.
  *   5.3 — Top-view: overhead view
  *
  * Returns { mode, setMode, resetCamera, attachOrbit, orbitRef, tickWalkthrough }
@@ -24,28 +27,46 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 /** @typedef {'orbit'|'first-person'|'top'} CameraMode */
 
-/* ─── Walkthrough tuning — all speeds in world units / second ─────────────
- * The terrain slab spans [-1, 1] on X/Z, so these feel fast on purpose:
- * normal flight crosses the scene in about a second, boost is for gaining
- * overview altitude quickly. Vertical is slightly slower for precision. */
-const WALKTHROUGH_SPEED = 2.0;
-const WALKTHROUGH_BOOST_SPEED = 6.0;
-const VERTICAL_SPEED = 1.6;
+/* ─── Walkthrough tuning — all speeds in METRES / second ──────────────────
+ * The terrain plane is sized to its real-world footprint (world_width_m ×
+ * world_depth_m from the backend; see TerrainCanvas), so speeds are physical:
+ * 5 m/s is a brisk inspection pace, boost ~4x for crossing large scenes.
+ * Vertical is slightly slower for precision. */
+const WALKTHROUGH_SPEED = 5.0;
+const WALKTHROUGH_BOOST_SPEED = 20.0;
+const VERTICAL_SPEED = 4.0;
 const MOUSE_SENSITIVITY = 0.0022;
+
+/* ─── Motion smoothing (Google-Maps-style damped movement) ─────────────────
+ * The walkthrough never starts or stops at full speed: actual velocity is
+ * exponentially eased toward the input's target velocity every frame, so
+ * tapping a key glides in and releasing it coasts to a stop. Time constants
+ * are in seconds (smaller = snappier); braking uses a longer constant than
+ * accelerating so stopping has a gentle settle instead of a hard stop. */
+const WALK_ACCEL_TAU  = 0.16;
+const WALK_DECEL_TAU  = 0.42;
+const VERT_ACCEL_TAU  = 0.20;
+const VERT_DECEL_TAU  = 0.50;
+
+/** Human eye height (metres) — the walkthrough camera stands this far above
+ * the terrain surface when entering the scene. */
+const EYE_HEIGHT_M = 1.7;
 
 /** Pitch clamp (±) — just short of straight up/down so the view never flips. */
 const PITCH_LIMIT = Math.PI / 2 - 0.08;
 
-/** Entry placement: altitude above the terrain centre, slight south offset,
- * and a gentle downward gaze so the surrounding relief reads immediately. */
-const WALKTHROUGH_START_CLEARANCE = 0.3;
-const WALKTHROUGH_START_OFFSET_Z = 0.35;
+/** Entry placement: altitude = terrain surface + EYE_HEIGHT_M, a slight
+ * south offset scaled to the scene size, and a gentle downward gaze so the
+ * surrounding relief reads immediately. */
 const WALKTHROUGH_START_PITCH = -0.32;
 
-/** Soft bounds — allow leaving the terrain slab briefly to look back at it,
- * without letting the camera drift far into the empty void. */
-const WALKTHROUGH_HORIZONTAL_BOUND = 1.6;
-const WALKTHROUGH_MIN_ALTITUDE = -0.2;
+/** Soft bounds — the walkthrough may leave the terrain slab briefly to look
+ * back at it, without drifting far into the void. Scaled to the physical
+ * footprint at runtime (65% beyond the half-extent). */
+const WALKTHROUGH_BOUND_FRACTION = 0.65;
+/** Lowest camera altitude (metres, relative to the terrain base plane y=0):
+ * a small margin below the slab for inspecting gullies, never far under. */
+const WALKTHROUGH_MIN_ALTITUDE_M = -2.0;
 
 /** Keys that drive the walkthrough, mapped to intent (Ctrl OR C descend). */
 const WALKTHROUGH_KEYS = {
@@ -57,6 +78,15 @@ const WALKTHROUGH_KEYS = {
   ControlLeft: 'down', ControlRight: 'down', KeyC: 'down',
   ShiftLeft: 'boost',  ShiftRight: 'boost',
 };
+
+/** Scene half-diagonal helper — scales camera poses and bounds to the
+ * physical footprint reported by the backend (g.worldWidth/worldDepth).
+ * Falls back to the legacy 2-unit footprint for legacy responses. */
+function sceneScale(g) {
+  const w = typeof g?.worldWidth === 'number' && g.worldWidth > 0 ? g.worldWidth : 2;
+  const d = typeof g?.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2;
+  return Math.max(w, d, 2);
+}
 
 /**
  * @param {{
@@ -71,6 +101,8 @@ const WALKTHROUGH_KEYS = {
  *     hmHeight: number,
  *     visualHeightScale: number,
  *     exaggeration: number,
+ *     worldWidth: number,
+ *     worldDepth: number,
  *   }>,
  * }} options
  */
@@ -83,7 +115,26 @@ export function useCameraController({ canvasRef, glRef }) {
     pitch: WALKTHROUGH_START_PITCH,
     locked: false,
     active: false,
+    // Joystick input (touch devices): horizontal {x: right+, y: forward+}
+    // in [-1,1], vertical {-1|0|1} for descend/none/ascend. Works WITHOUT
+    // pointer lock — touch users have no cursor to capture.
+    joy: { x: 0, y: 0 },
+    joyVertical: 0,
+    // Smoothed velocity (m/s) — eased toward the input target each frame so
+    // movement accelerates in and coasts to a stop (see WALK_*_TAU above).
+    vel: { x: 0, y: 0, z: 0 },
   });
+
+  /** Feed joystick horizontal movement (x: right+, y: forward+, [-1,1]). */
+  const setJoystickInput = useCallback((x, y) => {
+    fpState.current.joy.x = Math.max(-1, Math.min(1, Number(x) || 0));
+    fpState.current.joy.y = Math.max(-1, Math.min(1, Number(y) || 0));
+  }, []);
+
+  /** Feed joystick vertical intent: +1 ascend, -1 descend, 0 none. */
+  const setJoystickVertical = useCallback((v) => {
+    fpState.current.joyVertical = Math.sign(Number(v) || 0);
+  }, []);
 
   /* ── Resolve the actual <canvas> DOM element ─────────────────────────
    * R3F wraps the WebGL canvas inside its own container div, so
@@ -108,8 +159,10 @@ export function useCameraController({ canvasRef, glRef }) {
     if (!g.heightData || !g.hmWidth || !g.hmHeight) return 0;
     const px = Math.min(Math.max(Math.round(nx * (g.hmWidth - 1)), 0), g.hmWidth - 1);
     const pz = Math.min(Math.max(Math.round(nz * (g.hmHeight - 1)), 0), g.hmHeight - 1);
-    // Visual scale keeps the mesh proportional to its fixed [-1,1] footprint —
-    // never use the physical heightScale for camera placement here.
+    // Visual scale is the mesh's actual Y-units per heightmap step — the
+    // real elevation span (metres) on the physical-scale path, the legacy
+    // 0.22 constant on the fallback footprint. Either way this returns
+    // rendered world Y at the given normalised coords.
     const visualScale = (g.visualHeightScale ?? 0.22) * (g.exaggeration ?? 1);
     return g.heightData[pz * g.hmWidth + px] * visualScale;
   }, [glRef]);
@@ -124,12 +177,19 @@ export function useCameraController({ canvasRef, glRef }) {
     );
   }, []);
 
-  /** Tear down walkthrough interaction: keys, lock flag, browser pointer lock */
+  /** Tear down walkthrough interaction: keys, joystick, lock flag, browser
+   * pointer lock */
   const exitWalkthrough = useCallback(() => {
     const fp = fpState.current;
     fp.active = false;
     fp.locked = false;
     fp.keys.clear();
+    fp.joy.x = 0;
+    fp.joy.y = 0;
+    fp.joyVertical = 0;
+    fp.vel.x = 0;
+    fp.vel.y = 0;
+    fp.vel.z = 0;
     if (document.pointerLockElement) {
       try { document.exitPointerLock(); } catch { /* ignore */ }
     }
@@ -150,7 +210,8 @@ export function useCameraController({ canvasRef, glRef }) {
 
     if (newMode === 'orbit') {
       exitWalkthrough();
-      g.camera.position.set(0, 1.2, 2.5);
+      const d = sceneScale(g);
+      g.camera.position.set(0, d * 0.6, d * 1.25);
       if (orbit) {
         orbit.target?.set(0, 0, 0);
         orbit.update?.();
@@ -159,7 +220,7 @@ export function useCameraController({ canvasRef, glRef }) {
 
     if (newMode === 'top') {
       exitWalkthrough();
-      g.camera.position.set(0, 5, 0);
+      g.camera.position.set(0, sceneScale(g) * 2.5, 0);
       g.camera.lookAt(0, 0, 0);
       if (orbit) {
         orbit.target?.set(0, 0, 0);
@@ -168,16 +229,23 @@ export function useCameraController({ canvasRef, glRef }) {
     }
 
     if (newMode === 'first-person') {
-      // Enter Walkthrough: near the centre, slightly above the visual terrain
-      // surface with enough clearance to read the surrounding relief.
-      const startH = sampleVisualHeight(0.5, 0.5) + WALKTHROUGH_START_CLEARANCE;
+      // Enter Walkthrough: a human's eye height above the terrain surface,
+      // slightly south of centre so the relief reads immediately.
+      const d = sceneScale(g);
+      const startH = sampleVisualHeight(0.5, 0.5) + EYE_HEIGHT_M;
       const fp = fpState.current;
       fp.yaw = 0;
       fp.pitch = WALKTHROUGH_START_PITCH;
       fp.locked = false;
       fp.active = true;
       fp.keys.clear();
-      g.camera.position.set(0, startH, WALKTHROUGH_START_OFFSET_Z);
+      fp.joy.x = 0;
+      fp.joy.y = 0;
+      fp.joyVertical = 0;
+      fp.vel.x = 0;
+      fp.vel.y = 0;
+      fp.vel.z = 0;
+      g.camera.position.set(0, startH, d * 0.05);
       applyLook(g.camera, fp);
     }
   }, [glRef, sampleVisualHeight, applyLook, exitWalkthrough]);
@@ -187,7 +255,8 @@ export function useCameraController({ canvasRef, glRef }) {
     const g = glRef.current;
     if (!g.camera) return;
     exitWalkthrough();
-    g.camera.position.set(0, 1.2, 2.5);
+    const d = sceneScale(g);
+    g.camera.position.set(0, d * 0.6, d * 1.25);
     const orbit = g.orbit || orbitRef.current;
     if (orbit) {
       orbit.target?.set(0, 0, 0);
@@ -302,6 +371,17 @@ export function useCameraController({ canvasRef, glRef }) {
   /**
    * Walkthrough camera tick — called every frame from the render loop in
    * TerrainCanvas (delta-time based, so speed is frame-rate independent).
+   *
+   * Input sources merge: keyboard (only while the pointer is locked) and
+   * the joystick vector (works without pointer lock — touch devices have
+   * no cursor to capture). Speeds are METRES/second over the physical
+   * terrain footprint.
+   *
+   * Motion is smoothed (Google-Maps-style): the input defines a *target*
+   * velocity and the actual velocity is exponentially eased toward it each
+   * frame — accelerating in on key press, coasting to a gentle stop on
+   * release, and blending smoothly through boost on/off and analog
+   * joystick deflection.
    */
   const tickWalkthrough = useCallback((dt) => {
     const g  = glRef.current;
@@ -309,19 +389,22 @@ export function useCameraController({ canvasRef, glRef }) {
     if (!fp.active || !g.camera) return;
 
     const cam = g.camera;
+    const vel = fp.vel;
 
     // Always apply look (so the camera orientation stays correct even
     // if the user just moved the mouse without pressing any movement keys)
     applyLook(cam, fp);
 
-    // Movement only while pointer is locked
-    if (!fp.locked) return;
-
     const keys = fp.keys;
-    if (keys.size === 0) return;
+    const locked = fp.locked;
+    const joy = fp.joy;
+    const joyActive = joy.x !== 0 || joy.y !== 0 || fp.joyVertical !== 0;
 
-    const boost = keys.has('ShiftLeft') || keys.has('ShiftRight');
-    const speed = (boost ? WALKTHROUGH_BOOST_SPEED : WALKTHROUGH_SPEED) * dt;
+    // Keyboard movement only while locked; joystick always. With no input
+    // at all, keep easing velocity toward zero so an in-progress coast
+    // finishes smoothly (e.g. right after Escape releases the lock).
+    const boost = locked && (keys.has('ShiftLeft') || keys.has('ShiftRight'));
+    const targetSpeed = boost ? WALKTHROUGH_BOOST_SPEED : WALKTHROUGH_SPEED;
 
     // Horizontal movement is yaw-relative (walking-style, independent of
     // pitch) — looking down while pressing W overflies, it does not dive.
@@ -330,27 +413,71 @@ export function useCameraController({ canvasRef, glRef }) {
     const fwdX = -sinYaw;
     const fwdZ = -cosYaw;
 
-    let dx = 0, dz = 0;
-    if (keys.has('KeyW') || keys.has('ArrowUp'))    { dx += fwdX; dz += fwdZ; }
-    if (keys.has('KeyS') || keys.has('ArrowDown'))  { dx -= fwdX; dz -= fwdZ; }
-    if (keys.has('KeyA') || keys.has('ArrowLeft'))  { dx -= cosYaw; dz += sinYaw; }
-    if (keys.has('KeyD') || keys.has('ArrowRight')) { dx += cosYaw; dz -= sinYaw; }
+    let ix = 0, iz = 0;
+    if (locked) {
+      if (keys.has('KeyW') || keys.has('ArrowUp'))    { ix += fwdX; iz += fwdZ; }
+      if (keys.has('KeyS') || keys.has('ArrowDown'))  { ix -= fwdX; iz -= fwdZ; }
+      if (keys.has('KeyA') || keys.has('ArrowLeft'))  { ix -= cosYaw; iz += sinYaw; }
+      if (keys.has('KeyD') || keys.has('ArrowRight')) { ix += cosYaw; iz -= sinYaw; }
+    }
+    // Joystick: y+ = forward, x+ = strafe right (same intents as keys)
+    if (joy.y !== 0) { ix += fwdX * joy.y; iz += fwdZ * joy.y; }
+    if (joy.x !== 0) { ix += cosYaw * joy.x; iz -= sinYaw * joy.x; }
 
-    // Normalise so diagonal flight isn't faster than cardinal flight
-    const hLen = Math.hypot(dx, dz);
-    if (hLen > 0) { dx /= hLen; dz /= hLen; }
+    // Normalise so diagonal movement isn't faster than cardinal movement
+    const hLen = Math.hypot(ix, iz);
+    if (hLen > 1) { ix /= hLen; iz /= hLen; }
 
-    let dy = 0;
-    if (keys.has('Space')) dy += 1;
-    if (keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC')) dy -= 1;
+    let iy = 0;
+    if (locked) {
+      if (keys.has('Space')) iy += 1;
+      if (keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC')) iy -= 1;
+    }
+    if (fp.joyVertical !== 0) iy += fp.joyVertical;
 
-    // Free flight: no terrain clamping — only the soft bounds below.
+    // Target velocity in world space (m/s)
+    const tx = ix * targetSpeed;
+    const tz = iz * targetSpeed;
+    const ty = iy * VERTICAL_SPEED;
+
+    // Ease actual velocity toward the target. Separate time constants for
+    // speeding up vs slowing down give a soft, settle-to-stop coast; the
+    // exp form is frame-rate independent for any dt.
+    const hMovingIn = Math.hypot(tx, tz) > Math.hypot(vel.x, vel.z);
+    const hTau = hMovingIn ? WALK_ACCEL_TAU : WALK_DECEL_TAU;
+    const vMovingIn = Math.abs(ty) > Math.abs(vel.y);
+    const vTau = vMovingIn ? VERT_ACCEL_TAU : VERT_DECEL_TAU;
+    const hk = 1 - Math.exp(-dt / hTau);
+    const vk = 1 - Math.exp(-dt / vTau);
+    vel.x += (tx - vel.x) * hk;
+    vel.z += (tz - vel.z) * hk;
+    vel.y += (ty - vel.y) * vk;
+
+    // Integrate. When fully at rest (input gone and velocity decayed below
+    // perception threshold), snap to zero to avoid endless micro-drift.
+    if (!locked && !joyActive && Math.hypot(vel.x, vel.y, vel.z) < 0.01) {
+      vel.x = 0; vel.y = 0; vel.z = 0;
+    }
+
+    // Free flight: no terrain clamping — only the soft, physically-scaled
+    // bounds below (they read g.worldWidth/worldDepth each tick, so they
+    // follow the loaded scene's footprint). Clamping also kills the velocity
+    // component pressing into the wall so the camera doesn't stick under
+    // sustained input.
+    const d = sceneScale(g);
+    const bound = d * (0.5 + WALKTHROUGH_BOUND_FRACTION * 0.5);
     const pos = cam.position;
-    pos.x = Math.max(-WALKTHROUGH_HORIZONTAL_BOUND,
-              Math.min(WALKTHROUGH_HORIZONTAL_BOUND, pos.x + dx * speed));
-    pos.z = Math.max(-WALKTHROUGH_HORIZONTAL_BOUND,
-              Math.min(WALKTHROUGH_HORIZONTAL_BOUND, pos.z + dz * speed));
-    pos.y = Math.max(WALKTHROUGH_MIN_ALTITUDE, pos.y + dy * VERTICAL_SPEED * dt);
+    pos.x += vel.x * dt;
+    pos.z += vel.z * dt;
+    pos.y += vel.y * dt;
+    if (pos.x < -bound) { pos.x = -bound; vel.x = 0; }
+    if (pos.x >  bound) { pos.x =  bound; vel.x = 0; }
+    if (pos.z < -bound) { pos.z = -bound; vel.z = 0; }
+    if (pos.z >  bound) { pos.z =  bound; vel.z = 0; }
+    if (pos.y < WALKTHROUGH_MIN_ALTITUDE_M) {
+      pos.y = WALKTHROUGH_MIN_ALTITUDE_M;
+      vel.y = 0;
+    }
 
     applyLook(cam, fp);
   }, [glRef, applyLook]);
@@ -362,5 +489,7 @@ export function useCameraController({ canvasRef, glRef }) {
     attachOrbit,
     orbitRef,
     tickWalkthrough,
+    setJoystickInput,
+    setJoystickVertical,
   };
 }

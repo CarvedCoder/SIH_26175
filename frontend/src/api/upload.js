@@ -27,3 +27,21 @@ export async function uploadScene(file, opts = {}) {
 export async function validateScene(sceneId) {
   return apiFetch(`/scenes/${sceneId}/validate`, { method: 'POST' });
 }
+
+/**
+ * Attempt to merge additional GeoTIFF files into an existing scene as a
+ * mosaic (adjacent-tile auto-detection). Rejects with an error whose
+ * `status` is 400 when the inputs are NOT genuinely adjacent tiles
+ * (CRS / ground-resolution / footprint mismatch) — callers should fall
+ * back to treating each file as its own scene.
+ * POST /scenes/{id}/mosaic
+ * @param {string} sceneId
+ * @param {File[]} files - 2+ GeoTIFF files (the already-uploaded scene
+ *   input re-sent first, then the remaining tiles)
+ * @returns {Promise<import('../types/api.js').SceneUploadResponse>}
+ */
+export async function mosaicScenes(sceneId, files) {
+  const form = new FormData();
+  for (const file of files) form.append('files', file);
+  return apiFetch(`/scenes/${sceneId}/mosaic`, { method: 'POST', body: form });
+}

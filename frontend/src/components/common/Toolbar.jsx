@@ -74,8 +74,9 @@ export default function Toolbar({
   const [openMenu, setOpenMenu] = useState(null); // 'layers' | 'measure' | 'compare' | 'terrain' | 'camera' | null
   const toolbarRef = useRef(null);
 
-  // Terrain settings state
-  const [exaggeration, setExaggeration] = useState(1.5);
+  // Terrain settings state (default 2.5× — true-metric relief over a wide
+  // footprint reads pancake-flat at 1×; matches TerrainCanvas initial value)
+  const [exaggeration, setExaggeration] = useState(2.5);
   const [wireframe, setWireframe]       = useState(false);
   const [contours, setContours]         = useState(false);
   const [contourInterval, setContourInterval] = useState(5);
@@ -109,11 +110,11 @@ export default function Toolbar({
   /* ── Reset action (§26) ── */
   const handleReset = useCallback(() => {
     terrainRef.current?.resetCamera();
-    terrainRef.current?.setExaggeration(1.5);
+    terrainRef.current?.setExaggeration(2.5);
     terrainRef.current?.setWireframe(false);
     terrainRef.current?.setContours(false, 5);
     terrainRef.current?.setFog?.(false);
-    setExaggeration(1.5);
+    setExaggeration(2.5);
     setWireframe(false);
     setContours(false);
     setContourInterval(5);
@@ -209,7 +210,7 @@ export default function Toolbar({
         label="Terrain"
         icon={Mountain}
         isOpen={openMenu === 'terrain'}
-        isActive={wireframe || contours || fog || exaggeration !== 1.5}
+        isActive={wireframe || contours || fog || exaggeration !== 2.5}
         onToggle={() => toggleMenu('terrain')}
       />
 
