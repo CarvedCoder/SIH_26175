@@ -64,13 +64,27 @@ def test_adjacent_pair_merges_into_one_raster(adjacent_pair):
         assert ds.bounds.right == pytest.approx(right_b)
 
 
-def test_overlapping_inputs_take_last_value_in_overlap(tmp_path):
-    """Overlapping (not just adjacent) tiles merge; the merge algorithm's
-    documented last-wins order resolves the overlap deterministically."""
+def test_overlapping_inputs_feather_smoothly_in_overlap(tmp_path):
+    """Overlapping (not just adjacent) tiles merge with a FEATHERED blend:
+    the overlap band ramps smoothly from A's value to B's value instead of
+    the old hard last-wins cut, which showed as a seam in the projected
+    RGB texture. Single-source regions stay pixel-exact (normalisation)."""
     a = _write_tif(tmp_path / "a.tif", left=0.0, top=100.0, value=1.0)
     b = _write_tif(tmp_path / "b.tif", left=16.0, top=100.0, value=2.0)
     result = mosaic_rasters([a, b])
     assert result.profile["width"] == 96  # 64 + 64 - 32 overlap
+
+    row = result.data[0, 32, :].astype(np.float64)  # mid-height transect
+    # A-only region: exact source value (weight normalises back to 1)
+    assert row[4] == pytest.approx(1.0, abs=1e-6)
+    # B-only region: exact source value
+    assert row[-5] == pytest.approx(2.0, abs=1e-6)
+    # The overlap band (cols 32..64) is a smooth ramp: its interior is
+    # strictly between the two sources, and no adjacent-column jump is
+    # larger than a fraction of the total 1.0 step (the old hard cut
+    # jumped 1.0 at a single pixel boundary)
+    assert np.all(row[36:60] > 1.0) and np.all(row[36:60] < 2.0)
+    assert np.abs(np.diff(row[30:66])).max() < 0.2
 
 
 def test_nodata_gaps_are_explicit_not_interpolated(tmp_path):

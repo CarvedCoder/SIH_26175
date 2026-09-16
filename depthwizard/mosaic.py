@@ -41,13 +41,145 @@ from pathlib import Path
 import numpy as np
 import rasterio
 from rasterio.crs import CRS
-from rasterio.merge import merge as _rio_merge
-from rasterio.transform import Affine
+from rasterio.transform import Affine, from_origin
 
 #: Relative tolerance when comparing pixel sizes across inputs (floats in
 #: geotransforms are never bit-identical across exports; 1e-6 is tight
 #: enough that a genuinely different resolution cannot slip through).
 _RESOLUTION_RTOL = 1e-6
+
+#: Feathering (overlap blending): each source's contribution is weighted by
+#: a Gaussian-blurred footprint mask, so inside an overlap band the blend
+#: ramps smoothly from one source's values to the other's instead of the
+#: hard "last tile wins" cut rasterio.merge applies by default — that hard
+#: cut showed as a visible seam line in the projected RGB texture whenever
+#: adjacent survey tiles' radiometry differed slightly. Sigma is a fraction
+#: of the source's smaller pixel dimension, clamped to sane absolute bounds.
+_FEATHER_SIGMA_FRACTION = 0.05
+_FEATHER_SIGMA_MIN_PX = 8.0
+_FEATHER_SIGMA_MAX_PX = 96.0
+
+
+def _box_blur(a: np.ndarray, radius: int) -> np.ndarray:
+    """Edge-padded 2-D box blur (separable, O(N) via cumsum), 3 passes —
+    the standard box-blur approximation of a Gaussian with sigma≈radius."""
+    out = a.astype(np.float64)
+    for _ in range(3):
+        for axis in (0, 1):
+            n = out.shape[axis]
+            if n == 0 or radius <= 0:
+                continue
+            ap = np.concatenate(
+                [np.repeat(out.take([0], axis=axis), radius, axis=axis),
+                 out,
+                 np.repeat(out.take([-1], axis=axis), radius, axis=axis)],
+                axis=axis,
+            )
+            c = np.cumsum(ap, axis=axis)
+            zeros_shape = list(c.shape)
+            zeros_shape[axis] = 1
+            c = np.concatenate([np.zeros(zeros_shape), c], axis=axis)
+            win = 2 * radius + 1
+            out = (np.take(c, np.arange(win, win + n), axis=axis)
+                   - np.take(c, np.arange(0, n), axis=axis)) / win
+    return out
+
+
+def _gaussian_feather(mask: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian-blur a boolean footprint mask (float32, same shape).
+
+    The mask is zero-padded by 3σ before blurring: an edge-replicated
+    blur of a mask that fills its own array (the common all-valid
+    footprint) would never ramp at the source's edge — and the edge ramp
+    is exactly the feather.
+    """
+    pad = int(np.ceil(3.0 * sigma))
+    padded = np.zeros(
+        (mask.shape[0] + 2 * pad, mask.shape[1] + 2 * pad), dtype=np.float64
+    )
+    padded[pad : pad + mask.shape[0], pad : pad + mask.shape[1]] = mask
+    blurred = _box_blur(padded, max(1, int(round(sigma))))
+    return blurred[pad : pad + mask.shape[0], pad : pad + mask.shape[1]].astype(np.float32)
+
+
+def _feathered_merge(
+    datasets: list[rasterio.DatasetReader],
+    height: int,
+    width: int,
+    transform: Affine,
+    nodata: float,
+) -> np.ndarray:
+    """Blend all sources onto the merged (height, width) grid, feathered.
+
+    Each source contributes ``value * weight`` where ``weight`` is its
+    Gaussian-feathered footprint mask (1.0 in the interior, ramping to 0
+    over ~2σ at the source's own edge). The final pixel value is the
+    weighted mean over contributing sources:
+
+        out = Σ(source * weight) / Σ(weight)
+
+    Consequences that matter:
+      * single-source regions normalise back to the EXACT source value
+        (w·v / w = v) — outer mosaic borders and non-overlapping edges
+        are pixel-perfect, never darkened;
+      * overlap bands ramp smoothly between the two sources — no seam line;
+      * uncovered pixels keep zero total weight and carry ``nodata`` —
+        coverage gaps stay explicit, never interpolated.
+    """
+    count = datasets[0].count
+    acc = np.zeros((count, height, width), dtype=np.float64)
+    wsum = np.zeros((height, width), dtype=np.float64)
+
+    for ds in datasets:
+        # Pixel placement of this source on the merged grid (the sources
+        # share one validated resolution, so bounds → pixel offsets are exact
+        # up to sub-pixel rounding of the geotransform).
+        col0, row0 = ~transform * (ds.bounds.left, ds.bounds.top)
+        c0, r0 = int(round(col0)), int(round(row0))
+        h, w = ds.height, ds.width
+
+        src = ds.read().astype(np.float64)
+        if nodata is not None:
+            valid = np.all(src != nodata, axis=0).astype(np.float32)
+        else:
+            valid = np.ones((h, w), dtype=np.float32)
+
+        sigma = float(
+            np.clip(
+                min(h, w) * _FEATHER_SIGMA_FRACTION,
+                _FEATHER_SIGMA_MIN_PX,
+                _FEATHER_SIGMA_MAX_PX,
+            )
+        )
+        # Weight from the FULL footprint (zero-padded blur), so a source
+        # extending past the merged grid doesn't get a spurious ramp at
+        # the grid border. The blurred step sits at 0.5 exactly ON the
+        # footprint edge — remapping (blur − 0.5)·2 makes the weight zero
+        # AT the edge and continuous on both sides (a plain blur×valid
+        # product would jump to ~0.5 just inside the edge — a hard step).
+        weight_full = np.clip(
+            (_gaussian_feather(valid > 0, sigma) - 0.5) * 2.0, 0.0, 1.0
+        ) * valid
+
+        # Copy the grid-intersecting sub-window.
+        sr, sc = max(0, -r0), max(0, -c0)
+        tr, tc = max(0, r0), max(0, c0)
+        hh = min(h - sr, height - tr)
+        ww = min(w - sc, width - tc)
+        if hh <= 0 or ww <= 0:
+            continue
+
+        weight = weight_full[sr : sr + hh, sc : sc + ww]
+        wsum[tr : tr + hh, tc : tc + ww] += weight
+        acc[:, tr : tr + hh, tc : tc + ww] += (
+            src[:, sr : sr + hh, sc : sc + ww] * weight[None, :, :]
+        )
+
+    out = np.full((count, height, width), nodata, dtype=np.float64)
+    covered = wsum > 0
+    for k in range(count):
+        out[k][covered] = acc[k][covered] / wsum[covered]
+    return out
 
 
 class MosaicError(ValueError):
@@ -162,9 +294,13 @@ def mosaic_rasters(paths: list[Path | str]) -> MosaicResult:
     """Merge spatially adjacent GeoTIFFs into one contiguous raster.
 
     Returns a :class:`MosaicResult`; the merged grid spans the union of the
-    inputs' bounds at the (validated, shared) input resolution. Where a
-    source does not cover the grid, the output carries ``nodata`` and the
-    profile reports it — coverage gaps are honest, never interpolated.
+    inputs' bounds at the (validated, shared) input resolution. Overlap
+    bands are FEATHERED (edge-distance weighted blend, see
+    :func:`_feathered_merge`) instead of rasterio.merge's hard last-wins
+    cut, so the joined part of the mosaic shows a smooth transition rather
+    than a seam. Where a source does not cover the grid, the output
+    carries ``nodata`` and the profile reports it — coverage gaps are
+    honest, never interpolated.
     """
     paths = [Path(p) for p in paths]
     names = [p.name for p in paths]
@@ -184,7 +320,6 @@ def mosaic_rasters(paths: list[Path | str]) -> MosaicResult:
         _validate_inputs(datasets, names)
 
         first = datasets[0]
-        merged, transform = _rio_merge(datasets)
         nodata = first.nodata
         if nodata is None:
             # Integer rasters default to 0 fill; floats document an explicit
@@ -195,11 +330,29 @@ def mosaic_rasters(paths: list[Path | str]) -> MosaicResult:
                 else -9999.0
             )
 
+        # Union grid: shared resolution (validated) × union of bounds.
+        res = abs(first.transform.a)
+        left = min(ds.bounds.left for ds in datasets)
+        right = max(ds.bounds.right for ds in datasets)
+        top = max(ds.bounds.top for ds in datasets)
+        bottom = min(ds.bounds.bottom for ds in datasets)
+        width = max(1, int(round((right - left) / res)))
+        height = max(1, int(round((top - bottom) / res)))
+        transform = from_origin(left, top, res, res)
+
+        merged = _feathered_merge(datasets, height, width, transform, nodata)
+
+        # Cast back to the input dtype (round for integers — the feathered
+        # mean is fractional and a truncating cast would bias it dark).
+        if np.issubdtype(np.dtype(first.dtypes[0]), np.integer):
+            merged = np.rint(merged)
+        merged = merged.astype(first.dtypes[0])
+
         profile = {
             "driver": "GTiff",
-            "height": merged.shape[1],
-            "width": merged.shape[2],
-            "count": merged.shape[0],
+            "height": height,
+            "width": width,
+            "count": first.count,
             "dtype": first.dtypes[0],
             "crs": first.crs,
             "transform": transform,
@@ -215,7 +368,7 @@ def mosaic_rasters(paths: list[Path | str]) -> MosaicResult:
             }
             for i, ds in enumerate(datasets)
         ]
-        return MosaicResult(data=merged.astype(first.dtypes[0], copy=False), profile=profile, sources=sources)
+        return MosaicResult(data=merged, profile=profile, sources=sources)
     finally:
         for ds in datasets:
             ds.close()
