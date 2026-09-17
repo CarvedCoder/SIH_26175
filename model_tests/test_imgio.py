@@ -596,7 +596,7 @@ def test_calibrationnet_rgb_normalized_exactly_once(tmp_path):
 def test_run_inference_png_end_to_end_no_backbone(tmp_path):
     """PNG (not georeferenced) -> dsm.npy + preview, NO dsm.tif, and the
     payload keeps the honest georef contract."""
-    torch = pytest.importorskip("torch")
+    pytest.importorskip("torch")
     from model_tests.test_inference import _make_checkpoint
     from depthwizard.inference import run_inference
 

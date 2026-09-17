@@ -27,7 +27,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from depthwizard.calibration_net import CalibrationNet
-from depthwizard.dataset import DFC2019Config, IMAGENET_MEAN, IMAGENET_STD
+from depthwizard.dataset import DFC2019Config
 from depthwizard.geo import TilePaths, dump_json
 from depthwizard.metrics import pooled_metrics
 from depthwizard.normalize import clean_agl, minmax_normalize, valid_target_mask

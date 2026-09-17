@@ -496,7 +496,6 @@ class TerrainService:
         minimap is a rendering of the predicted DSM (grayscale, height =
         brightness), NOT new model output.
         """
-        from PIL import Image
 
         dsm = self._load_dsm_array(scene_id)
         out_path = self.get_output_dir(scene_id) / "minimap.png"

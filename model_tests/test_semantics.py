@@ -17,11 +17,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from depthwizard.datasets.semantics import (IGNORE, NUM_PROJECT_CLASSES,
-                                             PROJECT_CLASSES,
+from depthwizard.datasets.semantics import (NUM_PROJECT_CLASSES, PROJECT_CLASSES,
                                              PROJECT_CLASS_TO_INDEX,
-                                             RAW_LEGENDS, class_to_project,
-                                             legend_report, semantic_layers)
+                                             RAW_LEGENDS,
+                                             class_to_project, legend_report,
+                                             semantic_layers)
 
 
 def test_project_class_system_frozen():

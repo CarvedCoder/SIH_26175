@@ -20,10 +20,6 @@ from fastapi.testclient import TestClient
 
 import backend.app.core.config as config_module
 import backend.app.jobs.manager as manager_module
-from backend.app.core.paths import (
-    get_scene_output_dir,
-    get_scene_raw_dir,
-)
 
 
 @pytest.fixture(autouse=True)
@@ -121,7 +117,6 @@ def mock_inference(tmp_path, monkeypatch):
     Yields a recorder list of (input_path, kwargs) calls.
     """
     import rasterio
-    from rasterio.transform import from_origin
 
     import backend.app.services.processing_service as ps
 

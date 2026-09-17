@@ -26,11 +26,10 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from depthwizard.dataset import DFC2019Config, DFC2019Dataset
-from depthwizard.datasets import (DFC2019Adapter, GAMUSConfig, GAMUSDataset,
-                                  MixedDataset, build_datasets,
-                                  discover_and_split_adapter)
-from depthwizard.datasets.gamus import (GAMUSSample, build_gamus_datasets,
-                                        list_gamus_samples, read_gamus_h5)
+from depthwizard.datasets import (DFC2019Adapter, GAMUSConfig, MixedDataset,
+                                  build_datasets, discover_and_split_adapter)
+from depthwizard.datasets.gamus import (build_gamus_datasets, list_gamus_samples,
+                                        read_gamus_h5)
 from depthwizard.geo import TilePaths, depth_npy_candidates
 from tools.make_fake_dataset import make_tile, write_tif
 

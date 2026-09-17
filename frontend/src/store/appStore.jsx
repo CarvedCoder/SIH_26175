@@ -100,10 +100,19 @@ const initialState = {
   terrain: null,
   validation: null,
   error: null,
-  // Current multi-upload batch, in upload order (session-only — switching
-  // tabs in the terrain workspace cycles through these). Adjacent GeoTIFF
-  // tiles that merged into one mosaic scene never land here.
-  sceneQueue: [],
+  // Current multi-upload batch, in upload order. Session-persisted so a
+  // page refresh mid-batch keeps the switcher working (recentScenes
+  // carries the completed results; see sessionStorage below). Adjacent
+  // GeoTIFF tiles that merged into one mosaic scene never land here.
+  sceneQueue: (() => {
+    try {
+      const stored = sessionStorage.getItem('dw_scene_queue');
+      const parsed = stored ? JSON.parse(stored) : null;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })(),
   recentScenes: (() => {
     try {
       const stored = localStorage.getItem('dw_recent');
@@ -212,7 +221,10 @@ function reducer(state, action) {
         if (!merged.some(m => m.scene_id === s.scene_id)) merged.push(s);
       }
       const recent = merged.slice(0, 10);
-      try { localStorage.setItem('dw_recent', JSON.stringify(recent)); } catch {}
+      try {
+        localStorage.setItem('dw_recent', JSON.stringify(recent));
+        sessionStorage.setItem('dw_scene_queue', JSON.stringify(queue));
+      } catch {}
       return {
         ...state,
         status: AppState.SCENE_READY,
@@ -359,7 +371,8 @@ function reducer(state, action) {
     }
 
     case Action.RESET:
-      return { ...initialState, recentScenes: state.recentScenes };
+      try { sessionStorage.removeItem('dw_scene_queue'); } catch {}
+      return { ...initialState, recentScenes: state.recentScenes, sceneQueue: [] };
 
     default:
       return state;

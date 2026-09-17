@@ -65,7 +65,6 @@ def _box_filter(
         ic = np.zeros_like(ii)
         ic[1:, 1:] = np.cumsum(np.cumsum(qm, axis=0), axis=1)
 
-    lo, hi = 1, n_y + n_x  # slice bookkeeping below uses 2r+2 / 1 offsets
     s_hi = 2 * r + 2
     win = (
         ii[s_hi : s_hi + n_y, s_hi : s_hi + n_x]

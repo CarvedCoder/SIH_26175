@@ -41,7 +41,6 @@ AGL_SUFFIXES = ("_AGL.tif", "_AGL.tiff", "_AGL.TIF")
 CLS_SUFFIXES = ("_CLS.tif", "_CLS.tiff", "_CLS.TIF")
 
 from typing import TypedDict
-import numpy as np
 
 
 class TileMeta(TypedDict):
