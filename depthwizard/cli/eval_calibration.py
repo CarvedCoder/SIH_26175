@@ -472,7 +472,7 @@ def run(args) -> int:
     import torch
 
     cfg = load_config(args.config)
-    paths, mcfg = cfg["paths"], cfg["model"]
+    paths = cfg["paths"]
     device = resolve_device(args.device)
     cache_dir = resolve_cache(paths, args.cache_subdir)
 

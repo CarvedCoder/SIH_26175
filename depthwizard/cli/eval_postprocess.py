@@ -37,7 +37,6 @@ from __future__ import annotations
 import argparse
 import csv
 import time
-from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -201,7 +200,7 @@ def _make_tta_predict_fn(model, device, backbone_holder):
     everything itself so tta.tta_fuse only has to transform RGB."""
 
     def predict_aug(rgb_aug_u8: np.ndarray) -> np.ndarray:
-        import torch
+        pass
 
         from depthwizard.inference import TILE, tile_bounds
         from depthwizard.normalize import minmax_normalize
@@ -421,7 +420,7 @@ def _save_eval_arrays(arr_dir, dn, agl_raw, agl_gt, onehot, refined, variant):
 
 
 def run(args) -> int:
-    import torch
+    pass
 
     from depthwizard.datasets.factory import build_dataset
     from depthwizard.geo import dump_json

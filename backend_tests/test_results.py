@@ -32,14 +32,18 @@ def test_results_of_processed_scene(client, processed_scene):
 
 
 def test_results_without_job_report_null_provenance(client, uploaded_scene, mock_inference):
-    """Result files exist but the job record was removed: status reflects
-    the artifacts, and job_id is honest null — never 'unknown'."""
+    """Result files exist but the job record was removed everywhere (memory
+    AND the on-disk job store): status reflects the artifacts, and job_id is
+    honest null — never 'unknown'. Note: with the disk-backed job store,
+    clearing only the in-memory cache no longer hides provenance — the
+    persisted job is correctly still reported."""
     scene_id = uploaded_scene["scene_id"]
     client.post(f"/api/v1/scenes/{scene_id}/process", json={})
 
     from backend.app.jobs import manager as manager_module
 
     manager_module.job_manager._jobs.clear()
+    manager_module.job_manager.delete_jobs_for_scene(scene_id)
 
     body = client.get(f"/api/v1/scenes/{scene_id}/results").json()
     assert body["status"] == "completed"

@@ -25,7 +25,7 @@ No normalization of the calibrated signal happens anywhere in this package.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Dict
 
 METHODS = (

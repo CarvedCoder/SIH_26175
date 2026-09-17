@@ -54,7 +54,6 @@ def pairwise_semantic_similarity(
     contribution; the caller's Laplacian simply ignores them).
     """
     p = _check_probs(sem_probs)
-    k = p.shape[0]
     s = np.sqrt(np.clip(p, 0.0, 1.0))
 
     right = np.ones(p.shape[1:], dtype=np.float32)

@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -222,3 +221,54 @@ def test_cancel_during_inference_ends_cancelled(
 
     # partial outputs were discarded
     assert not (get_scene_output_dir(scene_id) / "dsm.npy").exists()
+
+
+# ---------------------------------------------------------------------------
+# Disk-backed (stateless) semantics: restart survival + interrupted jobs
+# ---------------------------------------------------------------------------
+
+
+def test_completed_job_survives_manager_restart(fresh_job_manager):
+    """A NEW JobManager instance (simulating a server restart) must read the
+    same job state from disk — in-memory state is only a cache."""
+    from backend.app.jobs.manager import JobManager
+
+    job = fresh_job_manager.create_job("scene_000000000001")
+    fresh_job_manager.update_job(
+        job.job_id, status="completed", result={"elevation_mode": "absolute"}
+    )
+
+    restarted = JobManager(retention_limit=8, ttl_seconds=3600)
+    revived = restarted.get_job(job.job_id)
+    assert revived is not None
+    assert revived.status == "completed"
+    assert revived.result == {"elevation_mode": "absolute"}
+
+
+def test_orphaned_processing_job_fails_on_read_after_restart(fresh_job_manager):
+    """A job left 'processing' by a dead process must become an honest
+    JOB_INTERRUPTED failure on the next read — never stuck at 'processing'
+    forever."""
+    import os
+
+    from backend.app.jobs.manager import JobManager
+
+    job = fresh_job_manager.create_job("scene_000000000001")
+    fresh_job_manager.update_job(job.job_id, status="processing")
+
+    # Simulate the restart: the on-disk record points at a dead PID and
+    # the fresh manager has no memory of the job.
+    path = fresh_job_manager._job_path(job.scene_id, job.job_id)
+    import json
+
+    data = json.loads(path.read_text())
+    data["owner_pid"] = 2 ** 22  # PID that cannot exist in this test env
+    path.write_text(json.dumps(data))
+
+    restarted = JobManager(retention_limit=8, ttl_seconds=3600)
+    revived = restarted.get_job(job.job_id)
+    assert revived.status == "failed"
+    assert revived.error["code"] == "JOB_INTERRUPTED"
+    # and the failed state is persisted for every future reader
+    assert restarted.get_job(job.job_id).status == "failed"
+    assert os.getpid() != 2 ** 22

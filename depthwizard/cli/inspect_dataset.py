@@ -38,7 +38,6 @@ Exit code 0 = healthy; 1 = fatal structure/alignment problems (CI-friendly).
 from __future__ import annotations
 
 import argparse
-import sys
 from collections import Counter
 from pathlib import Path
 

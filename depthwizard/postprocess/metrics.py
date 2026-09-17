@@ -26,7 +26,6 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
-from ..datasets.semantics import PROJECT_CLASSES
 from ..metrics import height_metrics
 
 
@@ -56,7 +55,6 @@ def boundary_bands(
     Returns {'any', 'building', 'building_ground', 'building_veg', ...}
     -> bool [H,W] each: True within ``band_px`` of the respective boundary.
     """
-    k = onehot.shape[0]
     cls = onehot.argmax(axis=0)
     has_label = onehot.sum(axis=0) > 0.5  # ignore pixels excluded
     edge = np.zeros(cls.shape, dtype=bool)

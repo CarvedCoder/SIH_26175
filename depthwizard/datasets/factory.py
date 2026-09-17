@@ -38,9 +38,8 @@ passed through — the factory only owns DATASET identity and sources.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Mapping, Optional
+from typing import Mapping
 
-from .base import AdapterConfig
 
 
 def build_dfc2019(
@@ -56,7 +55,7 @@ def build_dfc2019(
 ) -> Mapping[str, "object"]:
     """{train,val,test} DFC2019Adapter datasets (frozen split logic reused)."""
     from ..dataset import DFC2019Config
-    from .dfc2019 import DFC2019Adapter, discover_and_split_adapter
+    from .dfc2019 import discover_and_split_adapter
 
     rgb_dir = dataset_cfg.get("rgb_dir") or paths.get("rgb_dir")
     truth_dir = dataset_cfg.get("truth_dir") or paths.get("truth_dir")
