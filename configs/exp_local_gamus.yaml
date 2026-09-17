@@ -1,0 +1,54 @@
+# Experiment harness: local real-GAMUS subset (minimal-local protocol).
+#
+# Protocol (agreed with the user after the Section-0 audit):
+#   * The quoted flagship baseline (mixed-train -> 859-tile GAMUS val,
+#     MAE 2.770) is NOT reproducible in this environment: no DFC2019 rasters,
+#     no mixed stats-gate artifact, and outputs/calib_net/gamus_rgb_grad/best.pt
+#     is an untrained fixture (epoch 0, val_subset_mae 0.0).
+#   * Available real data: 78 train + 48 val official-GAMUS tiles (all DC
+#     city), already cached as raw DAv2 Dn under
+#     outputs/depth_cache/depth_anything_v2_base_hf/gamus/.
+#   * `gamus_full` is a symlink to the local HF snapshot of earthflow/GAMUS
+#     (raw layout images/|heights/|classes/{train,val}); gitignored by name.
+#   * The BASELINE column of the experiment table is therefore a re-trained
+#     CalibrationNet (EXACT current architecture + this recipe) evaluated on
+#     the SAME 48-tile val set as Exp 1/2 — internally consistent, but NOT
+#     comparable to the quoted 2.770 numbers.
+#   * Recipe copied verbatim from configs/gamus_phase2.yaml (crop 512,
+#     batch 1, epochs 40, lr 1e-3, wd 1e-4, grad clip 5, masked-L1, seed 42,
+#     patience 10, val_subset 48 = full local val split).
+#   * PHL MAE is not computable here: the local val split has no PHL tiles
+#     (DC only) — reported as n/a, never fabricated.
+
+paths:
+  depth_cache_dir: outputs/depth_cache
+  outputs_dir: outputs
+  affine_json: outputs/baseline/global_affine_gamus.json
+  splits_json: outputs/splits/splits.json
+
+dataset:
+  name: gamus
+  source: local
+  backend: hdf5
+  local_root: gamus_full
+  limit: 0
+  load_semantics: false
+
+model:
+  use_rgb: true
+  widths: [16, 32, 64]
+  clamp_min: 0.0
+
+train:
+  crop_size: 512
+  batch_size: 1
+  epochs: 40
+  lr: 0.001
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1
+  huber_delta: 5.0
+  workers: 1
+  val_subset: 48
+  patience: 10
+  seed: 42
