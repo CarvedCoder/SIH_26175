@@ -11,6 +11,7 @@ class ModelConfig:
     semantic_mode: str = "input"
     context: str = "none"
     clamp_min: float = 0.0
+    film: bool = False
 
 @dataclass
 class FusionConfig:

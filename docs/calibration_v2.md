@@ -87,6 +87,23 @@ global affine. Diagnostics (min/max/mean/std of Δa, Δb, a, b) are logged
 by the model summary; a saturated tanh (|Δ| pinned at the bound) means the
 bounds were too tight — diagnose before widening.
 
+### FiLM tile-statistics conditioning (`model.film: true`, `--film-stats`)
+
+Port of Exp 1 (Perez et al. 2018 FiLM): a 2-layer MLP maps the 4-scalar
+RAW-tile Dn statistics that per-tile min-max normalization discards —
+`[log min, log max, log range, log mean]` (`normalize.dn_tile_stats`) —
+to per-channel (gamma, beta) applied to the encoder-stage outputs and
+matching decoder outputs at levels 2..depth (`TileStatsFiLM`,
+`calibration_net.py`). Identity init (gamma=1, beta=0) preserves the
+exact-baseline start. ~6.3k params at widths [16,32,64].
+
+Honest degradation mirrors the semantic zero-fill: a missing stats vector
+is zero-filled AND flagged (`out["stats_zero_filled"]`). Train/eval/infer
+all compute the stats at the same granularity the Dn was normalized at
+(`minmax_normalize_with_stats`), so conditioning always matches; the
+inference pipeline (crop/resize/tiles) computes them per normalization
+window.
+
 ### Configurable widths (`model.widths`)
 
 `[16,32,64]` (V1) up to `[32,64,128,256]` without code changes; parameter
@@ -184,6 +201,7 @@ Runner: `scratch/run_v2_ablations.sh`; configs `configs/v2_local_a*.yaml`.
 | A4 | residual_affine + bounded | done |
 | A5 | multi-scale + residual_affine | done |
 | A6 | ASPP-lite context | done |
+| A7 | FiLM tile-stats conditioning | done |
 | A9 | BerHu loss | done |
 
 ## 7. Known limitations / failure modes
@@ -197,6 +215,10 @@ Runner: `scratch/run_v2_ablations.sh`; configs `configs/v2_local_a*.yaml`.
 * `max_shift` (bounded ΔH scale, 10 m) is not yet configurable.
 * Confidence-as-input (`inputs.confidence`) is plumbed in the dataset
   layer but no confidence channel producer is wired end-to-end yet.
+* The Exp-1 FiLM feature is now ported into the v2 stack (`model.film`)
+  and evaluated (A7, negative on this subset); the `exp1-film-tile-stats`
+  branch itself remains unmerged (it contains an 11 MB binary and a
+  committed symlink — port, don't merge).
 
 ## 8. Results
 
@@ -212,6 +234,7 @@ Full 48-tile val, identical protocol for every row
 | A4 residual+bounded | 117,138 | 36 | 4.676 | 6.918 | 0.761 | −1.789 | 3.875 | — |
 | A5 multiscale+residual | 481,746 | 26 | 4.390 | 6.400 | 0.787 | −0.598 | 3.884 | — |
 | A6 ASPP-lite | 141,971 | 13 | 4.628 | 6.820 | 0.766 | −1.701 | 4.287 | — |
+| A7 FiLM tile-stats | 123,634 | 16 | 4.792 | 6.925 | 0.748 | −1.175 | 4.265 | — |
 | A9 BerHu | 117,138 | 25 | 4.593 | 6.625 | 0.772 | −1.092 | 4.434 | — |
 
 ### Reading the results (honest interpretation)
@@ -239,6 +262,15 @@ Full 48-tile val, identical protocol for every row
     the worst building error of the suite). On this 78-tile subset the
     adaptive threshold may let the few tall-building pixels dominate.
     Keep BerHu available but not default.
+  * **A7 (FiLM tile-stats, the Exp-1 port) is negative on this subset**
+    (MAE 4.792, r 0.748 — worse than baseline on every global metric
+    except bias; early-stopped at epoch 16). The conditioning did not
+    transfer from hypothesis to measurement here. Caveats: only ~6.3k
+    extra params feeding levels 2+, a 78-tile training set, and a
+    48-tile DC-city val — the Section-1 normalization diagnosis may
+    still be real but is not confirmed by this measurement. Do not
+    enable `film` in the default configs; re-test on the full protocol
+    before writing it off.
   * **A2 (multiscale alone) is worse than baseline** (4.587); the wider
     A1 variant was the better capacity spend. Only helps when combined
     with residual parameterization (A5).

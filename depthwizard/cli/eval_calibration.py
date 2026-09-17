@@ -50,7 +50,12 @@ from depthwizard.metrics import (
     slope_error,
     stratified_by_project_class,
 )
-from depthwizard.normalize import clean_agl, minmax_normalize, valid_target_mask
+from depthwizard.normalize import (
+    clean_agl,
+    dn_tile_stats,
+    minmax_normalize,
+    valid_target_mask,
+)
 from depthwizard.scene_types import classify_scene, stratify_by_scene_type
 
 NAME = "evaluate"
@@ -100,6 +105,10 @@ def evaluate_split(net, ds, use_rgb: bool, device: str, cache_dir: Path):
         dn = torch.from_numpy(minmax_normalize(raw)[None, None].astype(np.float32)).to(
             device
         )
+        # RAW-tile stats at the same granularity dn was normalized at (the
+        # full tile) — the FiLM conditioning input (Exp 1); ignored by plain
+        # checkpoints (net.film_stats False).
+        st_t = torch.from_numpy(dn_tile_stats(raw)[None]).to(device)
         rgb = None
         if use_rgb:
             from depthwizard.dataset import IMAGENET_MEAN, IMAGENET_STD
@@ -108,7 +117,7 @@ def evaluate_split(net, ds, use_rgb: bool, device: str, cache_dir: Path):
             rgb_n = ((rgb_u8.astype(np.float32) / 255.0) - IMAGENET_MEAN) / IMAGENET_STD
             rgb = torch.from_numpy(rgb_n.transpose(2, 0, 1)[None]).to(device)
         with torch.no_grad():
-            pred = net(dn, rgb)["pred"][0, 0].cpu().numpy()
+            pred = net(dn, rgb, None, None, st_t)["pred"][0, 0].cpu().numpy()
         agl = clean_agl(read_tile(t)["agl"])
         m = valid_target_mask(agl)
         pooled_p.append(pred[m].ravel())
@@ -196,8 +205,13 @@ def evaluate_split_adapter(model, ds, device: str, dataset: str):
             if (use_sem and s.get("sem_onehot") is not None)
             else None
         )
+        stats = (
+            s["dn_stats"].to(device)
+            if (getattr(model, "film_stats", False) and s.get("dn_stats") is not None)
+            else None
+        )
         with torch.no_grad():
-            pred = net(dn, rgb, None, sem)["pred"][0, 0].cpu().numpy()
+            pred = net(dn, rgb, None, sem, stats)["pred"][0, 0].cpu().numpy()
         agl = s["agl"][0].numpy()  # adapter already clean_agl
         m = valid_target_mask(agl)
         pooled_p.append(pred[m].ravel())
@@ -385,8 +399,13 @@ def _run_gamus(args, cfg, ckpt, net, device, cache_dir, ckpt_dataset) -> int:
                 if (model.use_sem and s.get("sem_onehot") is not None)
                 else None
             )
+            stats = (
+                s["dn_stats"].to(device)
+                if (model.film_stats and s.get("dn_stats") is not None)
+                else None
+            )
             with torch.no_grad():
-                pred = net(dn, rgb, None, sem)["pred"][0, 0].cpu().numpy()
+                pred = net(dn, rgb, None, sem, stats)["pred"][0, 0].cpu().numpy()
             # de-normalize rgb for display
             from depthwizard.dataset import IMAGENET_MEAN, IMAGENET_STD
 
@@ -511,6 +530,7 @@ def run(args) -> int:
         context_module=str(ckpt.get("context_module", "none")),
         fusion_mode=str(ckpt.get("fusion_mode", "early")),
         use_uncertainty=bool(ckpt.get("use_uncertainty", False)),
+        film_stats=bool(ckpt.get("film_stats", False)),
     ).to(device)
     net.load_state_dict(ckpt["model_state"])
     net.eval()
@@ -615,6 +635,7 @@ def run(args) -> int:
             raw = np.load(f)
             dn_np = minmax_normalize(raw)
             dn = torch.from_numpy(dn_np[None, None].astype(np.float32)).to(device)
+            st_t = torch.from_numpy(dn_tile_stats(raw)[None]).to(device)
             rgb_np = read_tile(t)["rgb"]
             data = read_tile(t)
             rgb = None
@@ -626,7 +647,7 @@ def run(args) -> int:
                 ) / IMAGENET_STD
                 rgb = torch.from_numpy(rgb_n.transpose(2, 0, 1)[None]).to(device)
             with torch.no_grad():
-                pred = net(dn, rgb)["pred"][0, 0].cpu().numpy()
+                pred = net(dn, rgb, None, None, st_t)["pred"][0, 0].cpu().numpy()
             agl = clean_agl(data["agl"])
             _error_map(
                 t.stem,

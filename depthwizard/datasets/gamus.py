@@ -61,7 +61,7 @@ import numpy as np
 
 from .base import AdapterConfig, BaseDepthDataset
 from ..geo import depth_npy_candidates, dump_json
-from ..normalize import minmax_normalize
+from ..normalize import minmax_normalize, minmax_normalize_with_stats
 
 GAMUS_REPO_ID = "earthflow/GAMUS"
 GAMUS_SPLITS = ("train", "val", "test")
@@ -486,6 +486,38 @@ class GAMUSDataset(BaseDepthDataset):
             )
         return minmax_normalize(raw)  # single source of truth (normalize.py)
 
+    def _load_depth_with_stats(
+        self, sid: str, h: int, w: int
+    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """(normalized Dn, RAW-tile stats [4]) — FiLM conditioning (Exp 1).
+
+        Both come from the SAME cached raw .npy in one read: the stats are
+        exactly what minmax_normalize discards, computed at the same
+        granularity (the full training tile; random crops happen AFTER
+        normalization, so crop-invariant stats stay consistent with the
+        normalization the net actually sees).
+        """
+        depth_cache_dir = getattr(self.cfg, "depth_cache_dir", None)
+        if not self.cfg.load_depth or depth_cache_dir is None:
+            return None, None
+        candidates = depth_npy_candidates(depth_cache_dir, "gamus", sid)
+        f = next((p for p in candidates if p.exists()), None)
+        if f is None:
+            raise FileNotFoundError(
+                f"GAMUS depth cache miss for '{sid}': none of {candidates}. "
+                "Run `python model.py depth --dataset gamus ...` first, or "
+                "set load_depth=False."
+            )
+        raw = np.load(f)
+        if raw.shape != (h, w):
+            raise ValueError(
+                f"GAMUS depth cache for '{sid}' has shape {raw.shape}, tile "
+                f"grid is {(h, w)} — cache and tiles are out of sync. Delete "
+                "the stale .npy and re-run the depth command."
+            )
+        dn, stats = minmax_normalize_with_stats(raw)
+        return dn, stats
+
     # ------------------------------------------------------------------
     def _load_arrays(self, idx: int) -> Dict[str, object]:
         s: GAMUSSample = self.samples[idx]
@@ -522,7 +554,7 @@ class GAMUSDataset(BaseDepthDataset):
                 "do not proceed."
             )
 
-        dn = self._load_depth(s.sample_id, h, w)
+        dn, dn_stats = self._load_depth_with_stats(s.sample_id, h, w)
 
         meta = {
             "sample_id": s.sample_id,
@@ -539,6 +571,8 @@ class GAMUSDataset(BaseDepthDataset):
             "agl": agl,
             "cls": cls,
             "dn": dn,
+            "dn_stats": dn_stats,  # RAW-tile stats [4] (Exp 1 FiLM); None
+            # exactly when dn is None (no depth cache configured).
             "meta": meta,
             "dem_tag": None,
         }

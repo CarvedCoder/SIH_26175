@@ -52,6 +52,7 @@ class LoadedModel:
     context_module: str = "none"
     fusion_mode: str = "early"
     use_uncertainty: bool = False
+    film_stats: bool = False  # Exp 1 FiLM checkpoints (additive default)
 
     @property
     def tag(self) -> str:
@@ -192,6 +193,7 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
         context_module=context_module,
         fusion_mode=fusion_mode,
         use_uncertainty=use_uncertainty,
+        film_stats=bool(ckpt.get("film_stats", False)),
     ).to(device)
     net.load_state_dict(ckpt["model_state"])
     net.eval()
@@ -217,6 +219,7 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
         context_module=context_module,
         fusion_mode=fusion_mode,
         use_uncertainty=use_uncertainty,
+        film_stats=bool(ckpt.get("film_stats", False)),
     )
 
 
@@ -238,7 +241,11 @@ def make_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
     net.eval()
 
     @torch.no_grad()
-    def predict(dn: np.ndarray, rgb: Optional[np.ndarray] = None) -> np.ndarray:
+    def predict(
+        dn: np.ndarray,
+        rgb: Optional[np.ndarray] = None,
+        stats: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         dn_t = torch.from_numpy(
             np.ascontiguousarray(dn, dtype=np.float32)[None, None]
         ).to(device)
@@ -254,7 +261,17 @@ def make_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
             rgb_t = torch.from_numpy(
                 np.ascontiguousarray(rgb_n.transpose(2, 0, 1))[None]
             ).to(device)
-        pred = net(dn_t, rgb_t)["pred"][0, 0].cpu().numpy()
+        # FiLM checkpoints (Exp 1): stats is the RAW-tile 4-vector
+        # (normalize.dn_tile_stats output) at the SAME granularity the dn
+        # was normalized at. Omitted -> the net zero-fills and FLAGS it
+        # (out["stats_zero_filled"]) rather than silently substituting a
+        # default that looks like real data.
+        stats_t = None
+        if model.film_stats and stats is not None:
+            stats_t = torch.from_numpy(
+                np.asarray(stats, dtype=np.float32)[None]
+            ).to(device)
+        pred = net(dn_t, rgb_t, None, None, stats_t)["pred"][0, 0].cpu().numpy()
         return pred.astype(np.float32)
 
     return predict
@@ -282,7 +299,9 @@ def make_full_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
 
     @torch.no_grad()
     def predict_full(
-        dn: np.ndarray, rgb: Optional[np.ndarray] = None
+        dn: np.ndarray,
+        rgb: Optional[np.ndarray] = None,
+        stats: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         dn_t = torch.from_numpy(
             np.ascontiguousarray(dn, dtype=np.float32)[None, None]
@@ -299,7 +318,12 @@ def make_full_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
             rgb_t = torch.from_numpy(
                 np.ascontiguousarray(rgb_n.transpose(2, 0, 1))[None]
             ).to(device)
-        out = net(dn_t, rgb_t)
+        stats_t = None
+        if model.film_stats and stats is not None:
+            stats_t = torch.from_numpy(
+                np.asarray(stats, dtype=np.float32)[None]
+            ).to(device)
+        out = net(dn_t, rgb_t, None, None, stats_t)
         pred = out["pred"][0, 0].cpu().numpy().astype(np.float32)
         sem_probs = None
         if out.get("sem_logits") is not None:
@@ -310,6 +334,7 @@ def make_full_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
             "pred": pred,
             "sem_probs": sem_probs,
             "sem_zero_filled": bool(out.get("sem_zero_filled", False)),
+            "stats_zero_filled": bool(out.get("stats_zero_filled", False)),
         }
 
     return predict_full

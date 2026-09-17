@@ -83,6 +83,7 @@ def val_subset_mae(
     device: str,
     use_dem: bool = False,
     use_sem: bool = False,
+    film_stats: bool = False,
 ) -> float:
     """Pooled MAE (metres) over the first `subset` val tiles, full-tile.
 
@@ -107,7 +108,12 @@ def val_subset_mae(
                 if (use_sem and s.get("sem_onehot") is not None)
                 else None
             )
-            pred = net(dn, rgb, dem, sem)["pred"][0, 0].cpu().numpy()
+            stats = (
+                s["dn_stats"].to(device)
+                if (film_stats and s.get("dn_stats") is not None)
+                else None
+            )
+            pred = net(dn, rgb, dem, sem, stats)["pred"][0, 0].cpu().numpy()
             m = height_metrics(pred, s["agl"][0].numpy())
             tot_abs += m["mae"] * m["n"]
             tot_n += m["n"]
@@ -161,6 +167,14 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
         "enable --w-sem supervision; also enables "
         "predicted-semantics inference later. Default off "
         "(minimal-first).",
+    )
+    # ---- Exp 1: FiLM tile-statistic conditioning ----
+    p.add_argument(
+        "--film-stats",
+        action="store_true",
+        help="condition enc2+ level outputs on the RAW-tile Dn statistics "
+        "(dn_tile_stats: log min/max/range/mean) via a zero-init-to-identity "
+        "FiLM MLP. Requires a dataset that produces the dn_stats layer.",
     )
     # ---- Phase 4 loss weights (ALL default 0 = exact pre-Phase-4 loss) ----
     p.add_argument(
@@ -271,6 +285,7 @@ def run(args) -> int:
     # PREDICTS semantics from its own (deployment-identical) encoder
     # features — no privileged GT input channels, no train/deploy shift.
     # The legacy --use-sem path (GT one-hot inputs) is unchanged.
+    film_stats = args.film_stats or bool(v2_cfg.model.film)
     sem_classes = NUM_PROJECT_CLASSES if (use_sem or sem_aux_head) else 0
     device = resolve_device(args.device)
     torch.manual_seed(tcfg.get("seed", 42))
@@ -489,7 +504,8 @@ def run(args) -> int:
         max_shift=10.0, # Will be configurable later
         fusion_mode=v2_cfg.fusion.mode,
         context_module=v2_cfg.model.context,
-        use_uncertainty=v2_cfg.loss.uncertainty_weight > 0
+        use_uncertainty=v2_cfg.loss.uncertainty_weight > 0,
+        film_stats=film_stats,
     ).to(device)
     n_par = sum(p.numel() for p in net.parameters())
     print(f"[i] CalibrationNet in_ch={in_ch}  params={n_par:,}")
@@ -592,7 +608,12 @@ def run(args) -> int:
                 dtype=torch.float16 if amp_enabled else torch.float32,
                 enabled=amp_enabled,
             ):
-                out = net(dn, rgb, dem, sem)
+                stats = (
+                    batch["dn_stats"].to(device, non_blocking=True)
+                    if (film_stats and batch.get("dn_stats") is not None)
+                    else None
+                )
+                out = net(dn, rgb, dem, sem, stats)
                 pred = out["pred"]
 
                 # Composite loss (Phase 4): extra terms contribute ONLY when
@@ -638,7 +659,8 @@ def run(args) -> int:
         if sched is not None:
             sched.step()
         mae = val_subset_mae(
-            net, ds["val"], k_sub, use_rgb, device, use_dem=use_dem, use_sem=use_sem
+            net, ds["val"], k_sub, use_rgb, device,
+            use_dem=use_dem, use_sem=use_sem, film_stats=film_stats,
         )
         history.append(
             {
@@ -667,6 +689,7 @@ def run(args) -> int:
                     "fusion_mode": v2_cfg.fusion.mode,
                     "context_module": v2_cfg.model.context,
                     "use_uncertainty": v2_cfg.loss.uncertainty_weight > 0,
+                    "film_stats": film_stats,
                     "in_ch": in_ch,  # explicit, future-proofs the
                     # checkpoint against future
                     # variants (derive_in_ch source)

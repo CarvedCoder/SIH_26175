@@ -479,7 +479,7 @@ def test_large_png_enters_tile_inference_with_contract(tmp_path):
 
     seen: list[tuple[np.ndarray, np.ndarray]] = []
 
-    def capture_predict(dn, rgb=None):
+    def capture_predict(dn, rgb=None, stats=None):
         seen.append((dn.copy(), None if rgb is None else rgb.copy()))
         return np.zeros(dn.shape, dtype=np.float32)
 
@@ -557,7 +557,7 @@ def test_calibrationnet_rgb_normalized_exactly_once(tmp_path):
         def eval(self):
             return self
 
-        def __call__(self, dn_t, rgb_t):
+        def __call__(self, dn_t, rgb_t, dem=None, sem=None, stats=None):
             captured.append(rgb_t.clone())
             return {
                 "pred": torch.zeros((1, 1, dn_t.shape[-2], dn_t.shape[-1]))

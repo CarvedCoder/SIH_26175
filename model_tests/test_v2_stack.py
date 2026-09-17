@@ -223,3 +223,80 @@ class TestV2LossTerms:
         a = fn(pred, target)
         b = fn(pred, target, log_var=torch.randn(1, 1, 8, 8))
         assert torch.equal(a, b)
+
+
+class TestFilmTileStats:
+    """Exp-1 port: FiLM conditioning on RAW-tile Dn statistics."""
+
+    def test_dn_tile_stats_values(self):
+        from depthwizard.normalize import dn_tile_stats
+
+        raw = np.full((8, 8), 2.5, dtype=np.float32)
+        lo, hi, rng_, mean = np.log(2.5 + 1e-3), np.log(2.5 + 1e-3), 0.0, np.log(2.5 + 1e-3)
+        st = dn_tile_stats(raw)
+        assert st.shape == (4,)
+        assert st.dtype == np.float32
+        assert np.isclose(st[0], lo) and np.isclose(st[1], hi)
+        assert np.isclose(st[3], mean)
+        raw2 = raw.copy()
+        raw2[0, 0] = 5.0
+        st2 = dn_tile_stats(raw2)
+        assert st2[1] > st[1] and st2[2] > 0.0  # range now positive
+
+    def test_film_identity_init_starts_at_baseline(self):
+        dn, rgb = _batch()
+        ref = torch.clamp(1.5 * dn + 3.25, min=0.0)
+        for widths in ((16, 32, 64), (16, 32, 64, 128)):
+            net = CalibrationNet(in_ch=4, widths=widths, a0=1.5, b0=3.25,
+                                 film_stats=True)
+            with torch.no_grad():
+                out = net(dn, rgb, stats=torch.rand(2, 4))
+            assert torch.allclose(out["pred"], ref, atol=1e-5), widths
+
+    def test_film_zero_fill_when_stats_absent(self):
+        dn, rgb = _batch()
+        net = CalibrationNet(in_ch=4, film_stats=True, a0=2.0, b0=4.0)
+        with torch.no_grad():
+            out = net(dn, rgb)
+        assert out["stats_zero_filled"] is True
+        out2 = net(dn, rgb, stats=torch.zeros(2, 4))
+        assert torch.allclose(out["pred"], out2["pred"], atol=1e-6)
+
+    def test_film_no_film_net_ignores_stats(self):
+        dn, rgb = _batch()
+        net = CalibrationNet(in_ch=4)
+        with torch.no_grad():
+            a = net(dn, rgb)["pred"]
+            b = net(dn, rgb, stats=torch.rand(2, 4))["pred"]
+        assert torch.equal(a, b)
+
+    def test_film_params_change_conditioning(self):
+        dn, rgb = _batch()
+        net = CalibrationNet(in_ch=4, film_stats=True)
+        with torch.no_grad():
+            net.film.mlp[-1].weight.normal_(0, 0.1)
+            net.film.mlp[-1].bias.normal_(0, 0.1)
+            net.head.weight.normal_(0, 0.1)
+            p1 = net(dn, rgb, stats=torch.zeros(2, 4))["pred"]
+            p2 = net(dn, rgb, stats=torch.ones(2, 4))["pred"]
+        assert not torch.allclose(p1, p2)
+
+    def test_film_ckpt_round_trip(self, tmp_path):
+        dn, rgb = _batch(1)
+        net = CalibrationNet(in_ch=4, widths=(16, 32, 64), a0=2.0, b0=4.0,
+                             film_stats=True)
+        with torch.no_grad():
+            ref = net(dn, rgb, stats=torch.rand(1, 4))["pred"].clone()
+        torch.save({"model_state": net.state_dict(), **{
+            "use_rgb": True, "film_stats": True, "in_ch": 4,
+            "widths": [16, 32, 64], "affine_init": {"a": 2.0, "b": 4.0},
+            "epoch": 1,
+        }}, tmp_path / "film.pt")
+        lm = load_calib_net(tmp_path / "film.pt")
+        assert lm.film_stats is True
+        with torch.no_grad():
+            assert torch.allclose(
+                ref,
+                lm.net(dn, rgb, stats=ref.new_full((1, 4), 0.3))["pred"],
+                atol=1e-6,
+            )

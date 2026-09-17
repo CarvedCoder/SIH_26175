@@ -95,7 +95,7 @@ def test_predictor_tiles_mode_is_seam_free(tmp_path):
 
     call_idx = {"n": 0}
 
-    def biased_predict(dn, rgb=None):
+    def biased_predict(dn, rgb=None, stats=None):
         # each window's forward independently off by a constant — exactly
         # how independent per-window inference disagrees at shared borders
         call_idx["n"] += 1
@@ -199,7 +199,7 @@ def test_predictor_tiles_mode_feeds_per_tile_normalized_dn(tmp_path):
 
     seen: list[np.ndarray] = []
 
-    def capture_predict(dn, rgb=None):
+    def capture_predict(dn, rgb=None, stats=None):
         seen.append(dn.copy())
         return np.zeros(dn.shape, dtype=np.float32)
 

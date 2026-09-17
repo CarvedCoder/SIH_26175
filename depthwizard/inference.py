@@ -40,7 +40,7 @@ import numpy as np
 from rasterio import CRS, Affine
 
 from .anchoring import ANCHORED_LABEL, AnchorResult, anchor
-from .normalize import minmax_normalize
+from .normalize import minmax_normalize, minmax_normalize_with_stats
 from .tiling import OverlapStitcher, TilingConfig, iter_tile_windows
 
 TILE = 1024  # training tile size; crop/resize/tiles all target it
@@ -482,15 +482,15 @@ class DepthWizardPredictor:
         if raw_dn.shape != (h, w):
             raise ValueError(f"dn {raw_dn.shape} != rgb {(h, w)} grid")
 
-        def _forward(dn_n: np.ndarray, rgb_c: np.ndarray):
+        def _forward(dn_n: np.ndarray, rgb_c: np.ndarray, stats_c: np.ndarray = None):
             """Single-tile forward -> (pred, sem_probs|None)."""
             if want_semantics:
                 ex = self._predict_full_fn(
-                    dn_n, rgb_c if self.model.use_rgb else None
+                    dn_n, rgb_c if self.model.use_rgb else None, stats_c
                 )
                 return ex["pred"], ex.get("sem_probs")
             return (
-                self._predict_fn(dn_n, rgb_c if self.model.use_rgb else None),
+                self._predict_fn(dn_n, rgb_c if self.model.use_rgb else None, stats_c),
                 None,
             )
 
@@ -499,8 +499,9 @@ class DepthWizardPredictor:
             if mode == "resize" or small:
                 rgb_canvas, (y0, x0, h2, w2) = letterbox_to_tile(rgb_u8)
                 dn_canvas, _ = letterbox_to_tile(raw_dn)
+                dn_n, stats = minmax_normalize_with_stats(dn_canvas)
                 pred, sem = _forward(
-                    minmax_normalize(dn_canvas), rgb_canvas
+                    dn_n, rgb_canvas, stats
                 )
                 # keep only the real content, then map back to the source grid
                 core = pred[y0 : y0 + h2, x0 : x0 + w2]
@@ -511,9 +512,13 @@ class DepthWizardPredictor:
                     )
                 return self._pack(out, sem, want_semantics)
             y0, x0 = (h - TILE) // 2, (w - TILE) // 2
+            dn_n, stats = minmax_normalize_with_stats(
+                raw_dn[y0 : y0 + TILE, x0 : x0 + TILE]
+            )
             pred, sem = _forward(
-                minmax_normalize(raw_dn[y0 : y0 + TILE, x0 : x0 + TILE]),
+                dn_n,
                 rgb_u8[y0 : y0 + TILE, x0 : x0 + TILE],
+                stats,
             )
             return self._pack(pred, sem, want_semantics)
 
@@ -527,8 +532,11 @@ class DepthWizardPredictor:
                 tile_dn = _window_tile(raw_dn, window, TILE)
                 tile_rgb = _window_tile(rgb_u8, window, TILE)
                 # Per-window normalization — the EXACT training contract
-                # (each training tile was min-max normalized alone).
-                pred, sem = _forward(minmax_normalize(tile_dn), tile_rgb)
+                # (each training tile was min-max normalized alone); the
+                # FiLM stats come from the SAME window so train/infer
+                # conditioning always matches.
+                dn_n, stats = minmax_normalize_with_stats(tile_dn)
+                pred, sem = _forward(dn_n, tile_rgb, stats)
                 stitcher.add_tile(window, pred)
                 if want_semantics and sem is not None:
                     if not sem_stitchers:

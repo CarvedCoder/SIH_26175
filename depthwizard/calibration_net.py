@@ -101,6 +101,59 @@ class ASPP_Lite(nn.Module):
         out = torch.cat([h1, h2, h3, h4], dim=1)
         return self.project(out)
 
+class TileStatsFiLM(nn.Module):
+    """FiLM conditioning from RAW-tile Dn statistics (Exp 1, Perez et al. 2018).
+
+    A 2-layer MLP (4 -> hidden -> 2*sum(widths)) maps dn_tile_stats(raw) —
+    [log min, log max, log range, log mean] of the PRE-normalization tile,
+    the exact information per-tile min-max normalization discards — to
+    per-channel (gamma, beta) pairs, one pair per conditioned U-Net level
+    (levels 2..depth), applied to the encoder-stage outputs AND the matching
+    decoder-stage outputs:
+        feature = feature * gamma + beta   (broadcast spatially)
+
+    Identity init (the invariant that preserves the exact-baseline start):
+    the FINAL linear layer is zero-weight with bias [1]*w + [0]*w per level,
+    so gamma=1, beta=0 exactly at initialization and the network computes
+    its old function bit-for-bit until the MLP weights move.
+    Params (hidden=32, widths=[32,64]): 4*32+32 + 32*192+192 = 6,496 (~6.3k).
+    """
+
+    def __init__(self, widths, hidden: int = 32):
+        super().__init__()
+        self.widths = tuple(int(w) for w in widths)
+        out_dim = 2 * sum(self.widths)
+        self.mlp = nn.Sequential(
+            nn.Linear(4, hidden),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden, out_dim),
+        )
+        final = self.mlp[-1]
+        assert isinstance(final, nn.Linear)
+        nn.init.zeros_(final.weight)
+        with torch.no_grad():
+            bias: list[float] = []
+            for w in self.widths:
+                bias.extend([1.0] * w + [0.0] * w)
+            final.bias.copy_(torch.tensor(bias, dtype=torch.float32))
+
+    def forward(self, stats: torch.Tensor):
+        """stats [N,4] (dn_tile_stats output) -> (gammas, betas): lists of
+        [N,w] tensors, one per conditioned level, ready for spatial
+        broadcast."""
+        out = self.mlp(stats)
+        gammas, betas = [], []
+        off = 0
+        for w in self.widths:
+            gammas.append(out[:, off : off + w])
+            off += w
+        for w in self.widths:
+            betas.append(out[:, off : off + w])
+            off += w
+        return gammas, betas
+
+
+
 class CalibrationNet(nn.Module):
     """V2 Modular CalibrationNet (Dn [, RGB [, SEM ]][, DEM]) -> H."""
     def __init__(
@@ -119,6 +172,7 @@ class CalibrationNet(nn.Module):
         fusion_mode: str = "early",
         context_module: str = "none",
         use_uncertainty: bool = False,
+        film_stats: bool = False,
     ):
         super().__init__()
         self.clamp_min = clamp_min
@@ -138,6 +192,12 @@ class CalibrationNet(nn.Module):
         self.use_uncertainty = use_uncertainty
         self.widths = tuple(widths)
         self.depth = len(self.widths)
+        # FiLM tile-stat conditioning (Exp 1): condition enc2+ level outputs
+        # on the RAW-tile Dn statistics. OFF by default = state_dict identical
+        # to the pre-FiLM class (old checkpoints load unchanged). Identity
+        # init preserves the exact-baseline start.
+        self.film_stats = bool(film_stats)
+        self.film = TileStatsFiLM(self.widths[1:]) if self.film_stats else None
         
         if self.fusion_mode == "dual_encoder":
             other_ch = in_ch - 1
@@ -218,6 +278,7 @@ class CalibrationNet(nn.Module):
         rgb: Optional[torch.Tensor] = None,
         dem: Optional[torch.Tensor] = None,
         sem: Optional[torch.Tensor] = None,
+        stats: Optional[torch.Tensor] = None,
     ) -> Dict[str, torch.Tensor]:
         squeeze_back = dn.dim() == 3
         if squeeze_back:
@@ -228,7 +289,9 @@ class CalibrationNet(nn.Module):
                 dem = dem[None]
             if sem is not None:
                 sem = sem[None]
-        
+            if stats is not None and stats.dim() == 1:
+                stats = stats[None]
+
         sem_zero_filled = False
         if self.sem_input and self.sem_classes > 0 and sem is None:
             sem = torch.zeros(
@@ -236,7 +299,30 @@ class CalibrationNet(nn.Module):
                 device=dn.device, dtype=dn.dtype
             )
             sem_zero_filled = True
-            
+
+        # FiLM statistics (Exp 1): honest degradation mirrors the semantic
+        # zero-fill — a missing stats vector is ZERO-FILLED and FLAGGED in
+        # the output dict; every real caller (train/eval/infer) computes it
+        # from the same raw tile minmax_normalize consumed, so the flag
+        # should never fire in practice.
+        stats_zero_filled = False
+        film_apply = None
+        if self.film is not None:
+            if stats is None:
+                stats = torch.zeros(
+                    dn.shape[0], 4, device=dn.device, dtype=dn.dtype
+                )
+                stats_zero_filled = True
+            gammas, betas = self.film(stats)
+
+            def film_apply(level: int, feat: torch.Tensor) -> torch.Tensor:
+                # level: 0-based index into the conditioned levels
+                # (0 -> widths[1]); identity at init (gamma=1, beta=0).
+                return (
+                    feat * gammas[level][..., None, None]
+                    + betas[level][..., None, None]
+                )
+
         parts = []
         if rgb is not None: parts.append(rgb)
         if sem is not None and self.sem_input: parts.append(sem)
@@ -268,21 +354,35 @@ class CalibrationNet(nn.Module):
             
             b = self.fusion_conv(torch.cat([x_dn, x_other], dim=1))
             skips = [skips_dn[i] + skips_other[i] for i in range(len(skips_dn))]
+            if film_apply is not None:
+                # skip j (0-based) has width widths[j]; condition from j=1 up
+                skips = [
+                    film_apply(j - 1, s) if j >= 1 else s
+                    for j, s in enumerate(skips)
+                ]
+                b = film_apply(self.depth - 2, b)
         else:
             if len(parts) > 0:
                 x = torch.cat([dn] + parts, dim=1)
             else:
                 x = dn
             x = do_pad(x)
-            
+
             skips = []
             for i in range(1, self.depth):
                 enc = getattr(self, f"enc{i}")
                 x = enc(x)
+                if film_apply is not None and i >= 2:
+                    # enc_i output has width widths[i-1]; conditioned levels
+                    # start at widths[1] (film index i-2). enc1 (level 1) is
+                    # never conditioned — matches Exp 1 exactly.
+                    x = film_apply(i - 2, x)
                 skips.append(x)
                 x = self.pool(x)
             enc_last = getattr(self, f"enc{self.depth}")
             b = enc_last(x)
+            if film_apply is not None:
+                b = film_apply(self.depth - 2, b)
 
         b = self.context(b)
         y = b
@@ -292,6 +392,8 @@ class CalibrationNet(nn.Module):
             dec = getattr(self, f"dec{i}")
             y = up(y)
             y = dec(torch.cat([y, skips[i-1]], dim=1))
+            if film_apply is not None and i >= 2:
+                y = film_apply(i - 2, y)
 
         if self.sem_aux_head is not None:
             sem_logits = self.sem_aux_head(y[..., :H, :W])
@@ -355,6 +457,7 @@ class CalibrationNet(nn.Module):
             "a": a,
             "b": b_,
             "sem_zero_filled": sem_zero_filled,
+            "stats_zero_filled": stats_zero_filled,
         }
         if sem_logits is not None:
             out["sem_logits"] = sem_logits
