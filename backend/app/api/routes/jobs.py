@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Request
 
-from backend.app.api.routes.scenes import _require_scene
+from backend.app.api.routes._deps import require_scene as _require_scene
 from backend.app.appstate import task_queue_for
 from backend.app.core.config import get_settings
 from backend.app.core.errors import AppError, SceneBusy

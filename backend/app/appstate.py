@@ -40,3 +40,8 @@ def task_queue_for(http_request: Any, background_tasks: Any) -> Optional[Any]:
     if settings.worker_mode == "external":
         return None
     return BackgroundTaskQueue(background_tasks)
+
+
+def settings_for():
+    """Settings accessor for route modules (keeps them import-light)."""
+    return get_settings()

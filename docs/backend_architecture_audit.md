@@ -171,9 +171,24 @@ Tranche 2 — **delivered** (execution split + config):
 8. ✅ Golden regression fixture generated + pinned
    (`model_tests/test_golden_regression.py`) — tranche 3's gate.
 
-Tranche 2 remainder (next): rewire `result_service` / `terrain_service` /
+Tranche 3a — **delivered** (use-case layer):
+9. ✅ `FileSceneRepository` (`infrastructure/persistence/`) — owns the
+   scene record (scene.json), designated-input determinism, scene-id
+   listing; layout/security invariants stay in core/paths.py.
+10. ✅ `SceneService` (`application/scenes/`) — inspection, staging→
+    validate→commit, mosaic orchestration, validation, deletion. Routes
+    now only stream uploads and shape Pydantic responses; the six
+    route-to-route `_require_scene` imports replaced by
+    `api/routes/_deps.py`. Typed `RasterInvalid`/`SceneInputAmbiguous`
+    errors replace HTTPException-in-business-logic.
+11. ✅ `processing_service` input resolution delegates to the scene
+    service; `record_failure` maps `AppError` codes first so typed
+    errors reach the job record verbatim.
+
+Tranche 3 remainder: rewire `result_service` / `terrain_service` /
 `export_service` onto `ArtifactStore` (paths remain for HTTP file
-streaming; artifact metadata recorded).
+streaming; artifact metadata recorded); DB-backed JobRepository for
+exactly-once claims; inference.py stage decomposition (golden-gated).
 
 Tranche 3 — ML pipeline decomposition (golden-regression-gated):
 9. Golden fixture from a fixed input + checkpoint; byte-compare raw Dn /

@@ -23,6 +23,7 @@ from typing import Any
 
 
 from backend.app.core.config import get_settings
+from backend.app.core.errors import AppError
 from backend.app.core.logging import logger
 from backend.app.core.paths import (
     PROJECT_ROOT,
@@ -37,10 +38,6 @@ from depthwizard.inference import run_inference
 # torch forwards within ONE process only; cross-instance concurrency policy
 # belongs to the queue/worker layer (worker concurrency=1 per GPU worker).
 _INFERENCE_SEMAPHORE = threading.Semaphore(1)
-
-
-class SceneInputError(FileNotFoundError):
-    """The scene's stored input does not match the deterministic contract."""
 
 
 class ProcessingService:
@@ -92,72 +89,21 @@ class ProcessingService:
 
         return checkpoint
 
-    # -- deterministic input ------------------------------------------------
-
-    # Designated upload names in deterministic check order (the upload route
-    # stores the validated raster as input.<original extension>; PNG/JPG
-    # are first-class inputs alongside GeoTIFF).
-    _DESIGNATED_INPUTS = (
-        "input.tif",
-        "input.tiff",
-        "input.png",
-        "input.jpg",
-        "input.jpeg",
-    )
-    _RASTER_SUFFIXES = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+    # -- deterministic input (delegates to the scene application service) --
 
     def find_scene_input(self, scene_id: str) -> Path | None:
-        """Return the scene's designated input raster, or None.
+        """The scene's designated input raster by exact known filename."""
+        from backend.app.application.scenes.service import scene_service
 
-        Determinism rule (audit M9): pick by exact known filename — never
-        by iteration order.
-        """
-        input_dir = get_scene_raw_dir(scene_id)
-
-        if not input_dir.exists():
-            return None
-
-        for name in self._DESIGNATED_INPUTS:
-            candidate = input_dir / name
-            if candidate.is_file():
-                return candidate
-
-        return None
+        return scene_service.find_scene_input(scene_id)
 
     def resolve_scene_input(self, scene_id: str) -> Path:
-        """Return the ONE input raster of a scene, deterministically.
+        """The ONE input raster of a scene, deterministically. Ambiguous
+        scenes raise the typed SceneInputAmbiguous error — never resolved
+        by iteration order."""
+        from backend.app.application.scenes.service import scene_service
 
-        Falls back to the single-raster rule: several images with no
-        designated input is an ambiguous scene and is REJECTED, never
-        resolved by iteration order.
-        """
-        designated = self.find_scene_input(scene_id)
-        if designated is not None:
-            return designated
-
-        input_dir = get_scene_raw_dir(scene_id)
-
-        if not input_dir.exists():
-            raise FileNotFoundError(f"Scene '{scene_id}' has no stored input.")
-
-        rasters = sorted(
-            path
-            for path in input_dir.iterdir()
-            if path.is_file() and path.suffix.lower() in self._RASTER_SUFFIXES
-        )
-
-        if not rasters:
-            raise FileNotFoundError(
-                f"No image input found for scene '{scene_id}'."
-            )
-        if len(rasters) > 1:
-            raise SceneInputError(
-                f"Scene '{scene_id}' contains multiple images with no "
-                "designated input; rename exactly one to input.tif "
-                "(or input.png / input.jpg)."
-            )
-
-        return rasters[0]
+        return scene_service.resolve_scene_input(scene_id)
 
     # -- cancellation --------------------------------------------------------
 
@@ -341,7 +287,14 @@ class ProcessingService:
     def record_failure(self, job_id: str, exc: Exception) -> None:
         """Map an exception to a typed job error (client contract) and log
         the full detail server-side."""
-        if isinstance(exc, ValueError):
+        if isinstance(exc, AppError):
+            error = {
+                "code": exc.code,
+                "message": exc.message,
+                "details": exc.details,
+                "recoverable": exc.recoverable,
+            }
+        elif isinstance(exc, ValueError):
             error = {
                 "code": "INVALID_INPUT",
                 "message": str(exc),

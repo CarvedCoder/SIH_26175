@@ -11,7 +11,7 @@ from __future__ import annotations
 import rasterio
 from fastapi import APIRouter
 
-from backend.app.api.routes.scenes import _require_scene
+from backend.app.api.routes._deps import require_scene as _require_scene
 from backend.app.schemas.reference import ReferenceResponse
 from backend.app.services.result_service import result_service
 

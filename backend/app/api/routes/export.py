@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
-from backend.app.api.routes.scenes import _require_scene
+from backend.app.api.routes._deps import require_scene as _require_scene
 from backend.app.core.errors import AppError
 from backend.app.services.export_service import (
     ExportFileNotFound,
