@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from backend.app.core.paths import get_scene_output_dir
+from backend.app.infrastructure.storage.scene_artifacts import (
+    scene_artifact_store,
+    scene_output_dir_key,
+)
 
 
 class ExportFileNotFound(FileNotFoundError):
@@ -56,7 +59,7 @@ def _find_export_file(
     The function only returns files that actually exist.
     """
 
-    output_dir = get_scene_output_dir(scene_id)
+    output_dir = scene_artifact_store().path_for(scene_output_dir_key(scene_id))
 
     if not output_dir.exists():
         raise ExportFileNotFound(f"No output directory exists for scene '{scene_id}'.")

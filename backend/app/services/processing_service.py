@@ -27,9 +27,12 @@ from backend.app.core.errors import AppError
 from backend.app.core.logging import logger
 from backend.app.core.paths import (
     PROJECT_ROOT,
-    get_scene_output_dir,
     get_scene_process_dir,
     get_scene_raw_dir,
+)
+from backend.app.infrastructure.storage.scene_artifacts import (
+    scene_artifact_store,
+    scene_output_dir_key,
 )
 from backend.app.jobs.manager import job_manager
 from depthwizard.inference import run_inference
@@ -44,15 +47,28 @@ class ProcessingService:
     """Inference execution. All serving knobs come from the centralized
     Settings (core/config.py) — this module never reads os.environ."""
 
-    def __init__(self, settings=None) -> None:
+    def __init__(self, settings=None, job_service=None) -> None:
         # None => resolve lazily per call so test fixtures that rebuild
         # Settings (fresh_settings) are honored; an explicit Settings may
         # be injected for workers with their own configuration.
         self._settings = settings
+        # Job store access is INJECTED (never a bare module global): the
+        # API process uses the default facade; a worker passes its own
+        # JobService bound to whichever repository it was configured with.
+        self._job_service = job_service
 
     @property
     def settings(self):
         return self._settings if self._settings is not None else get_settings()
+
+    @property
+    def jobs(self):
+        """The injected job store facade (module facade by default)."""
+        if self._job_service is not None:
+            return self._job_service
+        from backend.app.jobs.manager import job_manager
+
+        return job_manager
 
     # -- configuration ------------------------------------------------------
 
@@ -108,7 +124,7 @@ class ProcessingService:
     # -- cancellation --------------------------------------------------------
 
     def _check_cancelled(self, job_id: str) -> bool:
-        job = job_manager.get_job(job_id)
+        job = self.jobs.get_job(job_id)
         return bool(job and job.cancel_requested)
 
     # -- processing -----------------------------------------------------------
@@ -124,14 +140,14 @@ class ProcessingService:
         """Run DepthWizard inference for a scene (blocking; call from a worker)."""
 
         input_path = self.resolve_scene_input(scene_id)
-        output_dir = get_scene_output_dir(scene_id)
+        output_dir = scene_artifact_store().path_for(scene_output_dir_key(scene_id))
         process_dir = get_scene_process_dir(scene_id)
         output_dir.mkdir(parents=True, exist_ok=True)
         process_dir.mkdir(parents=True, exist_ok=True)
 
         checkpoint = self._resolve_checkpoint()
 
-        job_manager.update_job(
+        self.jobs.update_job(
             job_id,
             status="processing",
             stage="depth_inference",
@@ -140,17 +156,17 @@ class ProcessingService:
 
         if self._check_cancelled(job_id):
             self._discard_outputs(output_dir)
-            job_manager.update_job(job_id, status="cancelled", stage="cancelled")
+            self.jobs.update_job(job_id, status="cancelled", stage="cancelled")
             return {"cancelled": True}
 
         # Durable lease heartbeat: while this worker runs, the job's lease
         # is renewed so OTHER instances never finalize it as interrupted.
         # If THIS process dies, the lease expires and any reader honestly
         # fails the job — no PID liveness anywhere.
-        with job_manager.lease_heartbeat(job_id), _INFERENCE_SEMAPHORE:
+        with self.jobs.lease_heartbeat(job_id), _INFERENCE_SEMAPHORE:
             if self._check_cancelled(job_id):
                 self._discard_outputs(output_dir)
-                job_manager.update_job(
+                self.jobs.update_job(
                     job_id, status="cancelled", stage="cancelled"
                 )
                 return {"cancelled": True}
@@ -172,10 +188,10 @@ class ProcessingService:
 
         if self._check_cancelled(job_id):
             self._discard_outputs(output_dir)
-            job_manager.update_job(job_id, status="cancelled", stage="cancelled")
+            self.jobs.update_job(job_id, status="cancelled", stage="cancelled")
             return {"cancelled": True}
 
-        job_manager.update_job(
+        self.jobs.update_job(
             job_id,
             status="completed",
             stage="completed",
@@ -203,11 +219,11 @@ class ProcessingService:
             raise ValueError("refinement bbox must have positive extent.")
 
         input_path = self.resolve_scene_input(scene_id)
-        output_dir = get_scene_output_dir(scene_id)
+        output_dir = scene_artifact_store().path_for(scene_output_dir_key(scene_id))
         output_dir.mkdir(parents=True, exist_ok=True)
         checkpoint = self._resolve_checkpoint()
 
-        job_manager.update_job(
+        self.jobs.update_job(
             job_id, status="processing", stage="depth_inference", progress=5.0
         )
 
@@ -221,9 +237,9 @@ class ProcessingService:
                 "refinement bbox exceeds the scene raster dimensions."
             )
 
-        with job_manager.lease_heartbeat(job_id), _INFERENCE_SEMAPHORE:
+        with self.jobs.lease_heartbeat(job_id), _INFERENCE_SEMAPHORE:
             if self._check_cancelled(job_id):
-                job_manager.update_job(
+                self.jobs.update_job(
                     job_id, status="cancelled", stage="cancelled"
                 )
                 return {"cancelled": True}
@@ -272,7 +288,7 @@ class ProcessingService:
         if dsm_npy.is_file():
             refined_npy.write_bytes(dsm_npy.read_bytes())
 
-        job_manager.update_job(
+        self.jobs.update_job(
             job_id,
             status="completed",
             stage="completed",
@@ -319,7 +335,7 @@ class ProcessingService:
         logger.error(
             "job %s failed: %s: %s", job_id, type(exc).__name__, exc
         )
-        job_manager.update_job(
+        self.jobs.update_job(
             job_id,
             status="failed",
             stage="failed",
@@ -338,7 +354,7 @@ class ProcessingService:
 
         Delivery semantics: at-least-once with idempotent outputs (see
         FileJobRepository.claim_queued)."""
-        job = job_manager.get_job(job_id)
+        job = self.jobs.get_job(job_id)
         if job is None:
             return None
         if job.is_terminal:

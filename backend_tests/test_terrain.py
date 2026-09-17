@@ -297,16 +297,22 @@ def test_heightmap_synthetic_surface_fidelity(client, tmp_path, monkeypatch):
     dsm[700:760, 1000:1100] = np.nan
     dsm = dsm.astype(np.float32)
 
-    # Fake scene output dir so terrain_service AND result_service find our
-    # dsm.npy (each module imported get_scene_output_dir into its namespace)
+    # Fake artifact store root so terrain_service AND result_service find
+    # our dsm.npy (both address outputs through scene_artifact_store)
     scene_id = "scene_hmtest"
-    out_dir = tmp_path / scene_id
+    out_dir = tmp_path / "output" / "scenes" / scene_id
     out_dir.mkdir(parents=True)
     np.save(out_dir / "dsm.npy", dsm)
     import backend.app.services.result_service as rs_mod
     import backend.app.services.terrain_service as ts_mod
-    monkeypatch.setattr(ts_mod, "get_scene_output_dir", lambda _sid: out_dir)
-    monkeypatch.setattr(rs_mod, "get_scene_output_dir", lambda _sid: out_dir)
+
+    from backend.app.infrastructure.storage.local_artifact_store import (
+        LocalArtifactStore,
+    )
+
+    fake_store = LocalArtifactStore(tmp_path)
+    monkeypatch.setattr(ts_mod, "scene_artifact_store", lambda: fake_store)
+    monkeypatch.setattr(rs_mod, "scene_artifact_store", lambda: fake_store)
 
     png_path = terrain_service.get_heightmap_path(scene_id)
     hm = np.asarray(Image.open(png_path), dtype=np.float64) / 65535.0

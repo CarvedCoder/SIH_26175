@@ -185,10 +185,30 @@ Tranche 3a — **delivered** (use-case layer):
     service; `record_failure` maps `AppError` codes first so typed
     errors reach the job record verbatim.
 
-Tranche 3 remainder: rewire `result_service` / `terrain_service` /
-`export_service` onto `ArtifactStore` (paths remain for HTTP file
-streaming; artifact metadata recorded); DB-backed JobRepository for
-exactly-once claims; inference.py stage decomposition (golden-gated).
+Tranche 3b — **delivered** (storage addressing + durable claims):
+12. ✅ All backend services (result/terrain/export/validation/processing)
+    address artifacts via `scene_artifacts.py` key builders +
+    `ArtifactStore.path_for` (keys mirror the on-disk layout; an
+    S3/MinIO store now only changes that module). Local Paths still flow
+    to rasterio/FileResponse until the object-store implementation lands.
+13. ✅ `SqliteJobRepository` — DB-backed JobRepository (stdlib SQLite,
+    WAL): `claim_queued` runs inside BEGIN IMMEDIATE, so claims are
+    exactly-once ACROSS worker processes. Selected by `DW_JOB_STORE`
+    ("file" default | "sqlite"), `DW_JOB_DB`.
+14. ✅ State-machine policy extracted to `job_ops.py` (shared by both
+    repositories — implementations cannot drift); the statelessness
+    contract suite now runs against BOTH implementations (§46).
+15. ✅ `ProcessingService` job-store access is constructor-injected
+    (`job_service=`) — no service-locator globals in the worker path.
+
+Tranche 3c — **started** (inference.py decomposition, golden-gated):
+16. ✅ Scene outputs + payload assembly moved to
+    `depthwizard/pipeline/scene_outputs.py` (pure moves; names
+    re-exported from inference.py so every import path is unchanged;
+    golden regression pins the behavior).
+17. Remaining: split the DepthWizardPredictor into DepthProvider /
+    CalibrationModel / Tiling stages behind protocols; artifact writing
+    behind an explicit ArtifactWriter that targets the ArtifactStore.
 
 Tranche 3 — ML pipeline decomposition (golden-regression-gated):
 9. Golden fixture from a fixed input + checkpoint; byte-compare raw Dn /

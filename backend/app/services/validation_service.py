@@ -6,7 +6,10 @@ from typing import Any
 
 import numpy as np
 
-from backend.app.core.paths import get_scene_output_dir
+from backend.app.infrastructure.storage.scene_artifacts import (
+    scene_artifact_store,
+    scene_output_dir_key,
+)
 from backend.app.schemas.validation import (
     ReferenceDEM,
     ValidationAsset,
@@ -107,7 +110,7 @@ def get_validation(
     available, it calculates the comparison metrics.
     """
 
-    output_dir = get_scene_output_dir(scene_id)
+    output_dir = scene_artifact_store().path_for(scene_output_dir_key(scene_id))
 
     if not output_dir.exists():
         return ValidationResponse(

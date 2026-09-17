@@ -6,7 +6,10 @@ import numpy as np
 import rasterio
 
 from backend.app.core.logging import logger
-from backend.app.core.paths import get_scene_output_dir
+from backend.app.infrastructure.storage.scene_artifacts import (
+    scene_artifact_store,
+    scene_output_dir_key,
+)
 from backend.app.schemas.terrain import (
     CoordinateSystem,
     TerrainAsset,
@@ -22,8 +25,8 @@ class TerrainService:
     """Builds a normalized terrain representation from DepthWizard outputs."""
 
     def get_output_dir(self, scene_id: str) -> Path:
-        """Return the output directory for a scene."""
-        return get_scene_output_dir(scene_id)
+        """Output directory for a scene, addressed via the artifact store."""
+        return scene_artifact_store().path_for(scene_output_dir_key(scene_id))
 
     def get_dsm_path(self, scene_id: str) -> Path:
         """Return the generated DSM GeoTIFF path."""

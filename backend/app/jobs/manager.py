@@ -41,6 +41,44 @@ from backend.app.infrastructure.persistence.file_job_repository import (
 __all__ = ["Job", "JobManager", "TERMINAL_STATUSES", "job_manager"]
 
 
+def _build_repository(retention_limit: int, ttl_seconds: int):
+    """Repository selection by configuration (DW_JOB_STORE)."""
+    from backend.app.infrastructure.persistence.file_job_repository import (
+        FileJobRepository,
+    )
+
+    if settings.job_store == "sqlite":
+        from pathlib import Path
+
+        from backend.app.infrastructure.persistence.sqlite_job_repository import (
+            SqliteJobRepository,
+        )
+
+        db_path = (
+            Path(settings.job_db_path)
+            if settings.job_db_path
+            else Path(settings_default_job_db())
+        )
+        return SqliteJobRepository(
+            db_path=db_path,
+            retention_limit=retention_limit,
+            ttl_seconds=ttl_seconds,
+            lease_seconds=settings.job_lease_seconds,
+        )
+    return FileJobRepository(
+        retention_limit=retention_limit,
+        ttl_seconds=ttl_seconds,
+        lease_seconds=settings.job_lease_seconds,
+    )
+
+
+def settings_default_job_db() -> str:
+    """Default SQLite path under the (possibly redirected) data dir."""
+    from backend.app.core import paths as paths_module
+
+    return str(paths_module.DATA_DIR / "jobs.db")
+
+
 class JobManager(JobService):
     """Backward-compatible JobService bound to the file repository.
 
@@ -56,7 +94,7 @@ class JobManager(JobService):
         retention_limit: int | None = None,
         ttl_seconds: int | None = None,
     ) -> None:
-        repo = FileJobRepository(
+        repo = _build_repository(
             retention_limit=(
                 settings.job_retention_limit
                 if retention_limit is None
@@ -65,7 +103,6 @@ class JobManager(JobService):
             ttl_seconds=(
                 settings.job_ttl_seconds if ttl_seconds is None else ttl_seconds
             ),
-            lease_seconds=settings.job_lease_seconds,
         )
         super().__init__(repo)
         self._repo = repo

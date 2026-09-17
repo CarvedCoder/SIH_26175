@@ -6,7 +6,11 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from backend.app.core.paths import get_scene_output_dir
+from backend.app.infrastructure.storage.scene_artifacts import (
+    RESULT_ARTIFACT_KEYS,
+    scene_artifact_store,
+    scene_output_dir_key,
+)
 
 
 class ResultService:
@@ -20,32 +24,26 @@ class ResultService:
     """
 
     def get_output_dir(self, scene_id: str) -> Path:
-        """Return the output directory for a scene."""
-        return get_scene_output_dir(scene_id)
+        """Output directory for a scene, addressed via the artifact store."""
+        return scene_artifact_store().path_for(scene_output_dir_key(scene_id))
 
     def scene_has_results(self, scene_id: str) -> bool:
         """Return True when the scene has generated results."""
         return bool(self.get_result_files(scene_id))
 
     def get_result_files(self, scene_id: str) -> dict[str, Path]:
-        """Return known DepthWizard result files that exist."""
-        output_dir = self.get_output_dir(scene_id)
-
-        if not output_dir.exists():
-            return {}
-
-        known_files = {
-            "depth": output_dir / "dsm.npy",
-            "dsm": output_dir / "dsm.tif",
-            "dsm_anchored": output_dir / "dsm_anchored.tif",
-            "preview": output_dir / "dsm_preview.png",
-        }
-
-        return {
-            name: path
-            for name, path in known_files.items()
-            if path.exists() and path.is_file()
-        }
+        """Known DepthWizard result artifacts that exist, addressed via
+        the artifact store (keys in scene_artifacts.RESULT_ARTIFACT_KEYS)."""
+        store = scene_artifact_store()
+        files: dict[str, Path] = {}
+        for name, suffix in RESULT_ARTIFACT_KEYS.items():
+            try:
+                path = store.path_for(scene_output_dir_key(scene_id) + "/" + suffix)
+            except Exception:  # noqa: BLE001 — an invalid scene id has no artifacts
+                return {}
+            if path.exists() and path.is_file():
+                files[name] = path
+        return files
 
     def _load_array_stats(self, path: Path) -> dict[str, Any]:
         """Calculate statistics from a generated NumPy raster.

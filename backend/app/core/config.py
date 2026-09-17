@@ -65,6 +65,10 @@ class Settings:
         # lease/3). Must comfortably exceed the longest single inference
         # run even WITHOUT heartbeats, as a belt-and-braces margin.
         self.job_lease_seconds: int = _int_env("DW_JOB_LEASE_SECONDS", 1800)
+        # Durable job store: "file" (JSON per scene dir) or "sqlite"
+        # (transactional claims; exactly-once across worker processes).
+        self.job_store: str = os.environ.get("DW_JOB_STORE", "file")
+        self.job_db_path: str = os.environ.get("DW_JOB_DB", "") or ""
 
         # --- Serving identity ------------------------------------------------
         self.version: str = "1.0.0"

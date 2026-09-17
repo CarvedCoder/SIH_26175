@@ -42,10 +42,31 @@ def storage_root(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _repo(**kw) -> FileJobRepository:
+def _file_repo(**kw) -> FileJobRepository:
     defaults = dict(retention_limit=100, ttl_seconds=3600, lease_seconds=1800)
     defaults.update(kw)
     return FileJobRepository(**defaults)
+
+
+@pytest.fixture(params=["file", "sqlite"], ids=["file", "sqlite"])
+def make_repo(request, storage_root):
+    """CONTRACT TESTS (refactor brief §46): every statelessness property
+    must hold for EVERY JobRepository implementation. New implementations
+    join by adding a branch here."""
+    if request.param == "file":
+        return _file_repo
+    from backend.app.infrastructure.persistence.sqlite_job_repository import (
+        SqliteJobRepository,
+    )
+
+    def _make(**kw):
+        defaults = dict(retention_limit=100, ttl_seconds=3600, lease_seconds=1800)
+        defaults.update(kw)
+        return SqliteJobRepository(
+            db_path=storage_root / "jobs.db", **defaults
+        )
+
+    return _make
 
 
 # ---------------------------------------------------------------------------
@@ -53,15 +74,15 @@ def _repo(**kw) -> FileJobRepository:
 # ---------------------------------------------------------------------------
 
 
-def test_job_survives_instance_recreation(storage_root):
+def test_job_survives_instance_recreation(storage_root, make_repo):
     """A job created by one instance is fully readable by a NEW instance
     constructed later (simulated restart): no in-memory state needed."""
-    first = _repo()
+    first = make_repo()
     job = first.create("scene_000000000001")
     first.update(job.job_id, status="processing", stage="depth_inference")
     first.update(job.job_id, status="completed", result={"ok": True})
 
-    fresh = _repo()
+    fresh = make_repo()
     revived = fresh.get(job.job_id)
     assert revived is not None
     assert revived.status == "completed"
@@ -75,11 +96,11 @@ def test_job_survives_instance_recreation(storage_root):
 # ---------------------------------------------------------------------------
 
 
-def test_cross_instance_update_visibility(storage_root):
+def test_cross_instance_update_visibility(storage_root, make_repo):
     """REGRESSION (audit §1.2): instance A must see instance B's updates —
     the old in-memory cache served stale state forever after first read."""
-    api_one = _repo()
-    api_two = _repo()
+    api_one = make_repo()
+    api_two = make_repo()
 
     job = api_one.create("scene_000000000001")
 
@@ -108,30 +129,45 @@ def test_cross_instance_update_visibility(storage_root):
 # ---------------------------------------------------------------------------
 
 
-def test_expired_lease_finalizes_interrupted(storage_root):
+def test_expired_lease_finalizes_interrupted(storage_root, make_repo):
     """A processing job whose lease expired (worker died, no heartbeat)
-    becomes an honest failure for ANY reader — regardless of PID."""
-    repo = _repo(lease_seconds=1800)
+    becomes an honest failure for ANY reader — regardless of PID.
+
+    Worker death is simulated by giving the READING instance a clock far
+    in the future — implementation-agnostic (no direct storage pokes)."""
+    repo = make_repo(lease_seconds=1800)
     job = repo.create("scene_000000000001")
     repo.update(job.job_id, status="processing")
 
-    # simulate worker death: expire the lease on disk
-    path = repo._job_path(job.scene_id, job.job_id)
-    data = json.loads(path.read_text())
-    data["lease_until"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
-    path.write_text(json.dumps(data))
+    from backend.app.infrastructure.persistence.file_job_repository import (
+        FileJobRepository,
+    )
 
-    other_instance = _repo()  # different process, no shared memory
+    def _later_clock():
+        return datetime.now(timezone.utc) + timedelta(seconds=20000)
+
+    if isinstance(repo, FileJobRepository):
+        other_instance = _file_repo(clock=_later_clock)
+    else:
+        from backend.app.infrastructure.persistence.sqlite_job_repository import (
+            SqliteJobRepository,
+        )
+
+        other_instance = SqliteJobRepository(
+            db_path=storage_root / "jobs.db",
+            retention_limit=100, ttl_seconds=3600, lease_seconds=1800,
+            clock=_later_clock,
+        )
     revived = other_instance.get(job.job_id)
     assert revived.status == "failed"
     assert revived.error["code"] == "JOB_INTERRUPTED"
     assert revived.error["recoverable"] is True
 
 
-def test_lease_claim_is_recorded_durably(storage_root):
+def test_lease_claim_is_recorded_durably(storage_root, make_repo):
     """Claiming a job writes the durable lease fields + diagnostics, and
     the attempt counter increments per claim."""
-    repo = _repo()
+    repo = make_repo()
     job = repo.create("scene_000000000001")
     claimed = repo.update(job.job_id, status="processing")
     assert claimed.lease_until is not None
@@ -144,10 +180,10 @@ def test_lease_claim_is_recorded_durably(storage_root):
 
 
 def test_legacy_pid_era_record_migrates_on_read(storage_root):
-    """A job file written by the PRE-lease manager (owner_pid, no lease)
-    is finalized via the one-time legacy shim when its PID is dead — and
-    the terminal state persists."""
-    repo = _repo()
+    """FILE-STORE ONLY: a job file written by the PRE-lease manager
+    (owner_pid, no lease) is finalized via the one-time legacy shim when
+    its PID is dead — and the terminal state persists."""
+    repo = _file_repo()
     job = repo.create("scene_000000000001")
     repo.update(job.job_id, status="processing")
 
@@ -158,7 +194,7 @@ def test_legacy_pid_era_record_migrates_on_read(storage_root):
     legacy["owner_pid"] = 2 ** 22  # cannot exist
     path.write_text(json.dumps(legacy))
 
-    other_instance = _repo()
+    other_instance = _file_repo()
     revived = other_instance.get(job.job_id)
     assert revived.status == "failed"
     assert revived.error["code"] == "JOB_INTERRUPTED"
@@ -169,8 +205,8 @@ def test_legacy_pid_era_record_migrates_on_read(storage_root):
 # ---------------------------------------------------------------------------
 
 
-def test_terminal_lock_and_cancel_across_instances(storage_root):
-    repo_a, repo_b = _repo(), _repo()
+def test_terminal_lock_and_cancel_across_instances(storage_root, make_repo):
+    repo_a, repo_b = make_repo(), make_repo()
     job = repo_a.create("scene_000000000001")
     repo_a.update(job.job_id, status="processing")
 
@@ -197,9 +233,10 @@ def test_terminal_lock_and_cancel_across_instances(storage_root):
 
 
 def test_destroying_process_local_index_changes_nothing(storage_root):
-    """The write-through index is bookkeeping only: wiping it (and even
-    planting stale entries in it) cannot corrupt a read."""
-    repo = _repo()
+    """FILE-STORE ONLY: the write-through index is bookkeeping only:
+    wiping it (and even planting stale entries in it) cannot corrupt a
+    read. The sqlite store has no index by construction."""
+    repo = _file_repo()
     job = repo.create("scene_000000000001")
     repo.update(job.job_id, status="completed", result={"v": 1})
 
@@ -215,9 +252,9 @@ def test_destroying_process_local_index_changes_nothing(storage_root):
 
 
 def test_queued_grace_still_applies_to_disk_jobs(storage_root):
-    """A disk-only queued job past the grace window is failed honestly
-    (never started) — pre-existing semantics, now pinned here too."""
-    repo = _repo(queued_grace_seconds=60)
+    """FILE-STORE ONLY: a disk-only queued job past the grace window is
+    failed honestly (never started)."""
+    repo = _file_repo(queued_grace_seconds=60)
     job = repo.create("scene_000000000001")
     path = repo._job_path(job.scene_id, job.job_id)
     data = json.loads(path.read_text())
@@ -226,7 +263,7 @@ def test_queued_grace_still_applies_to_disk_jobs(storage_root):
     ).isoformat()
     path.write_text(json.dumps(data))
 
-    fresh = _repo(queued_grace_seconds=60)
+    fresh = _file_repo(queued_grace_seconds=60)
     assert fresh.get(job.job_id).status == "failed"
     assert fresh.get(job.job_id).error["code"] == "JOB_INTERRUPTED"
 
@@ -256,11 +293,11 @@ def test_health_endpoints_split(client):
 # ---------------------------------------------------------------------------
 
 
-def test_two_workers_claim_disjoint_jobs(storage_root):
+def test_two_workers_claim_disjoint_jobs(storage_root, make_repo):
     """Two worker instances polling the same store claim jobs without
     corrupting state: each claim flips queued→processing exactly once, and
     the second worker's claim of the same job returns None."""
-    repo_a, repo_b = _repo(), _repo()
+    repo_a, repo_b = make_repo(), make_repo()
     j1 = repo_a.create("scene_000000000001")
     j2 = repo_a.create("scene_000000000002")
 
@@ -278,20 +315,23 @@ def test_two_workers_claim_disjoint_jobs(storage_root):
     assert repo_b.claim_queued(j2.job_id) is None
 
 
-def test_worker_executes_job_from_record_alone(storage_root, monkeypatch):
+def test_worker_executes_job_from_record_alone(storage_root, make_repo, monkeypatch):
     """A worker needs ONLY the durable record: execute_job_record reads
     request parameters from the job document, not from any in-memory
     request state."""
+    from backend.app.application.jobs.service import JobService
     from backend.app.services.processing_service import ProcessingService
 
-    repo = _repo()
+    repo = make_repo()
     job = repo.create("scene_000000000001")
     repo.update(job.job_id, request={
         "kind": "process", "mode": "auto", "ground_elev": None,
     })
     repo.claim_queued(job.job_id)
 
-    svc = ProcessingService()
+    # DI: the worker's ProcessingService is bound to ITS repository —
+    # never the API process's module global.
+    svc = ProcessingService(job_service=JobService(repo))
     calls: list[tuple[str, str, float | None]] = []
 
     def fake_process(job_id, scene_id, *, mode="auto", ground_elev=None):
