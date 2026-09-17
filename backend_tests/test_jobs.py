@@ -61,7 +61,10 @@ def test_duplicate_process_conflicts(client, uploaded_scene, monkeypatch):
     import backend.app.api.routes.jobs as jobs_mod
 
     # keep the job queued forever (no worker runs) so the scene stays busy
-    monkeypatch.setattr(jobs_mod, "_run_processing", lambda *a, **k: None)
+    # tranche-2 seam: jobs dispatch through execute_job_record; patching it
+    # keeps the job queued forever (the test wants a busy scene)
+    from backend.app.services.processing_service import processing_service as _ps
+    monkeypatch.setattr(_ps, "execute_job_record", lambda job_id: None)
 
     scene_id = uploaded_scene["scene_id"]
     first = client.post(f"/api/v1/scenes/{scene_id}/process", json={})
@@ -113,7 +116,10 @@ def test_cancel_queued_job_immediately(client, uploaded_scene, monkeypatch):
     """A queued job is cancelled synchronously and never starts."""
     import backend.app.api.routes.jobs as jobs_mod
 
-    monkeypatch.setattr(jobs_mod, "_run_processing", lambda *a, **k: None)
+    # tranche-2 seam: jobs dispatch through execute_job_record; patching it
+    # keeps the job queued forever (the test wants a busy scene)
+    from backend.app.services.processing_service import processing_service as _ps
+    monkeypatch.setattr(_ps, "execute_job_record", lambda job_id: None)
 
     scene_id = uploaded_scene["scene_id"]
     response = client.post(f"/api/v1/scenes/{scene_id}/process", json={})

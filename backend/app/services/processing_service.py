@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 
+from backend.app.core.config import get_settings
 from backend.app.core.logging import logger
 from backend.app.core.paths import (
     PROJECT_ROOT,
@@ -32,11 +33,10 @@ from backend.app.core.paths import (
 from backend.app.jobs.manager import job_manager
 from depthwizard.inference import run_inference
 
-# Module-level guard shared by ALL jobs in this process: never run more
-# than DW_MAX_CONCURRENT_JOBS torch forwards simultaneously.
-_INFERENCE_SEMAPHORE = threading.Semaphore(
-    max(1, int(os.environ.get("DW_MAX_CONCURRENT_JOBS", "1")))
-)
+# Process-local GPU guard. HONEST LIMITATION (audit §3.4): this serializes
+# torch forwards within ONE process only; cross-instance concurrency policy
+# belongs to the queue/worker layer (worker concurrency=1 per GPU worker).
+_INFERENCE_SEMAPHORE = threading.Semaphore(1)
 
 
 class SceneInputError(FileNotFoundError):
@@ -44,21 +44,27 @@ class SceneInputError(FileNotFoundError):
 
 
 class ProcessingService:
-    def __init__(self) -> None:
-        self.default_device = os.environ.get("DW_DEVICE", "auto")
-        self.default_backbone = os.environ.get(
-            "DW_BACKBONE",
-            "depth-anything/Depth-Anything-V2-Base-hf",
-        )
-        self.default_live_backbone = os.environ.get("DW_NO_LIVE") != "1"
+    """Inference execution. All serving knobs come from the centralized
+    Settings (core/config.py) — this module never reads os.environ."""
+
+    def __init__(self, settings=None) -> None:
+        # None => resolve lazily per call so test fixtures that rebuild
+        # Settings (fresh_settings) are honored; an explicit Settings may
+        # be injected for workers with their own configuration.
+        self._settings = settings
+
+    @property
+    def settings(self):
+        return self._settings if self._settings is not None else get_settings()
 
     # -- configuration ------------------------------------------------------
 
     def _resolve_checkpoint(self) -> Path:
         """Resolve the calibration checkpoint. Single source of truth:
-        DW_CKPT, else the repo default below (mirrored in docker-compose)."""
+        settings.checkpoint (DW_CKPT), else the repo default below
+        (mirrored in docker-compose)."""
 
-        env_checkpoint = os.environ.get("DW_CKPT")
+        env_checkpoint = self.settings.checkpoint
 
         if env_checkpoint:
             checkpoint = Path(env_checkpoint)
@@ -73,7 +79,7 @@ class ProcessingService:
                 "checkpoint."
             )
 
-        expected_sha = os.environ.get("DW_CKPT_SHA256")
+        expected_sha = self.settings.checkpoint_sha256
         if expected_sha:
             from depthwizard.tifops import sha256_file
 
@@ -207,12 +213,12 @@ class ProcessingService:
                 input_path=input_path,
                 ckpt_path=checkpoint,
                 out_dir=output_dir,
-                device=self.default_device,
+                device=self.settings.device,
                 mode=mode,
                 dn_path=None,
                 cache_dir=None,
-                live_backbone=self.default_live_backbone,
-                backbone_id=self.default_backbone,
+                live_backbone=self.settings.live_backbone,
+                backbone_id=self.settings.backbone_id,
                 anchor_dem=None,
                 ground_elev=ground_elev,
                 write_files=True,
@@ -302,12 +308,12 @@ class ProcessingService:
                 input_path=crop_path,
                 ckpt_path=checkpoint,
                 out_dir=output_dir,
-                device=self.default_device,
+                device=self.settings.device,
                 mode="tiles",
                 dn_path=None,
                 cache_dir=None,
-                live_backbone=self.default_live_backbone,
-                backbone_id=self.default_backbone,
+                live_backbone=self.settings.live_backbone,
+                backbone_id=self.settings.backbone_id,
                 anchor_dem=None,
                 ground_elev=None,
                 write_files=True,
@@ -366,6 +372,47 @@ class ProcessingService:
             stage="failed",
             error=error,
         )
+
+    # -- external-worker execution -------------------------------------------
+
+    def execute_job_record(self, job_id: str) -> dict[str, Any] | None:
+        """Execute a PERSISTED job record — the external-worker entrypoint.
+
+        Everything needed comes from durable state: the job document
+        (request parameters) + the scene's stored input + configuration.
+        A fresh worker process can execute any job with no memory of the
+        API request that created it (statelessness definition).
+
+        Delivery semantics: at-least-once with idempotent outputs (see
+        FileJobRepository.claim_queued)."""
+        job = job_manager.get_job(job_id)
+        if job is None:
+            return None
+        if job.is_terminal:
+            return job.result
+        request = job.request or {"kind": "process"}
+        try:
+            if request.get("kind") == "refine":
+                bbox = request.get("bbox") or {}
+                return self.refine_region(
+                    job_id,
+                    job.scene_id,
+                    bbox=(
+                        int(bbox["x_min"]),
+                        int(bbox["y_min"]),
+                        int(bbox["x_max"]),
+                        int(bbox["y_max"]),
+                    ),
+                )
+            return self.process_scene(
+                job_id,
+                job.scene_id,
+                mode=request.get("mode", "auto"),
+                ground_elev=request.get("ground_elev"),
+            )
+        except Exception as exc:
+            self.record_failure(job_id, exc)
+            return None
 
     def _discard_outputs(self, output_dir: Path) -> None:
         """Remove partial outputs of a cancelled run (idempotent)."""

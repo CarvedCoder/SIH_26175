@@ -1,0 +1,18 @@
+{
+  "agl_sha": "3942b981c6e55c6472df76de7a85b643ff14b54aae2c4a94dc4a0307c73c8276",
+  "agl_shape": [
+    512,
+    512
+  ],
+  "anchored": false,
+  "dn_source": "explicit",
+  "mode": "auto",
+  "stats": {
+    "max": 6.186724,
+    "mean": 5.12438,
+    "median": 5.107706,
+    "min": 4.110281,
+    "n": 262144.0,
+    "neg": 0.0
+  }
+}

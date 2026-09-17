@@ -160,15 +160,20 @@ except the two defect fixes):
 5. ✅ Statelessness test suite (restart / two instances / lease expiry /
    cache-clear / legacy migration).
 
-Tranche 2 — storage & execution:
-6. Rewire `result_service` / `terrain_service` / `export_service` /
-   `processing_service` onto `ArtifactStore` (paths remain for HTTP file
-   streaming; artifact metadata recorded).
-7. `TaskQueue` protocol + `LocalQueue` (in-process worker loop) — API
-   stops owning inference; external worker entrypoint
-   `python -m backend.app.worker`.
-8. Centralize remaining env reads into `core/config.py`; inject
-   `ProcessingConfig`.
+Tranche 2 — **delivered** (execution split + config):
+6. ✅ `TaskQueue` protocol + request-scoped `BackgroundTaskQueue` (inline
+   mode) + external worker `python -m backend.app.worker` claiming from
+   the durable store (`claim_queued` / `list_queued`); `Job.request`
+   persisted so any worker can execute any job.
+7. ✅ Env reads centralized into `core/config.py` (`DW_CKPT`,
+   `DW_CKPT_SHA256`, `DW_DEVICE`, `DW_BACKBONE`, `DW_NO_LIVE`,
+   `DW_WORKER_MODE`); `ProcessingService` takes Settings only.
+8. ✅ Golden regression fixture generated + pinned
+   (`model_tests/test_golden_regression.py`) — tranche 3's gate.
+
+Tranche 2 remainder (next): rewire `result_service` / `terrain_service` /
+`export_service` onto `ArtifactStore` (paths remain for HTTP file
+streaming; artifact metadata recorded).
 
 Tranche 3 — ML pipeline decomposition (golden-regression-gated):
 9. Golden fixture from a fixed input + checkpoint; byte-compare raw Dn /

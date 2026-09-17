@@ -26,6 +26,23 @@ from .entities import Job, utc_now
 
 
 @runtime_checkable
+class TaskQueue(Protocol):
+    """Dispatches job execution.
+
+    Implementations:
+      * InlineTaskQueue  — runs the handler in a worker thread immediately
+        (development; equivalent behavior to FastAPI BackgroundTasks);
+      * the "external" mode has NO in-API queue at all: the durable job
+        record IS the queue entry and ``backend.app.worker`` claims it.
+
+    Dispatch is a performance/ownership concern — correctness never
+    depends on the same process dispatching and executing a job.
+    """
+
+    def add_task(self, fn, /, *args, **kwargs) -> None: ...
+
+
+@runtime_checkable
 class JobRepository(Protocol):
     """Durable store of Job records.
 
@@ -65,6 +82,15 @@ class JobRepository(Protocol):
     def request_cancel(self, job_id: str) -> Job | None: ...
 
     def renew_lease(self, job_id: str) -> Job | None: ...
+
+    def list_queued(self) -> list[Job]:
+        """All claimable queued jobs across scenes (worker discovery)."""
+        ...
+
+    def claim_queued(self, job_id: str) -> Job | None:
+        """Atomically-as-possible claim: queued → processing. Returns the
+        claimed job, or None when the job is no longer claimable (claimed
+        by another worker, cancelled, expired, or unknown)."""
 
     def delete(self, job_id: str) -> bool: ...
 

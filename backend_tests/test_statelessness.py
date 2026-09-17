@@ -249,3 +249,58 @@ def test_health_endpoints_split(client):
     canon = client.get("/api/v1/health")
     assert canon.status_code == 200
     assert set(canon.json()) == {"status", "version", "model_loaded"}
+
+
+# ---------------------------------------------------------------------------
+# Test E — two workers claim from one durable store
+# ---------------------------------------------------------------------------
+
+
+def test_two_workers_claim_disjoint_jobs(storage_root):
+    """Two worker instances polling the same store claim jobs without
+    corrupting state: each claim flips queued→processing exactly once, and
+    the second worker's claim of the same job returns None."""
+    repo_a, repo_b = _repo(), _repo()
+    j1 = repo_a.create("scene_000000000001")
+    j2 = repo_a.create("scene_000000000002")
+
+    discovered = sorted(j.job_id for j in repo_b.list_queued())
+    assert discovered == sorted([j1.job_id, j2.job_id])
+
+    # both workers discover the same queue but each job is claimed once
+    first = repo_b.claim_queued(j1.job_id)
+    assert first.status == "processing"
+    assert repo_b.claim_queued(j1.job_id) is None  # no longer queued
+
+    # a claim of an unknown/cancelled job is refused
+    assert repo_b.claim_queued("job_000000000000") is None
+    repo_a.request_cancel(j2.job_id)
+    assert repo_b.claim_queued(j2.job_id) is None
+
+
+def test_worker_executes_job_from_record_alone(storage_root, monkeypatch):
+    """A worker needs ONLY the durable record: execute_job_record reads
+    request parameters from the job document, not from any in-memory
+    request state."""
+    from backend.app.services.processing_service import ProcessingService
+
+    repo = _repo()
+    job = repo.create("scene_000000000001")
+    repo.update(job.job_id, request={
+        "kind": "process", "mode": "auto", "ground_elev": None,
+    })
+    repo.claim_queued(job.job_id)
+
+    svc = ProcessingService()
+    calls: list[tuple[str, str, float | None]] = []
+
+    def fake_process(job_id, scene_id, *, mode="auto", ground_elev=None):
+        calls.append((job_id, scene_id, ground_elev))
+        repo.update(job_id, status="completed", result={"cancelled": False})
+        return {"cancelled": False}
+
+    monkeypatch.setattr(svc, "process_scene", fake_process)
+    result = svc.execute_job_record(job.job_id)
+    assert result == {"cancelled": False}
+    assert calls == [(job.job_id, "scene_000000000001", None)]
+    assert repo.get(job.job_id).status == "completed"

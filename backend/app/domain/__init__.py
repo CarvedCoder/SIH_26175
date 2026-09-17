@@ -6,7 +6,13 @@ infrastructure module (refactor brief §37: dependency direction).
 """
 
 from .entities import Job, TERMINAL_STATUSES, utc_now
-from .protocols import ArtifactMetadata, ArtifactRef, ArtifactStore, JobRepository
+from .protocols import (
+    ArtifactMetadata,
+    ArtifactRef,
+    ArtifactStore,
+    JobRepository,
+    TaskQueue,
+)
 
 __all__ = [
     "Job",
@@ -16,4 +22,5 @@ __all__ = [
     "ArtifactMetadata",
     "ArtifactStore",
     "JobRepository",
+    "TaskQueue",
 ]

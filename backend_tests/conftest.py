@@ -122,6 +122,9 @@ def mock_inference(tmp_path, monkeypatch):
 
     ckpt = _tiny_checkpoint(tmp_path)
     monkeypatch.setenv("DW_CKPT", str(ckpt))
+    # Settings are env-driven and cached (tranche-2 centralization): a test
+    # that changes the environment must rebuild the cached Settings.
+    config_module.get_settings.cache_clear()
 
     calls: list[tuple[Path, dict]] = []
 
@@ -176,6 +179,7 @@ def mock_inference(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ps, "run_inference", fake_run_inference)
     yield calls
+    config_module.get_settings.cache_clear()
 
 
 @pytest.fixture()

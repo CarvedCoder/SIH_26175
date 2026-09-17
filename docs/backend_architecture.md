@@ -86,19 +86,38 @@ Any API instance can answer any `GET /jobs/{id}` today (pinned by
 `test_cross_instance_update_visibility`); the tranche-2 queue/worker
 split removes the last process-local piece (in-process job execution).
 
-## 7. Honest limitations after tranche 1
+## 7. Tranche 2 (delivered): execution split + config centralization
 
-* **In-process execution**: `BackgroundTasks` still runs inference inside
-  the API process. Records survive restarts; in-flight work does not
-  (finalized honestly). The TaskQueue/worker split is tranche 2.
-* **Last-writer-wins job mutations**: per-file read-modify-write without
-  cross-process transactions. Not a designed flow today; a DB-backed
-  repository removes the caveat entirely.
+* **TaskQueue seam** (`domain/protocols.py`): request-scoped dispatch is
+  `BackgroundTaskQueue` (inline dev mode — behaviorally identical to the
+  pre-refactor BackgroundTasks); external mode dispatches NOTHING from
+  the API.
+* **External worker** (`python -m backend.app.worker`): claims queued
+  jobs from the durable store (`FileJobRepository.list_queued` /
+  `claim_queued`), executes them via `ProcessingService.execute_job_record`
+  under a durable lease heartbeat. Validated request parameters are
+  PERSISTED on the job record (`Job.request`), so a fresh worker needs
+  only the record + artifacts + config.
+* **Delivery semantics**: at-least-once with idempotent outputs — a
+  race-window double claim re-runs the deterministic pipeline, writes
+  identical artifacts, and the terminal lock refuses the loser's
+  completion. Exactly-once requires the DB-backed repository.
+* **Config centralization**: `DW_CKPT`, `DW_CKPT_SHA256`, `DW_DEVICE`,
+  `DW_BACKBONE`, `DW_NO_LIVE`, `DW_WORKER_MODE`, `DW_WORKER_POLL_SECONDS`
+  all live in `Settings` now; `ProcessingService` never reads os.environ.
+* **Golden regression gate** (`model_tests/test_golden_regression.py`):
+  fixed input + fixed raw Dn + fixed checkpoint -> full certified path
+  (normalization, calibration, payload) pinned by a sha256 of the
+  calibrated AGL. Tranche 3 cannot change it silently
+  (REGEN_GOLDEN=1 to re-pin, documented).
+
+## 8. Honest limitations after tranche 2
+
 * **Storage seam exists, services not yet rewired**: business logic still
-  addresses artifacts via `core/paths.py` (safe, local). Tranche 2 moves
-  reads/writes onto `ArtifactStore` so S3/MinIO becomes configuration.
-* **Env reads** for inference-domain knobs (`DW_CKPT`, `DW_DEVICE`,
-  `DW_BACKBONE`) still live in `ProcessingService` — moving to typed
-  config is tranche 2.
-* **ML pipeline decomposition** (`inference.py`, 981 lines) is tranche 3
-  and MUST be gated on the golden regression fixture first.
+  addresses artifacts via `core/paths.py` (safe, local). Next tranche
+  moves reads/writes onto `ArtifactStore` so S3/MinIO becomes
+  configuration.
+* **Last-writer-wins job mutations**: per-file read-modify-write without
+  cross-process transactions; the DB-backed repository is the upgrade.
+* **ML pipeline decomposition** (`inference.py`, 981 lines) is tranche 3,
+  now safely gated by the golden regression test.

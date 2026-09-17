@@ -69,5 +69,25 @@ class Settings:
         # --- Serving identity ------------------------------------------------
         self.version: str = "1.0.0"
 
+        # --- Inference / worker domain (tranche 2: centralized here so no
+        # other module reads os.environ for serving behavior) ----------------
+        self.device: str = os.environ.get("DW_DEVICE", "auto")
+        self.backbone_id: str = os.environ.get(
+            "DW_BACKBONE",
+            "depth-anything/Depth-Anything-V2-Base-hf",
+        )
+        # DW_NO_LIVE=1 disables the live DAv2 fallback (offline honesty).
+        self.live_backbone: bool = os.environ.get("DW_NO_LIVE") != "1"
+        self.checkpoint: str | None = os.environ.get("DW_CKPT") or None
+        self.checkpoint_sha256: str | None = (
+            os.environ.get("DW_CKPT_SHA256") or None
+        )
+        # Job execution: "inline" (default; API threadpool — dev mode) or
+        # "external" (API only records jobs; backend.app.worker claims them).
+        self.worker_mode: str = os.environ.get("DW_WORKER_MODE", "inline")
+        self.worker_poll_seconds: float = float(
+            os.environ.get("DW_WORKER_POLL_SECONDS", "1.0")
+        )
+
 
 settings = get_settings()

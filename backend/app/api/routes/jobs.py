@@ -8,13 +8,25 @@ Contract fixes from the audit (H2 + C5):
     * the request body is a strict Pydantic model (unsupported options are
       422s, not silent ignores);
     * job responses are typed (JobResponse), including cancellation state.
+
+Tranche 2 (execution split): the validated request parameters are
+PERSISTED on the job record (`Job.request`), so the API process never
+needs to survive for the work to happen:
+    * DW_WORKER_MODE=inline (default): the InlineTaskQueue dispatches
+      execute_job_record on a worker thread (dev parity with the old
+      BackgroundTasks behavior);
+    * DW_WORKER_MODE=external: the API ONLY records the job — the durable
+      record is the queue entry and `python -m backend.app.worker` claims
+      and executes it. Any worker, any instance, any time.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Request
 
 from backend.app.api.routes.scenes import _require_scene
+from backend.app.appstate import task_queue_for
+from backend.app.core.config import get_settings
 from backend.app.core.errors import AppError, SceneBusy
 from backend.app.jobs.manager import job_manager
 from backend.app.schemas.job import (
@@ -36,40 +48,40 @@ router = APIRouter(
 )
 
 
-def _run_processing(job_id: str, scene_id: str, request: ProcessRequest) -> None:
-    """Background entry point (threadpool): run the certified pipeline."""
-    try:
-        processing_service.process_scene(
-            job_id=job_id,
-            scene_id=scene_id,
-            mode=request.mode.value,
-            ground_elev=request.ground_elev,
-        )
-    except Exception as exc:
-        # record the typed job error; full detail is logged server-side
-        processing_service.record_failure(job_id, exc)
+def _job_request_payload(request: ProcessRequest | RefineRequest) -> dict:
+    """Validated request parameters as a JSON-safe dict (persisted on the
+    job record so any worker can execute it)."""
+    if isinstance(request, RefineRequest):
+        return {
+            "kind": "refine",
+            "bbox": {
+                "x_min": request.bbox.x_min,
+                "y_min": request.bbox.y_min,
+                "x_max": request.bbox.x_max,
+                "y_max": request.bbox.y_max,
+            },
+        }
+    return {
+        "kind": "process",
+        "mode": request.mode.value,
+        "ground_elev": request.ground_elev,
+    }
 
 
-def _run_refinement(job_id: str, scene_id: str, request: RefineRequest) -> None:
-    try:
-        processing_service.refine_region(
-            job_id=job_id,
-            scene_id=scene_id,
-            bbox=(
-                request.bbox.x_min,
-                request.bbox.y_min,
-                request.bbox.x_max,
-                request.bbox.y_max,
-            ),
-        )
-    except Exception as exc:
-        processing_service.record_failure(job_id, exc)
+def _dispatch(job_id: str, http_request: Request, background_tasks) -> None:
+    """Hand the durable job to the execution layer (inline dispatch in dev
+    mode; record-only when DW_WORKER_MODE=external)."""
+    queue = task_queue_for(http_request, background_tasks)
+    if queue is not None:
+        queue.add_task(processing_service.execute_job_record, job_id)
+    # external mode: nothing to do — the record IS the queue entry.
 
 
 @router.post("/api/v1/scenes/{scene_id}/process", response_model=ProcessAccepted)
 async def process_scene(
     scene_id: str,
     request: ProcessRequest,
+    http_request: Request,
     background_tasks: BackgroundTasks,
 ):
     """Create an asynchronous DepthWizard processing job for a scene."""
@@ -80,8 +92,8 @@ async def process_scene(
         raise SceneBusy(scene_id, active.job_id)
 
     job = job_manager.create_job(scene_id)
-
-    background_tasks.add_task(_run_processing, job.job_id, scene_id, request)
+    job_manager.update_job(job.job_id, request=_job_request_payload(request))
+    _dispatch(job.job_id, http_request, background_tasks)
 
     return ProcessAccepted(
         job_id=job.job_id,
@@ -96,6 +108,7 @@ async def process_scene(
 async def refine_scene(
     scene_id: str,
     request: RefineRequest,
+    http_request: Request,
     background_tasks: BackgroundTasks,
 ):
     """Create a local refinement job re-processing a bbox of the scene."""
@@ -106,7 +119,8 @@ async def refine_scene(
         raise SceneBusy(scene_id, active.job_id)
 
     job = job_manager.create_job(scene_id)
-    background_tasks.add_task(_run_refinement, job.job_id, scene_id, request)
+    job_manager.update_job(job.job_id, request=_job_request_payload(request))
+    _dispatch(job.job_id, http_request, background_tasks)
 
     return RefineAccepted(
         job_id=job.job_id,

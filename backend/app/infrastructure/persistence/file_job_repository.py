@@ -292,6 +292,7 @@ class FileJobRepository:
         result: dict[str, Any] | None = None,
         error: dict[str, Any] | None = None,
         message: str | None = None,
+        request: dict[str, Any] | None = None,
     ) -> Job | None:
         with self._lock:
             job = self._locate_locked(job_id)
@@ -328,6 +329,8 @@ class FileJobRepository:
                 job.error = error
             if message is not None:
                 job.message = message
+            if request is not None:
+                job.request = request
             with_job = job
         # Write-through outside the lock: disk I/O must not serialise
         # concurrent readers; a poller seeing the previous revision is
@@ -373,6 +376,47 @@ class FileJobRepository:
         if found is not None:
             self._index[job_id] = found
         return found
+
+    def list_queued(self) -> list[Job]:
+        """All claimable queued jobs across scenes (worker discovery).
+        Revival applies first: a queued job past its grace window is
+        finalized instead of being handed to a worker."""
+        from backend.app.core.paths import SCENES_PROCESS_DIR
+
+        base = SCENES_PROCESS_DIR
+        if not base.is_dir():
+            return []
+        queued: list[Job] = []
+        for jobs_dir in sorted(base.glob("*/jobs")):
+            for path in sorted(jobs_dir.glob("*.json")):
+                job = self._load_job_file(path)
+                if job is None:
+                    continue
+                job = self._revive_or_fail(job, from_disk=True)
+                if job.status == "queued":
+                    queued.append(job)
+        return queued
+
+    def claim_queued(self, job_id: str) -> Job | None:
+        """Claim a queued job: queued → processing, ONLY if the disk record
+        is still queued (in-process check-then-write inside the lock).
+
+        Delivery semantics (honest): at-least-once with idempotent outputs.
+        Two workers racing the same claim in the millisecond window between
+        read and write may both claim; the deterministic pipeline then
+        writes identical artifacts and exactly one completion wins (the
+        terminal-state lock refuses the loser). Exactly-once requires a
+        database-backed repository — the upgrade path when multi-writer
+        conflicts become real.
+        """
+        with self._lock:
+            job = self._locate_locked(job_id)
+            if job is None or job.status != "queued" or job.is_terminal:
+                return None
+            claimed = self.update(
+                job_id, status="processing", stage="depth_inference", progress=5.0
+            )
+        return claimed
 
     def request_cancel(self, job_id: str) -> Job | None:
         with self._lock:

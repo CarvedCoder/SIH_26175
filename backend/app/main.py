@@ -14,10 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.router import api_router
 from backend.app.api.routes.health import _health_payload, router as health_router
-from backend.app.core.config import settings
+from backend.app.core.config import get_settings, settings
 from backend.app.core.errors import register_error_handlers
 from backend.app.core.logging import logger
 from backend.app.core.middleware import AccessLogMiddleware, RequestIdMiddleware
+from backend.app.appstate import build_task_queue
 from backend.app.core.paths import ensure_directories
 from backend.app.core.security import auth_enabled
 from backend.app.schemas.health import HealthResponse
@@ -26,11 +27,15 @@ from backend.app.schemas.health import HealthResponse
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_directories()
+    # Dispatch wiring (config, not state): inline queue in dev mode; None
+    # in external mode (the durable job record is the queue; workers claim).
+    app.state.task_queue = build_task_queue()
     logger.info(
-        "DepthWizard API %s starting; auth=%s; cors_origins=%s",
+        "DepthWizard API %s starting; auth=%s; cors_origins=%s; worker_mode=%s",
         settings.version,
         "enabled" if auth_enabled() else "DISABLED (local development)",
         ",".join(settings.cors_origins),
+        get_settings().worker_mode,
     )
     yield
     logger.info("DepthWizard API shutting down")

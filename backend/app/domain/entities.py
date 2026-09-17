@@ -59,6 +59,12 @@ class Job:
     # -- durable liveness ---------------------------------------------------
     lease_until: str | None = None  # ISO ts; expired non-terminal => failed
     attempt: int = 0  # incremented on every claim
+    # -- work payload ---------------------------------------------------------
+    # The validated request parameters (kind + options), persisted so ANY
+    # worker — not just the API process that accepted the HTTP request —
+    # can execute the job. request + artifacts + config = everything a
+    # fresh worker needs (statelessness definition, brief §2).
+    request: dict[str, Any] | None = None
 
     @property
     def is_terminal(self) -> bool:
