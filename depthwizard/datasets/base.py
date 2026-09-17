@@ -170,8 +170,9 @@ class BaseDepthDataset(Dataset):
         # one-hot itself (pinned by test_joint_transform_alignment_sem) —
         # and it avoids np.rot90 axis ambiguity on channel-first arrays.
         layers: Dict[str, np.ndarray] = {"rgb": rgb, "agl": agl, "cls": cls}
-        for k in ("dn", "dem"):
+        for k in ("dn", "dem", "confidence"):
             if arrs.get(k) is not None:
+
                 layers[k] = arrs[k]
 
         y0 = x0 = 0

@@ -47,6 +47,11 @@ class LoadedModel:
     use_sem: bool = False  # Exp 4/5 checkpoints (additive defaults)
     sem_classes: int = 0
     sem_aux_head: bool = False
+    parameterization: str = "absolute_affine"
+    bounded: bool = False
+    context_module: str = "none"
+    fusion_mode: str = "early"
+    use_uncertainty: bool = False
 
     @property
     def tag(self) -> str:
@@ -140,13 +145,26 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
     validate_checkpoint_payload(ckpt)
 
-    from .calibration_net import CalibrationNet, derive_in_ch
+    from .calibration_net import (
+        CalibrationNet,
+        derive_in_ch,
+        semantic_mode_from_ckpt,
+    )
 
     use_rgb = bool(ckpt["use_rgb"])
     use_dem = bool(ckpt.get("use_dem", False))
     use_sem = bool(ckpt.get("use_sem", False))
     sem_classes = int(ckpt.get("sem_classes", 0))
     sem_aux_head = bool(ckpt.get("sem_aux_head", False))
+    # V2 architecture metadata: absolute_affine / unbounded / no-context /
+    # early fusion reproduce every legacy checkpoint exactly (the defaults
+    # ARE the legacy design). A v2 field present in the checkpoint must be
+    # honored — never silently rebuild an incompatible architecture.
+    parameterization = str(ckpt.get("parameterization", "absolute_affine"))
+    bounded = bool(ckpt.get("bounded", False))
+    context_module = str(ckpt.get("context_module", "none"))
+    fusion_mode = str(ckpt.get("fusion_mode", "early"))
+    use_uncertainty = bool(ckpt.get("use_uncertainty", False))
     # in_ch is reconstructed deterministically from the flags (legacy
     # use_rgb/use_dem mapping preserved EXACTLY for old checkpoints):
     #   in_ch=1 (Dn) | 2 (Dn+DEM) | 4 (Dn+RGB) | 5 (Dn+RGB+DEM) | +K (sem).
@@ -168,7 +186,12 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
         # head-only checkpoints (predicted semantics) store sem_input=False;
         # legacy ckpts omit it and default to the GT-input design (True) so
         # they rebuild bit-identically.
-        sem_input=bool(ckpt.get("sem_input", True)),
+        semantic_mode=semantic_mode_from_ckpt(ckpt),
+        parameterization=parameterization,
+        bounded=bounded,
+        context_module=context_module,
+        fusion_mode=fusion_mode,
+        use_uncertainty=use_uncertainty,
     ).to(device)
     net.load_state_dict(ckpt["model_state"])
     net.eval()
@@ -189,6 +212,11 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
         use_sem=use_sem,
         sem_classes=sem_classes,
         sem_aux_head=sem_aux_head,
+        parameterization=parameterization,
+        bounded=bounded,
+        context_module=context_module,
+        fusion_mode=fusion_mode,
+        use_uncertainty=use_uncertainty,
     )
 
 

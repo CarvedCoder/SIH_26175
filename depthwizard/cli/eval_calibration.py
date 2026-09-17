@@ -30,7 +30,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from depthwizard.calibration_net import CalibrationNet
+from depthwizard.calibration_net import CalibrationNet, semantic_mode_from_ckpt
 from depthwizard.cli.args import (
     add_cache_subdir_arg,
     add_config_arg,
@@ -505,6 +505,12 @@ def run(args) -> int:
         clamp_min=ckpt.get("clamp_min", 0.0),
         sem_classes=int(ckpt.get("sem_classes", 0)),
         sem_aux_head=bool(ckpt.get("sem_aux_head", False)),
+        semantic_mode=semantic_mode_from_ckpt(ckpt),
+        parameterization=str(ckpt.get("parameterization", "absolute_affine")),
+        bounded=bool(ckpt.get("bounded", False)),
+        context_module=str(ckpt.get("context_module", "none")),
+        fusion_mode=str(ckpt.get("fusion_mode", "early")),
+        use_uncertainty=bool(ckpt.get("use_uncertainty", False)),
     ).to(device)
     net.load_state_dict(ckpt["model_state"])
     net.eval()

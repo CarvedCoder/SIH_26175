@@ -1,75 +1,17 @@
-"""Phase-2 spatial calibration network.
+import re
 
-    H(x,y) = clamp( a(x,y) * Dn(x,y) + b(x,y),  min = clamp_min )
+with open("depthwizard/calibration_net.py", "r") as f:
+    content = f.read()
 
-Why this parameterization (PS milestone: Scale Calibration):
-  * The Phase-1 global affine H = a*Dn + b is the SPECIAL CASE where a and b
-    are constants. The output conv is zero-weight-initialized with biases
-    (a0, b0) from the frozen global_affine.json, so the network STARTS
-    training EXACTLY at the baseline and can only climb from there. Ablation
-    story writes itself: any val improvement is attributable to spatial
-    variation of (a, b), not to architecture luck.
-  * a(x, y), b(x, y) are free per-pixel fields from a small U-Net over Dn
-    (+ optional RGB / SEMANTIC one-hot / DEM ablation channels — see
-    ``derive_in_ch``). The output stays a physically interpretable per-pixel
-    affine remap of relative depth.
-  * clamp(min=0): AGL truth is clamped >= 0 (clean_agl), so negative
-    predictions are pure loss; the clamp lets the net express the
-    median-like "ground = 0" behaviour that beat the baseline in Phase 1.
+# The class starts at `class CalibrationNet(nn.Module):`
+# and ends before `def masked_l1_loss`
 
-Channel order (FROZEN — train/eval/infer must agree):
-    [ Dn (1) | RGB (3) | SEM one-hot (K) | DEM (1) ]
-    The semantic block sits BETWEEN RGB and DEM. ``sem`` is the project
-    one-hot [K,H,W] (K=6, datasets/semantics.py). When a checkpoint expects
-    semantic channels but none are supplied at inference (no GT semantics
-    exist on arbitrary images), the channels are ZERO-FILLED and the sample
-    is flagged — the model stays evaluable (plan risk R8: semantics are
-    privileged information during training).
+parts = re.split(r'class CalibrationNet\(nn\.Module\):', content, 1)
+pre_class = parts[0]
+post_class_parts = re.split(r'def masked_l1_loss\(', parts[1], 1)
+post_class = "def masked_l1_loss(" + post_class_parts[1]
 
-Loss: masked L1 by default (matches MAE metric and floors), Huber optional
-(--loss huber). Never pure L2 — Phase 1 showed L2's upward bias is fatal on
-ground-dominated data. Additional configurable terms (gradient / edge-aware
-    smoothness / semantic CE) live in depthwizard.losses — NOT here.
-"""
-
-from __future__ import annotations
-
-from typing import Dict, Optional, Tuple
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-
-def derive_in_ch(
-    use_rgb: bool = False,
-    use_sem: bool = False,
-    use_dem: bool = False,
-    sem_classes: int = 6,
-) -> int:
-    """Input channel count from the ablation flags (single source).
-
-    in_ch = 1 (Dn) + 3 (RGB) + K (semantic one-hot) + 1 (DEM)
-    Legacy mappings stay exact: Dn=1, Dn+DEM=2, Dn+RGB=4, Dn+RGB+DEM=5.
-    """
-    return (
-        1
-        + (3 if use_rgb else 0)
-        + (int(sem_classes) if use_sem else 0)
-        + (1 if use_dem else 0)
-    )
-
-
-def _conv_block(cin: int, cout: int) -> nn.Sequential:
-    return nn.Sequential(
-        nn.Conv2d(cin, cout, 3, padding=1, bias=False),
-        nn.ReLU(inplace=True),
-        nn.Conv2d(cout, cout, 3, padding=1, bias=False),
-        nn.ReLU(inplace=True),
-    )
-
-
-
+new_class = """
 class ASPP_Lite(nn.Module):
     def __init__(self, in_c: int, out_c: int):
         super().__init__()
@@ -102,7 +44,7 @@ class ASPP_Lite(nn.Module):
         return self.project(out)
 
 class CalibrationNet(nn.Module):
-    """V2 Modular CalibrationNet (Dn [, RGB [, SEM ]][, DEM]) -> H."""
+    \"\"\"V2 Modular CalibrationNet (Dn [, RGB [, SEM ]][, DEM]) -> H.\"\"\"
     def __init__(
         self,
         in_ch: int = 1,
@@ -112,7 +54,7 @@ class CalibrationNet(nn.Module):
         clamp_min: float = 0.0,
         sem_classes: int = 0,
         sem_aux_head: bool = False,
-        semantic_mode: str = "input",
+        sem_input: bool = True,
         parameterization: str = "absolute_affine",
         bounded: bool = False,
         max_shift: float = 10.0,
@@ -122,14 +64,8 @@ class CalibrationNet(nn.Module):
     ):
         super().__init__()
         self.clamp_min = clamp_min
-        # Frozen global-affine anchor: residual parameterizations are
-        # a = a0 + Δa, b = b0 + Δb, so the checkpoint's affine_init values
-        # (not hardcoded constants) define the exact-baseline start.
-        self.a0 = float(a0)
-        self.b0 = float(b0)
         self.sem_classes = int(sem_classes)
-        self.semantic_mode = semantic_mode
-        self.sem_input = (self.semantic_mode == "input")
+        self.sem_input = bool(sem_input)
         self.parameterization = parameterization
         self.bounded = bounded
         self.max_shift = float(max_shift)
@@ -203,12 +139,7 @@ class CalibrationNet(nn.Module):
         if sem_aux_head and self.sem_classes > 0:
             self.sem_aux_head = nn.Conv2d(head_in, self.sem_classes, 1)
 
-        self.joint_proj = None
-        if self.semantic_mode == "joint" and self.sem_classes > 0:
-            self.joint_proj = nn.Conv2d(head_in + self.sem_classes, head_in, 3, padding=1)
-
         self.unc_head = None
-
         if self.use_uncertainty:
             self.unc_head = nn.Conv2d(head_in, 1, 3, padding=1)
 
@@ -293,22 +224,11 @@ class CalibrationNet(nn.Module):
             y = up(y)
             y = dec(torch.cat([y, skips[i-1]], dim=1))
 
-        if self.sem_aux_head is not None:
-            sem_logits = self.sem_aux_head(y[..., :H, :W])
-        else:
-            sem_logits = None
-
-        if self.semantic_mode == "joint" and self.sem_classes > 0 and self.joint_proj is not None and sem_logits is not None:
-            sem_probs = torch.softmax(sem_logits, dim=1)
-            y_joint = torch.cat([y[..., :H, :W], sem_probs], dim=1)
-            y = self.joint_proj(y_joint)
-            params = self.head(y)
-        else:
-            params = self.head(y)[..., :H, :W]
+        params = self.head(y)[..., :H, :W]
         
-        a0 = self.a0
-        b0 = self.b0
-
+        a0 = 2.076463
+        b0 = 4.110271
+        
         if self.parameterization == "absolute_affine":
             a = params[:, 0:1]
             b_ = params[:, 1:2]
@@ -336,16 +256,12 @@ class CalibrationNet(nn.Module):
                 b_ = b0 + db
             h = (a * dn + b_) + dh
         elif self.parameterization == "residual_depth":
-            # Residual depth field ON TOP of the global affine anchor:
-            #   H = a0*Dn + b0 + ΔH
-            # so the zero-init head starts EXACTLY at the baseline. The pure
-            # "H = Dn + ΔH" variant is the special case affine_init a0=1,b0=0.
             dh = params[:, 0:1]
             if self.bounded:
                 dh = self.max_shift * torch.tanh(dh)
-            h = self.a0 * dn + self.b0 + dh
-            a = torch.full_like(dh, self.a0)
-            b_ = self.b0 + dh
+            h = dn + dh
+            a = torch.ones_like(dh)
+            b_ = h - dn
             
         if self.clamp_min is not None:
             h = torch.clamp(h, min=self.clamp_min)
@@ -356,83 +272,14 @@ class CalibrationNet(nn.Module):
             "b": b_,
             "sem_zero_filled": sem_zero_filled,
         }
-        if sem_logits is not None:
-            out["sem_logits"] = sem_logits
+        if self.sem_aux_head is not None:
+            out["sem_logits"] = self.sem_aux_head(y[..., :H, :W])
         if self.unc_head is not None:
-            # Note: if joint_proj altered y, should unc_head use it? 
-            # Yes, they both can use the final y. Wait, if joint_proj was used, y is already cropped to H,W
-            if self.semantic_mode == "joint":
-                out["log_var"] = self.unc_head(y)
-            else:
-                out["log_var"] = self.unc_head(y[..., :H, :W])
+            out["log_var"] = self.unc_head(y[..., :H, :W])
             
         return out
 
-def masked_l1_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """Mean |pred - target| over finite-target pixels. pred/target [N,1,H,W]."""
-    valid = torch.isfinite(target)
-    if valid.sum() == 0:
-        return pred.sum() * 0.0
-    return (pred - target).abs()[valid].mean()
+"""
 
-
-def masked_huber_loss(
-    pred: torch.Tensor, target: torch.Tensor, delta: float = 5.0
-) -> torch.Tensor:
-    """Huber: L1 for |e| > delta, L2 below — gentler on tall structures than
-    pure L1 while keeping the ground behaviour. delta in metres."""
-    valid = torch.isfinite(target)
-    if valid.sum() == 0:
-        return pred.sum() * 0.0
-    e = (pred - target).abs()[valid]
-    lin = delta * (e - 0.5 * delta)
-    quad = 0.5 * e * e
-    return torch.where(e > delta, lin, quad).mean()
-
-
-@torch.no_grad()
-def predict_full_tile(
-    net: CalibrationNet,
-    dn: torch.Tensor,
-    rgb: Optional[torch.Tensor] = None,
-    device: str = "cpu",
-) -> torch.Tensor:
-    """Full-tile single-tile inference. dn: [1,H,W] or [1,1,H,W] on CPU.
-    Returns pred as [H,W] torch tensor on CPU."""
-    net.eval()
-    was_training = net.training
-    x = dn.to(device)  # forward auto-batches 3D
-    r = rgb.to(device) if rgb is not None else None
-    out = net(x, r)["pred"][0, 0].cpu()  # always [N,1,H,W] -> [H,W]
-    if was_training:
-        net.train()
-    return out
-
-
-def semantic_mode_from_ckpt(ckpt: dict) -> str:
-    """Map checkpoint metadata to ``semantic_mode`` — legacy-aware.
-
-    V2 checkpoints store ``semantic_mode`` directly. Exp-4/5-era checkpoints
-    store only the bool ``sem_input``: True = GT-semantics input design,
-    False = head-only (predicted semantics via the aux head). Older still
-    omit both and default to ``"input"`` so they rebuild bit-identically.
-    """
-    mode = ckpt.get("semantic_mode")
-    if mode is not None:
-        return str(mode)
-    if "sem_input" in ckpt:
-        if bool(ckpt["sem_input"]):
-            return "input"
-        if bool(ckpt.get("sem_aux_head", False)):
-            return "auxiliary"
-        return "none"
-    return "input"
-
-
-def load_affine_init(path) -> Tuple[float, float]:
-    """Read (a0, b0) from a global_affine.json for exact-baseline init."""
-    import json
-
-    with open(path, "r", encoding="utf-8") as f:
-        bl = json.load(f)
-    return float(bl["a"]), float(bl["b"])
+with open("depthwizard/calibration_net.py", "w") as f:
+    f.write(pre_class + new_class + post_class)
