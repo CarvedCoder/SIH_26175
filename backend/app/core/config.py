@@ -61,6 +61,10 @@ class Settings:
         self.max_concurrent_jobs: int = _int_env("DW_MAX_CONCURRENT_JOBS", 1)
         self.job_retention_limit: int = _int_env("DW_JOB_RETENTION_LIMIT", 500)
         self.job_ttl_seconds: int = _int_env("DW_JOB_TTL_SECONDS", 24 * 3600)
+        # Durable lease for claimed jobs (worker heartbeats renew it at
+        # lease/3). Must comfortably exceed the longest single inference
+        # run even WITHOUT heartbeats, as a belt-and-braces margin.
+        self.job_lease_seconds: int = _int_env("DW_JOB_LEASE_SECONDS", 1800)
 
         # --- Serving identity ------------------------------------------------
         self.version: str = "1.0.0"

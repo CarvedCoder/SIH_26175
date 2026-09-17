@@ -246,23 +246,27 @@ def test_completed_job_survives_manager_restart(fresh_job_manager):
 
 
 def test_orphaned_processing_job_fails_on_read_after_restart(fresh_job_manager):
-    """A job left 'processing' by a dead process must become an honest
-    JOB_INTERRUPTED failure on the next read — never stuck at 'processing'
-    forever."""
-    import os
+    """A job left 'processing' whose DURABLE LEASE expired must become an
+    honest JOB_INTERRUPTED failure on the next read — never stuck at
+    'processing' forever. (Tranche-1 contract: liveness is the lease, not
+    a PID; the legacy PID-format migration has its own test.)"""
+    from datetime import datetime, timedelta, timezone
 
     from backend.app.jobs.manager import JobManager
 
     job = fresh_job_manager.create_job("scene_000000000001")
     fresh_job_manager.update_job(job.job_id, status="processing")
 
-    # Simulate the restart: the on-disk record points at a dead PID and
-    # the fresh manager has no memory of the job.
+    # Simulate the restart: the on-disk record's lease expired and the
+    # fresh manager has no memory of the job.
     path = fresh_job_manager._job_path(job.scene_id, job.job_id)
     import json
 
     data = json.loads(path.read_text())
-    data["owner_pid"] = 2 ** 22  # PID that cannot exist in this test env
+    assert data["lease_until"] is not None  # new records carry a lease
+    data["lease_until"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=1)
+    ).isoformat()
     path.write_text(json.dumps(data))
 
     restarted = JobManager(retention_limit=8, ttl_seconds=3600)
@@ -271,4 +275,24 @@ def test_orphaned_processing_job_fails_on_read_after_restart(fresh_job_manager):
     assert revived.error["code"] == "JOB_INTERRUPTED"
     # and the failed state is persisted for every future reader
     assert restarted.get_job(job.job_id).status == "failed"
-    assert os.getpid() != 2 ** 22
+
+
+def test_heartbeat_keeps_leased_job_alive(fresh_job_manager, monkeypatch):
+    """A worker renewing its lease is never finalized as interrupted —
+    even past the original lease window."""
+    import time
+
+    from backend.app.jobs.manager import JobManager
+
+    monkeypatch.setattr(fresh_job_manager._repo, "_lease_seconds", 0.2)
+    job = fresh_job_manager.create_job("scene_000000000001")
+    fresh_job_manager.update_job(job.job_id, status="processing")
+
+    # simulate ~0.5s of "inference" with heartbeats every 0.05s
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline:
+        fresh_job_manager._repo.renew_lease(job.job_id)
+        time.sleep(0.05)
+
+    restarted = JobManager(retention_limit=8, ttl_seconds=3600)
+    assert restarted.get_job(job.job_id).status == "processing"

@@ -191,7 +191,11 @@ class ProcessingService:
             job_manager.update_job(job_id, status="cancelled", stage="cancelled")
             return {"cancelled": True}
 
-        with _INFERENCE_SEMAPHORE:
+        # Durable lease heartbeat: while this worker runs, the job's lease
+        # is renewed so OTHER instances never finalize it as interrupted.
+        # If THIS process dies, the lease expires and any reader honestly
+        # fails the job — no PID liveness anywhere.
+        with job_manager.lease_heartbeat(job_id), _INFERENCE_SEMAPHORE:
             if self._check_cancelled(job_id):
                 self._discard_outputs(output_dir)
                 job_manager.update_job(
@@ -265,7 +269,7 @@ class ProcessingService:
                 "refinement bbox exceeds the scene raster dimensions."
             )
 
-        with _INFERENCE_SEMAPHORE:
+        with job_manager.lease_heartbeat(job_id), _INFERENCE_SEMAPHORE:
             if self._check_cancelled(job_id):
                 job_manager.update_job(
                     job_id, status="cancelled", stage="cancelled"
