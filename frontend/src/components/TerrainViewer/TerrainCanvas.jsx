@@ -205,7 +205,9 @@ const FRAG = /* glsl */ `
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
 const LO_SEGS = 64;
-const HI_SEGS = 256;
+// High-res mesh: 2×2 tiles of 256 segments sample the 1024-px heightmap at
+// 512×512 — buildings keep crisp rooflines; 256 left them visibly rounded.
+const HI_SEGS = 512;
 const DEFAULT_CAMERA_POS = [0, 1.2, 2.5];
 
 /**
@@ -475,6 +477,16 @@ function SceneBridge({ canvasRef, glRef, orbitControlsRef, materialRef, sceneSta
 
     return () => {
       g.disposed = true;
+      if (g.measureGroup) {
+        g.measureGroup.traverse((o) => {
+          o.geometry?.dispose?.();
+          const m = o.material;
+          if (Array.isArray(m)) m.forEach(x => { x.map?.dispose?.(); x.dispose?.(); });
+          else { m?.map?.dispose?.(); m?.dispose?.(); }
+        });
+        scene.remove(g.measureGroup);
+        g.measureGroup = null;
+      }
       if (g.tiles) {
         g.tiles.forEach(m => {
           m.geometry?.dispose?.();
@@ -561,6 +573,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     worldWidth: LEGACY_WORLD_SIZE,
     worldDepth: LEGACY_WORLD_SIZE,
     isGeoreferencedScale: false,
+    measureGroup: null,
   });
 
   // Create initial Three.js ShaderMaterial
@@ -761,6 +774,107 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         }
       }
     },
+    /** Two-point measurement overlay: A/B pins, dashed line, distance label.
+     *  Pass (a, b, label) with world coords {x, elevation, z}; pass (null)
+     *  to clear. Y is re-derived from the VISUAL mesh height (raw ×
+     *  visualHeightScale × exaggeration) so pins sit on the rendered
+     *  surface, not at the physical elevation above it. */
+    setMeasurePoints(a, b, label) {
+      const g = glRef.current;
+      if (!g.scene) return;
+
+      const disposeGroup = () => {
+        if (!g.measureGroup) return;
+        g.scene.remove(g.measureGroup);
+        g.measureGroup.traverse((o) => {
+          o.geometry?.dispose?.();
+          const m = o.material;
+          if (Array.isArray(m)) m.forEach(x => { x.map?.dispose?.(); x.dispose?.(); });
+          else { m?.map?.dispose?.(); m?.dispose?.(); }
+        });
+        g.measureGroup = null;
+      };
+
+      if (!a || !b) {
+        disposeGroup();
+        return;
+      }
+
+      const worldR = Math.max(g.worldWidth ?? LEGACY_WORLD_SIZE, g.worldDepth ?? LEGACY_WORLD_SIZE);
+      const markerR = worldR * 0.006;
+      const visualY = (elev) => {
+        const raw = g.elevationSpan > 0 ? (elev - g.minElevation) / g.elevationSpan : 0;
+        return raw * (g.visualHeightScale ?? BASE_VISUAL_HEIGHT_SCALE) * (g.exaggeration ?? 2.5);
+      };
+      const vA = new THREE.Vector3(a.x, visualY(a.elevation), a.z);
+      const vB = new THREE.Vector3(b.x, visualY(b.elevation), b.z);
+
+      if (!g.measureGroup) {
+        const grp = new THREE.Group();
+        const markerMat = new THREE.MeshBasicMaterial({
+          color: 0x4f8cff, depthTest: false, transparent: true, opacity: 0.95,
+        });
+        const sphereGeo = new THREE.SphereGeometry(1, 20, 14);
+        const mA = new THREE.Mesh(sphereGeo, markerMat);
+        const mB = new THREE.Mesh(sphereGeo, markerMat);
+        const lineMat = new THREE.LineDashedMaterial({
+          color: 0x4f8cff, depthTest: false, transparent: true, opacity: 0.9,
+        });
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([vA, vB]);
+        const line = new THREE.Line(lineGeo, lineMat);
+        const labelCanvas = document.createElement('canvas');
+        const labelTex = new THREE.CanvasTexture(labelCanvas);
+        labelTex.minFilter = THREE.LinearFilter;
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: labelTex, depthTest: false, transparent: true,
+        }));
+        [mA, mB, line, sprite].forEach(o => { o.renderOrder = 999; });
+        grp.add(mA, mB, line, sprite);
+        g.scene.add(grp);
+        g.measureGroup = grp;
+      }
+
+      const grp = g.measureGroup;
+      const [mA, mB, line, sprite] = grp.children;
+      mA.position.copy(vA);
+      mB.position.copy(vB);
+      mA.scale.setScalar(markerR);
+      mB.scale.setScalar(markerR);
+      line.geometry.setFromPoints([vA, vB]);
+      line.computeLineDistances();
+      const lineMat = line.material;
+      lineMat.dashSize = markerR * 2.2;
+      lineMat.gapSize = markerR * 1.1;
+
+      // Pill label at the midpoint, slightly lifted toward the camera
+      if (label) {
+        const canvas = sprite.material.map.image;
+        canvas.width = 256;
+        canvas.height = 72;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const r = 18;
+        ctx.beginPath();
+        ctx.roundRect(4, 4, canvas.width - 8, canvas.height - 8, r);
+        ctx.fillStyle = 'rgba(8, 12, 20, 0.92)';
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#4f8cff';
+        ctx.stroke();
+        ctx.font = '600 32px ui-monospace, "SF Mono", Menlo, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#eaf0ff';
+        ctx.fillText(label, canvas.width / 2, canvas.height / 2 + 2);
+        sprite.material.map.needsUpdate = true;
+        sprite.visible = true;
+        const mid = vA.clone().add(vB).multiplyScalar(0.5);
+        sprite.position.set(mid.x, mid.y + markerR * 7, mid.z);
+        sprite.scale.set(markerR * 16, markerR * 16 * (canvas.height / canvas.width), 1);
+      } else {
+        sprite.visible = false;
+      }
+    },
     sampleElevation(nx, nz) {
       const g = glRef.current;
       if (!g.heightData || !g.hmWidth || !g.hmHeight) return null;
@@ -797,7 +911,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           const nx = Math.max(0, Math.min(1, wx / (g.worldWidth ?? LEGACY_WORLD_SIZE) + 0.5));
           const nz = Math.max(0, Math.min(1, wz / (g.worldDepth ?? LEGACY_WORLD_SIZE) + 0.5));
           const elevation = this.sampleElevation(nx, nz) ?? hit.point.y;
-          return { x: wx, z: wz, elevation };
+          return { x: wx, z: wz, elevation, u: nx, v: nz };
         }
       }
 
@@ -814,7 +928,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       const nx = Math.max(0, Math.min(1, wx / (g.worldWidth ?? LEGACY_WORLD_SIZE) + 0.5));
       const nz = Math.max(0, Math.min(1, wz / (g.worldDepth ?? LEGACY_WORLD_SIZE) + 0.5));
       const elevation = this.sampleElevation(nx, nz) ?? 0;
-      return { x: wx, z: wz, elevation };
+      return { x: wx, z: wz, elevation, u: nx, v: nz };
     },
   }));
 
@@ -842,10 +956,10 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           background: '#07090e',
           outline: 'none',
         }}
-        tabIndex={0}
-        aria-label="3D terrain viewer"
-      >
-        <SceneBridge
+          tabIndex={0}
+          aria-label="3D terrain viewer"
+        >
+          <SceneBridge
           canvasRef={canvasRef}
           glRef={glRef}
           orbitControlsRef={orbitControlsRef}

@@ -41,6 +41,13 @@ class ResultService:
             "preview": output_dir / "dsm_preview.png",
         }
 
+        # The pipeline writes the DSM surface as dsm.npy; the GeoTIFF twin
+        # exists only for georeferenced exports. Accept either so DSM
+        # availability matches what the pipeline actually produces — a
+        # non-georeferenced scene (dsm.npy only) still has a usable DSM.
+        if not known_files["dsm"].exists() and known_files["depth"].exists():
+            known_files["dsm"] = known_files["depth"]
+
         return {
             name: path
             for name, path in known_files.items()
@@ -69,7 +76,16 @@ class ResultService:
         return stats
 
     def _read_dsm_metadata(self, path: Path) -> dict[str, Any]:
-        """Read spatial metadata from the generated DSM GeoTIFF."""
+        """Read spatial metadata from the generated DSM (GeoTIFF or .npy)."""
+        if path.suffix == ".npy":
+            # Non-georeferenced DSM surface: no CRS/bounds, shape only.
+            array = np.load(path, mmap_mode="r")
+            return {
+                "width": int(array.shape[1]),
+                "height": int(array.shape[0]),
+                "crs": None,
+                "bounds": None,
+            }
         with rasterio.open(path) as dataset:
             return {
                 "width": dataset.width,

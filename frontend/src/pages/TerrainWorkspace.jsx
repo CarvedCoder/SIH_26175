@@ -14,7 +14,7 @@
  *
  * DESIGN.md: Terrain primary — 70–80% usable screen; panels narrow + dark.
  */
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import Header from '../components/common/Header.jsx';
 import TerrainCanvas from '../components/TerrainViewer/TerrainCanvas.jsx';
 import Minimap from '../components/TerrainViewer/Minimap.jsx';
@@ -34,9 +34,10 @@ import ToolGuard from '../components/Analysis/ToolGuard.jsx';
 import RegionSelector from '../components/Analysis/RegionSelector.jsx';
 import AnalysisPanel from '../components/common/AnalysisPanel.jsx';
 import { useCameraController } from '../hooks/useCameraController.js';
-import { getMinimap } from '../api/terrain.js';
+import { getMinimap, getElevation } from '../api/terrain.js';
 import { getResults, getDepth, getDsm, getReference } from '../api/results.js';
 import { getErrorMap } from '../api/validation.js';
+import { resolveAssetUrl } from '../api/client.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 import {
   RotateCcw,
@@ -108,17 +109,59 @@ export default function TerrainWorkspace() {
     setSelectedStructure(null);
     setRefineBbox(null);
     setActiveTool('none');
+    setActiveLayer('buildings');
     layerCache.current = {};
+    prevLayerRef.current = 'buildings';
+    elevCache.current.clear();
+    terrainRef.current?.setMeasurePoints?.(null);
   }, [state.scene?.scene_id]);
 
   // ── Layer system (Phase 8) ──
-  const [activeLayer, setActiveLayer] = useState('solid');
+  // DEFAULT: solid-colour building blocks — structures render as flat-
+  // coloured volumes instead of the RGB drape; RGB stays one click away.
+  const [activeLayer, setActiveLayer] = useState('buildings');
   const [layerPanelOpen, setLayerPanelOpen] = useState(false);
   // Cache of layer URL → { url, colormapMode } to avoid re-fetching
   const layerCache = useRef({});
+  // Last layer that was successfully displayed — reverted to when a new
+  // layer fails to load so the viewport never silently keeps a stale state.
+  const prevLayerRef = useRef('solid');
 
   // Colormap mode per layer (matches fragment shader uniforms)
-  const COLORMAP_MODE = { rgb: 0, depth: 1, dsm: 2, reference_dem: 2, error: 3, slope: 2 };
+  const COLORMAP_MODE = { rgb: 0, depth: 1, dsm: 2, reference_dem: 2, error: 3, slope: 2, buildings: 4 };
+
+  // ── Layer availability (Compare menu) — real backend state, not guesses ──
+  const [layerAvail, setLayerAvail] = useState({ dsm: true, reference: true, error: true });
+  useEffect(() => {
+    const sceneId = state.scene?.scene_id;
+    if (!sceneId || isLoading) return;
+    let cancelled = false;
+    // Optimistic defaults keep the menu responsive; the fetches below then
+    // disable exactly the products the scene is missing.
+    setLayerAvail({ dsm: true, reference: true, error: true });
+    Promise.all([
+      getResults(sceneId).catch(() => null),
+      getReference(sceneId).catch(() => null),
+    ]).then(([results, reference]) => {
+      if (cancelled) return;
+      setLayerAvail({
+        dsm: !!(results?.dsm?.available ?? results?.dsm),
+        reference: !!reference?.available,
+        error: !!results?.capabilities?.validation,
+      });
+    });
+    return () => { cancelled = true; };
+  }, [state.scene?.scene_id, isLoading]);
+
+  // ── Toast (non-blocking feedback when a tool/layer can't do its job) ──
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+  const showToast = useCallback((message) => {
+    setToast(message);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 4000);
+  }, []);
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
   /** Fetch the texture URL for a layer and swap the terrain texture (task 8.2) */
   async function handleLayerChange(layerId) {
@@ -128,12 +171,25 @@ export default function TerrainWorkspace() {
     const sceneId = state.scene?.scene_id;
     if (!sceneId) return;
 
+    // Buildings view is generated in-shader from the heightmap — no texture
+    if (layerId === 'buildings') {
+      terrainRef.current?.setBuildingsView?.();
+      prevLayerRef.current = 'buildings';
+      return;
+    }
+
     // Check cache first
     if (layerCache.current[layerId]) {
       const { url, colormapMode } = layerCache.current[layerId];
       terrainRef.current?.setLayerTexture(url, colormapMode);
+      prevLayerRef.current = layerId;
       return;
     }
+
+    const LAYER_LABEL = {
+      rgb: 'RGB', depth: 'Depth map', dsm: 'Estimated DSM',
+      reference_dem: 'Reference DEM', error: 'Error map', slope: 'Slope layer',
+    };
 
     try {
       let url = null;
@@ -142,6 +198,7 @@ export default function TerrainWorkspace() {
       if (layerId === 'solid') {
         // default view: solid shaded surface + mesh, no imagery
         terrainRef.current?.setSolidView();
+        prevLayerRef.current = 'solid';
         return;
       }
 
@@ -151,16 +208,24 @@ export default function TerrainWorkspace() {
         url = meta?.texture_url ?? null;
       } else if (layerId === 'depth') {
         const depth = await getDepth(sceneId);
-        url = depth?.url ?? null;
+        url = depth?.url ?? depth?.download_url ?? null;
       } else if (layerId === 'dsm') {
+        // `url` is the browser-renderable PNG preview; `download_url` is the
+        // raw GeoTIFF/npy science product, which a WebGL texture can't decode.
         const dsm = await getDsm(sceneId);
-        url = dsm?.download_url ?? null;
+        url = dsm?.url ?? null;
       } else if (layerId === 'error') {
         const errMap = await getErrorMap(sceneId);
         url = errMap?.url ?? null;
       } else if (layerId === 'reference_dem') {
         const refDem = await getReference(sceneId);
         url = refDem?.visualization_url ?? refDem?.download_url ?? null;
+      } else if (layerId === 'slope') {
+        // Generated on demand by the backend from the scene's DSM array.
+        const slopeUrl = `/api/v1/scenes/${sceneId}/results/slope`;
+        const res = await fetch(resolveAssetUrl(slopeUrl));
+        if (!res.ok) throw new Error('slope preview unavailable');
+        url = slopeUrl;
       } else {
         // Other layers: try results endpoint for URL
         const results = await getResults(sceneId);
@@ -170,10 +235,14 @@ export default function TerrainWorkspace() {
       if (url) {
         layerCache.current[layerId] = { url, colormapMode };
         terrainRef.current?.setLayerTexture(url, colormapMode);
+        prevLayerRef.current = layerId;
+      } else {
+        setActiveLayer(prevLayerRef.current);
+        showToast(`${LAYER_LABEL[layerId] ?? 'That layer'} is not available for this scene yet.`);
       }
     } catch {
-      // Layer fetch failed — keep current layer
-      setActiveLayer(activeLayer);
+      setActiveLayer(prevLayerRef.current);
+      showToast(`${LAYER_LABEL[layerId] ?? 'That layer'} could not be loaded for this scene.`);
     }
   }
 
@@ -195,6 +264,10 @@ export default function TerrainWorkspace() {
         setIsSelectingRegion(true);
         setAnalysisPanelOpen(true);
       }
+      // Leaving the distance tool removes its A/B pins + label from the mesh.
+      if (curr === 'distance' && next !== 'distance') {
+        terrainRef.current?.setMeasurePoints?.(null);
+      }
       return next;
     });
   };
@@ -207,13 +280,48 @@ export default function TerrainWorkspace() {
   const [scenario, setScenario]                   = useState('exploration');
 
   /** Handle clicks on the terrain canvas to feed active measurement tool */
-  const handleTerrainClick = (e) => {
+  const elevCache = useRef(new Map());
+
+  /** Upgrade a visual heightmap estimate to the METERED DSM value (exact
+   *  float32 sample from the backend) with its accuracy statement. Points
+   *  without pixel coords, or when the backend is unavailable, fall back
+   *  to the visual estimate unchanged. */
+  const resolveExactPoint = useCallback(async (pt) => {
+    const sceneId = state.scene?.scene_id;
+    const g = terrainRef.current?.getRef?.()?.current;
+    if (!sceneId || !pt || typeof pt.u !== 'number' || !g?.hmWidth) return pt;
+    const px = Math.min(g.hmWidth - 1, Math.max(0, Math.round(pt.u * (g.hmWidth - 1))));
+    const py = Math.min(g.hmHeight - 1, Math.max(0, Math.round(pt.v * (g.hmHeight - 1))));
+    const key = `${px},${py}`;
+    const cached = elevCache.current.get(key);
+    if (cached) return { ...pt, ...cached };
+    try {
+      const r = await getElevation(sceneId, px, py);
+      const patch = {
+        elevation: r.elevation ?? pt.elevation,
+        px,
+        py,
+        metered: !!r.metered,
+        precision_m: r.precision_m ?? null,
+        confidence: r.confidence ?? null,
+      };
+      elevCache.current.set(key, patch);
+      return { ...pt, ...patch };
+    } catch {
+      return pt;
+    }
+  }, [state.scene?.scene_id]);
+
+  const handleTerrainClick = async (e) => {
     if (isLoading) return;
     // In Walkthrough, canvas clicks capture the cursor for mouse look —
     // measurement picks stay in Orbit / Top View where clicking makes sense.
     if (cameraMode === 'first-person') return;
-    const pt = terrainRef.current?.getTerrainPointFromEvent?.(e);
-    if (!pt) return;
+    const rawPt = terrainRef.current?.getTerrainPointFromEvent?.(e);
+    if (!rawPt) return;
+    // Metered elevation (exact DSM sample + confidence) replaces the
+    // heightmap estimate before any tool or panel consumes the point.
+    const pt = await resolveExactPoint(rawPt);
 
     setSelectedPoint({ x: pt.x, z: pt.z, elevation: pt.elevation });
 
@@ -334,8 +442,7 @@ export default function TerrainWorkspace() {
           <ControlsHint cameraMode={cameraMode} />
         )}
 
-        {/* Active Analysis tool readout panel (Phase 9, tasks 9.2-9.6) */}
-        {!isLoading && activeTool !== 'none' && activeTool !== 'probe' && (
+        {/* Active Analysis tool readout panel (Phase 9, tasks 9.2-9.6) */}        {!isLoading && activeTool !== 'none' && activeTool !== 'probe' && (
           <div style={{
             position: 'absolute',
             top: 56,
@@ -350,7 +457,13 @@ export default function TerrainWorkspace() {
                 <HeightMeasurement ref={heightToolRef} active={true} />
               )}
               {activeTool === 'distance' && (
-                <DistanceMeasurement ref={distToolRef} active={true} />
+                <DistanceMeasurement
+                  ref={distToolRef}
+                  active={true}
+                  onMeasureChange={(a, b, label) => {
+                    terrainRef.current?.setMeasurePoints?.(a, b, label);
+                  }}
+                />
               )}
               {activeTool === 'slope' && (
                 <SlopeMeasurement ref={slopeToolRef} active={true} />
@@ -576,6 +689,34 @@ export default function TerrainWorkspace() {
             <TerrainLoadingIndicator />
           </div>
         )}
+
+        {/* Toast — honest feedback when a layer/tool has nothing to show */}
+        {toast && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              position: 'absolute',
+              bottom: 16,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              maxWidth: 'min(480px, calc(100vw - 32px))',
+              background: 'var(--dw-panel)',
+              border: '1px solid var(--dw-rim)',
+              borderLeft: '2px solid var(--dw-accent)',
+              borderRadius: 'var(--dw-radius-sm)',
+              padding: '10px 14px',
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 13,
+              lineHeight: 1.45,
+              color: 'var(--dw-fg)',
+              zIndex: 40,
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
+            }}
+          >
+            {toast}
+          </div>
+        )}
       </div>
 
       {/* 56px unified bottom toolbar (Phase 11, §26) */}
@@ -588,6 +729,7 @@ export default function TerrainWorkspace() {
         activeTool={activeTool}
         onSelectTool={handleSelectTool}
         disabled={isLoading}
+        layerAvailability={layerAvail}
         onOpenValidation={() => {
           setAnalysisPanelOpen(true);
           setAnalysisPanelTab('validation');

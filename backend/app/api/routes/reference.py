@@ -48,11 +48,13 @@ async def get_reference(scene_id: str):
         with rasterio.open(raster_ref) as ds:
             crs = ds.crs.to_string() if ds.crs else None
         download_url = f"/api/v1/scenes/{scene_id}/results/reference"
-        visualization_url = download_url
+        # Browser-renderable greyscale texture (the raw .tif is not
+        # decodable by a WebGL texture loader).
+        visualization_url = f"/api/v1/scenes/{scene_id}/results/reference-preview"
         name = raster_ref.name
     else:
         download_url = None
-        visualization_url = None
+        visualization_url = f"/api/v1/scenes/{scene_id}/results/reference-preview"
         name = array_ref.name if array_ref else None
 
     return ReferenceResponse(

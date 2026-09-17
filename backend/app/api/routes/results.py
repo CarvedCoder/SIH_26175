@@ -190,17 +190,16 @@ async def get_dsm_meta(scene_id: str):
         )
 
     metadata = result_service._read_dsm_metadata(dsm_path)
-    preview_path = files.get("preview")
     return DsmMetaResponse(
         scene_id=scene_id,
         available=True,
         url=(
-            f"/api/v1/scenes/{scene_id}/results/preview"
-            if preview_path is not None
-            else None
+            # Greyscale data texture — the viewer's shader colormaps the red
+            # channel, so the matplotlib preview would render wrong colours.
+            f"/api/v1/scenes/{scene_id}/results/dsm-texture"
         ),
         download_url=f"/api/v1/scenes/{scene_id}/results/dsm",
-        format="tif",
+        format="tif" if dsm_path.suffix == ".tif" else "npy",
         width=metadata["width"],
         height=metadata["height"],
         crs=metadata["crs"],

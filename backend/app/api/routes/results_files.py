@@ -130,3 +130,50 @@ async def get_rgb_file(scene_id: str):
     except (FileNotFoundError, ValueError):
         pass
     return _get_result_file(scene_id, "rgb")
+
+
+# ── Viewer texture layers (greyscale data PNGs, shader-colormapped) ──
+
+
+def _layer_texture_response(scene_id: str, generator) -> FileResponse:
+    """Serve a generated viewer layer texture, or a clean 404."""
+    from backend.app.services.terrain_service import terrain_service
+
+    try:
+        path = generator(terrain_service, scene_id)
+    except (FileNotFoundError, ValueError) as exc:
+        raise AppError(
+            status_code=404,
+            code="RESULT_NOT_FOUND",
+            message="That texture layer is not available for this scene yet.",
+            details={"scene_id": scene_id, "reason": str(exc)},
+            recoverable=True,
+        )
+    return FileResponse(path=path, filename=path.name)
+
+
+@router.get("/{scene_id}/results/dsm-texture")
+async def get_dsm_texture_file(scene_id: str):
+    """Return the greyscale DSM texture for the viewer's DSM layer."""
+    _require_scene(scene_id)
+    return _layer_texture_response(
+        scene_id, lambda svc, sid: svc.get_dsm_layer_path(sid)
+    )
+
+
+@router.get("/{scene_id}/results/slope")
+async def get_slope_texture_file(scene_id: str):
+    """Return the greyscale slope texture for the viewer's Slope layer."""
+    _require_scene(scene_id)
+    return _layer_texture_response(
+        scene_id, lambda svc, sid: svc.get_slope_layer_path(sid)
+    )
+
+
+@router.get("/{scene_id}/results/reference-preview")
+async def get_reference_texture_file(scene_id: str):
+    """Return the greyscale reference-DEM texture for the Compare menu."""
+    _require_scene(scene_id)
+    return _layer_texture_response(
+        scene_id, lambda svc, sid: svc.get_reference_layer_path(sid)
+    )

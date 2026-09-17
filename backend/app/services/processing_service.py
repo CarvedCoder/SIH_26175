@@ -212,6 +212,19 @@ class ProcessingService:
                 anchor_dem=None,
                 ground_elev=ground_elev,
                 write_files=True,
+                # Boxy-building refinement: the WLS solver flattens each
+                # RGB-coherent segment (roofs, ground) into piecewise-constant
+                # surfaces and preserves 1-px jumps at image edges, which
+                # renders buildings as boxy volumes with vertical walls
+                # instead of smooth mounds. High lambda dominates the data
+                # term inside segments (flat roofs), small sigma_rgb
+                # hard-gates smoothing at RGB edges (sharp walls).
+                postprocess="wls",
+                postprocess_params={
+                    "wls_lambda": 50.0,
+                    "wls_sigma_rgb": 0.04,
+                    "wls_max_iter": 300,
+                },
             )
 
         if self._check_cancelled(job_id):
@@ -307,6 +320,13 @@ class ProcessingService:
                 anchor_dem=None,
                 ground_elev=None,
                 write_files=True,
+                # same boxy-building WLS refinement as the full-scene path
+                postprocess="wls",
+                postprocess_params={
+                    "wls_lambda": 50.0,
+                    "wls_sigma_rgb": 0.04,
+                    "wls_max_iter": 300,
+                },
             )
 
         # Persist the refined product explicitly; run_inference wrote the
