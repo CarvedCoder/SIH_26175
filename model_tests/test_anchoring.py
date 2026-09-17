@@ -20,7 +20,7 @@ from rasterio.transform import from_origin
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from depthwizard.anchoring import (ANCHORED_LABEL, anchor, anchor_with_constant,
-                                   anchor_with_dem, resample_dem_to_tile)
+                                   resample_dem_to_tile)
 
 
 def _write_dem(path: Path, arr: np.ndarray, crs="EPSG:32617") -> None:

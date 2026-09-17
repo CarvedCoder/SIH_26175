@@ -1,0 +1,11 @@
+{
+  "name": "depthwizard",
+  "private": true,
+  "description": "Root convenience scripts — the real frontend app lives in ./frontend.",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview",
+    "install-frontend": "npm --prefix frontend install"
+  }
+}

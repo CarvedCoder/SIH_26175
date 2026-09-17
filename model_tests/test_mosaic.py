@@ -118,7 +118,7 @@ def test_rejects_resolution_mismatch_instead_of_resizing(tmp_path):
 
 
 def test_rejects_non_georeferenced_input(tmp_path):
-    import io
+    pass
 
     from PIL import Image
 

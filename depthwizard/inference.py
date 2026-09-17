@@ -35,7 +35,6 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from rasterio import CRS, Affine
@@ -675,7 +674,6 @@ def write_outputs(
         outputs["dsm_tif"] = None
 
     if anchored is not None:
-        suffix = out_dir.name
         p = out_dir / "dsm_anchored.tif" if georef else out_dir / "dsm_anchored.npy"
         if georef:
             with rasterio.open(

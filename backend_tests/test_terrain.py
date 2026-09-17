@@ -276,12 +276,11 @@ def test_heightmap_synthetic_surface_fidelity(client, tmp_path, monkeypatch):
       3. NaN craters: holes are neighbour-filled, not mapped to the minimum
     and that building step edges survive the pipeline.
     """
-    import io
 
     import numpy as np
     from PIL import Image
 
-    from backend.app.services.terrain_service import TerrainService, terrain_service
+    from backend.app.services.terrain_service import terrain_service
 
     rng = np.random.default_rng(42)
     h, w = 1536, 2048
@@ -409,7 +408,6 @@ def test_world_scale_non_georeferenced_fallback(client, mock_inference):
 def test_slope_gsd_routes_through_pixel_size_metres(client, processed_scene):
     """Geographic-CRS honesty: _pixel_size must go through
     depthwizard.geo.pixel_size_metres, never raw transform degrees."""
-    from depthwizard.geo import pixel_size_metres
 
     scene_id = processed_scene["scene"]["scene_id"]
     body = client.post(

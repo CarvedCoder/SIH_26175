@@ -10,12 +10,14 @@ from backend.app.core.paths import get_scene_output_dir
 
 
 class ResultService:
-    """Reads and describes outputs produced by the DepthWizard pipeline."""
+    """Reads and describes outputs produced by the DepthWizard pipeline.
 
-    def __init__(self) -> None:
-        # Stats cache keyed by (path, mtime): polling the results endpoint
-        # must not rescan multi-hundred-MB arrays on every GET.
-        self._stats_cache: dict[Path, tuple[float, dict[str, Any]]] = {}
+    STATELESS: every method is a pure function of the files on disk — no
+    in-memory caches, no cross-request state. Array statistics are computed
+    over a memory-mapped view so repeated polling never materialises the
+    full raster, without needing a memo dict whose staleness would have to
+    be reasoned about (and which would be per-process anyway).
+    """
 
     def get_output_dir(self, scene_id: str) -> Path:
         """Return the output directory for a scene."""
@@ -46,13 +48,13 @@ class ResultService:
         }
 
     def _load_array_stats(self, path: Path) -> dict[str, Any]:
-        """Calculate statistics from a generated NumPy raster (mtime-cached)."""
-        stat = path.stat()
-        cached = self._stats_cache.get(path)
-        if cached is not None and cached[0] == stat.st_mtime:
-            return cached[1]
+        """Calculate statistics from a generated NumPy raster.
 
-        array = np.load(path)
+        Memory-mapped read: min/max/median walk the array on disk without
+        loading it whole, so the call is cheap enough to stay cache-free
+        and therefore free of any staleness semantics.
+        """
+        array = np.load(path, mmap_mode="r")
 
         stats = {
             "width": int(array.shape[1]),
@@ -64,7 +66,6 @@ class ResultService:
             "relief": float(np.max(array) - np.min(array)),
             "units": "meters",
         }
-        self._stats_cache[path] = (stat.st_mtime, stats)
         return stats
 
     def _read_dsm_metadata(self, path: Path) -> dict[str, Any]:

@@ -47,7 +47,6 @@ from depthwizard.postprocess import (
     config_from_preset,
     refine_agl,
 )
-from depthwizard.postprocess.config import PostProcessConfig as PPC
 
 
 # ---------------------------------------------------------------------------
@@ -675,7 +674,6 @@ def test_tta_disagreement_lowers_confidence():
     from depthwizard.postprocess.confidence import estimate_confidence
 
     rgb, agl = _spike_scene()
-    variants = [agl + 0.01, agl - 0.01, agl.copy()]
     conf_no_tta = estimate_confidence(agl, rgb)
     conf_tta = estimate_confidence(agl, rgb, tta_stack=[agl + 8.0, agl - 8.0])
     # huge disagreement must reduce confidence on average

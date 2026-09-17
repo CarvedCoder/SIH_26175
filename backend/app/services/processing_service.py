@@ -21,7 +21,6 @@ import threading
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 
 from backend.app.core.logging import logger
 from backend.app.core.paths import (

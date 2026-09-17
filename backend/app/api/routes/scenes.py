@@ -25,15 +25,13 @@ import rasterio
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from backend.app.core.config import get_settings
-from backend.app.core.errors import AppError, InvalidSceneId, SceneNotFound
+from backend.app.core.errors import InvalidSceneId, SceneNotFound
 from backend.app.core.logging import logger
 from backend.app.core.paths import (
     UPLOAD_STAGING_DIR,
     delete_scene_directories,
     ensure_directories,
-    get_scene_output_dir,
     get_scene_raw_dir,
-    get_scene_process_dir,
     valid_scene_id,
 )
 from backend.app.jobs.manager import job_manager
