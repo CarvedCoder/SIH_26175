@@ -32,9 +32,9 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
  * world_depth_m from the backend; see TerrainCanvas), so speeds are physical:
  * 5 m/s is a brisk inspection pace, boost ~4x for crossing large scenes.
  * Vertical is slightly slower for precision. */
-const WALKTHROUGH_SPEED = 5.0;
-const WALKTHROUGH_BOOST_SPEED = 20.0;
-const VERTICAL_SPEED = 4.0;
+const WALKTHROUGH_SPEED = 8.0;
+const WALKTHROUGH_BOOST_SPEED = 35.0;
+const VERTICAL_SPEED = 6.0;
 const MOUSE_SENSITIVITY = 0.0022;
 
 /* ─── Motion smoothing (Google-Maps-style damped movement) ─────────────────
@@ -43,10 +43,10 @@ const MOUSE_SENSITIVITY = 0.0022;
  * tapping a key glides in and releasing it coasts to a stop. Time constants
  * are in seconds (smaller = snappier); braking uses a longer constant than
  * accelerating so stopping has a gentle settle instead of a hard stop. */
-const WALK_ACCEL_TAU  = 0.16;
-const WALK_DECEL_TAU  = 0.42;
-const VERT_ACCEL_TAU  = 0.20;
-const VERT_DECEL_TAU  = 0.50;
+const WALK_ACCEL_TAU  = 0.14;
+const WALK_DECEL_TAU  = 0.38;
+const VERT_ACCEL_TAU  = 0.18;
+const VERT_DECEL_TAU  = 0.45;
 
 /** Human eye height (metres) — the walkthrough camera stands this far above
  * the terrain surface when entering the scene. */
@@ -58,12 +58,13 @@ const PITCH_LIMIT = Math.PI / 2 - 0.08;
 /** Entry placement: altitude = terrain surface + EYE_HEIGHT_M, a slight
  * south offset scaled to the scene size, and a gentle downward gaze so the
  * surrounding relief reads immediately. */
-const WALKTHROUGH_START_PITCH = -0.32;
+const WALKTHROUGH_START_PITCH = -0.25;
 
 /** Soft bounds — the walkthrough may leave the terrain slab briefly to look
  * back at it, without drifting far into the void. Scaled to the physical
- * footprint at runtime (65% beyond the half-extent). */
-const WALKTHROUGH_BOUND_FRACTION = 0.65;
+ * footprint at runtime (85% beyond the half-extent — generous enough that
+ * the space feels open, not boxed-in). */
+const WALKTHROUGH_BOUND_FRACTION = 0.85;
 /** Lowest camera altitude (metres, relative to the terrain base plane y=0):
  * a small margin below the slab for inspecting gullies, never far under. */
 const WALKTHROUGH_MIN_ALTITUDE_M = -2.0;
@@ -211,7 +212,7 @@ export function useCameraController({ canvasRef, glRef }) {
     if (newMode === 'orbit') {
       exitWalkthrough();
       const d = sceneScale(g);
-      g.camera.position.set(0, d * 0.6, d * 1.25);
+      g.camera.position.set(0, d * 0.35, d * 0.7);
       if (orbit) {
         orbit.target?.set(0, 0, 0);
         orbit.update?.();
@@ -220,7 +221,7 @@ export function useCameraController({ canvasRef, glRef }) {
 
     if (newMode === 'top') {
       exitWalkthrough();
-      g.camera.position.set(0, sceneScale(g) * 2.5, 0);
+      g.camera.position.set(0, sceneScale(g) * 1.5, 0);
       g.camera.lookAt(0, 0, 0);
       if (orbit) {
         orbit.target?.set(0, 0, 0);
@@ -230,11 +231,14 @@ export function useCameraController({ canvasRef, glRef }) {
 
     if (newMode === 'first-person') {
       // Enter Walkthrough: a human's eye height above the terrain surface,
-      // slightly south of centre so the relief reads immediately.
+      // starting at the south edge of the terrain looking north so the
+      // full map spreads out before the viewer — this gives a dramatic,
+      // immersive sense of scale rather than dropping in at the centre.
       const d = sceneScale(g);
-      const startH = sampleVisualHeight(0.5, 0.5) + EYE_HEIGHT_M;
+      const edgeNz = 0.85; // 85% down from north edge → south edge
+      const startH = sampleVisualHeight(0.5, edgeNz) + EYE_HEIGHT_M;
       const fp = fpState.current;
-      fp.yaw = 0;
+      fp.yaw = 0;                       // face north
       fp.pitch = WALKTHROUGH_START_PITCH;
       fp.locked = false;
       fp.active = true;
@@ -245,7 +249,10 @@ export function useCameraController({ canvasRef, glRef }) {
       fp.vel.x = 0;
       fp.vel.y = 0;
       fp.vel.z = 0;
-      g.camera.position.set(0, startH, d * 0.05);
+      // Place at south edge — Z positive is south in the coordinate system.
+      // (edgeNz - 0.5) * worldDepth gives world Z at 35% south of centre.
+      const worldZ = (edgeNz - 0.5) * (g.worldDepth ?? d);
+      g.camera.position.set(0, startH, worldZ);
       applyLook(g.camera, fp);
     }
   }, [glRef, sampleVisualHeight, applyLook, exitWalkthrough]);
@@ -256,7 +263,7 @@ export function useCameraController({ canvasRef, glRef }) {
     if (!g.camera) return;
     exitWalkthrough();
     const d = sceneScale(g);
-    g.camera.position.set(0, d * 0.6, d * 1.25);
+    g.camera.position.set(0, d * 0.35, d * 0.7);
     const orbit = g.orbit || orbitRef.current;
     if (orbit) {
       orbit.target?.set(0, 0, 0);
@@ -275,7 +282,7 @@ export function useCameraController({ canvasRef, glRef }) {
     orbit.enablePan = true;
     orbit.panSpeed = 0.5;
     orbit.minDistance = 0.3;
-    orbit.maxDistance = 8;
+    orbit.maxDistance = 5;
     orbit.minPolarAngle = 0.05;
     orbit.maxPolarAngle = Math.PI * 0.48;
     orbitRef.current = orbit;

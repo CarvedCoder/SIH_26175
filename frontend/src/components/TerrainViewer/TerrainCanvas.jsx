@@ -206,7 +206,7 @@ const FRAG = /* glsl */ `
 
 const LO_SEGS = 64;
 const HI_SEGS = 256;
-const DEFAULT_CAMERA_POS = [0, 1.2, 2.5];
+const DEFAULT_CAMERA_POS = [0, 0.8, 1.6];
 
 /**
  * Visual vertical scale for meshes whose footprint the backend could not
@@ -541,7 +541,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     hmHeight: 0,
     heightScale: 1.0,
     visualHeightScale: BASE_VISUAL_HEIGHT_SCALE,
-    exaggeration: 2.5,
+    exaggeration: 3.0,
     progress: 0.0,
     progressCurrent: 0.0,
     textureReady: 0,
@@ -579,7 +579,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       uniforms: {
         uHeightmap: { value: emptyHm },
         uTexture: { value: emptyRgb },
-        uExaggeration: { value: 2.5 },
+        uExaggeration: { value: 3.0 },
         uHeightScale: { value: BASE_VISUAL_HEIGHT_SCALE },
         uHeightmapSize: { value: new THREE.Vector2(1, 1) },
         uWorldSize: { value: new THREE.Vector2(LEGACY_WORLD_SIZE, LEGACY_WORLD_SIZE) },
@@ -828,9 +828,9 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         }}
         camera={{
           position: DEFAULT_CAMERA_POS,
-          fov: 45,
-          near: 0.01,
-          far: 100,
+          fov: 60,
+          near: 0.005,
+          far: 1000,
         }}
         onCreated={({ gl }) => {
           gl.setClearColor(new THREE.Color(0.028, 0.035, 0.055), 1);
@@ -861,7 +861,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           enablePan
           panSpeed={0.5}
           minDistance={0.3}
-          maxDistance={8}
+          maxDistance={5}
           minPolarAngle={0.05}
           maxPolarAngle={Math.PI * 0.48}
         />
@@ -928,18 +928,21 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     if (material.uniforms.uMinElevation) material.uniforms.uMinElevation.value = minElev;
     if (material.uniforms.uElevationSpan) material.uniforms.uElevationSpan.value = span;
 
-    // Fog range scales with the physical scene diagonal so the effect stays
-    // atmospheric rather than blanketing a metric world (or vanishing on it).
+    // Fog range scales with the physical scene diagonal. Tighter fog
+    // creates stronger atmospheric perspective, making the terrain feel
+    // more expansive — objects fading into distance imply vast scale.
     const diag = Math.hypot(g.worldWidth, g.worldDepth);
-    if (material.uniforms.uFogNear) material.uniforms.uFogNear.value = 0.6 * diag;
-    if (material.uniforms.uFogFar) material.uniforms.uFogFar.value = 3.0 * diag;
+    if (material.uniforms.uFogNear) material.uniforms.uFogNear.value = 0.4 * diag;
+    if (material.uniforms.uFogFar) material.uniforms.uFogFar.value = 2.2 * diag;
 
     // Frame the whole scene: orbit distances and the default camera pose
     // must scale with the physical footprint (a 204.8 m terrain needs a
-    // stand-off distance proportional to its size).
+    // stand-off distance proportional to its size). Camera is placed close
+    // enough that the terrain fills the viewport — a tighter framing
+    // produces a stronger sense of scale and immersion.
     const sceneD = Math.max(g.worldWidth, g.worldDepth, LEGACY_WORLD_SIZE);
     if (g.camera) {
-      g.camera.position.set(0, sceneD * 0.6, sceneD * 1.25);
+      g.camera.position.set(0, sceneD * 0.35, sceneD * 0.7);
       g.camera.lookAt(0, 0, 0);
       if (g.camera.far < diag * 10) {
         g.camera.far = diag * 10;
@@ -948,7 +951,7 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     }
     if (g.orbit) {
       g.orbit.target?.set(0, 0, 0);
-      g.orbit.maxDistance = sceneD * 4;
+      g.orbit.maxDistance = sceneD * 2.5;
       g.orbit.minDistance = Math.min(0.3, sceneD * 0.02);
       g.orbit.update?.();
     }
