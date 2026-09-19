@@ -101,11 +101,21 @@ class SceneInputAmbiguous(AppError):
 
 
 class Unauthorized(AppError):
-    def __init__(self) -> None:
+    def __init__(self, message: str = "Missing or invalid credentials.") -> None:
         super().__init__(
             status_code=401,
             code="UNAUTHORIZED",
-            message="Missing or invalid API key.",
+            message=message,
+            recoverable=False,
+        )
+
+
+class Forbidden(AppError):
+    def __init__(self, message: str = "You do not have access to this resource.") -> None:
+        super().__init__(
+            status_code=403,
+            code="FORBIDDEN",
+            message=message,
             recoverable=False,
         )
 

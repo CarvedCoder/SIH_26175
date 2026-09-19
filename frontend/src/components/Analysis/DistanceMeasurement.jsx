@@ -26,7 +26,7 @@ import { useApp } from '../../store/appStore.jsx';
 import { Ruler, RotateCcw } from 'lucide-react';
 
 const DistanceMeasurement = forwardRef(function DistanceMeasurement(
-  { active = false, onActiveChange },
+  { active = false, onActiveChange, onMeasureChange },
   ref
 ) {
   const { state } = useApp();
@@ -43,7 +43,8 @@ const DistanceMeasurement = forwardRef(function DistanceMeasurement(
     setPointA(null);
     setPointB(null);
     setResult(null);
-  }, []);
+    onMeasureChange?.(null);
+  }, [onMeasureChange]);
 
   // Handler invoked when terrain point is selected
   const handleSelectPoint = useCallback((point) => {
@@ -52,6 +53,7 @@ const DistanceMeasurement = forwardRef(function DistanceMeasurement(
     if (step === 0) {
       setPointA(point);
       setStep(1);
+      onMeasureChange?.(point, null, null);
     } else if (step === 1) {
       setPointB(point);
       setStep(2);
@@ -60,10 +62,6 @@ const DistanceMeasurement = forwardRef(function DistanceMeasurement(
       // the physical-scale path are already metres (the mesh spans
       // world_width_m × world_depth_m); the legacy fallback plane spans
       // scene units. Elevation is physical metres when absolute.
-      const knownScale =
-        typeof state.terrain?.world_width_m === 'number' &&
-        state.terrain.world_width_m > 0;
-
       const dx = point.x - pointA.x;
       const dz = point.z - pointA.z;
       const dy = Math.abs(point.elevation - pointA.elevation);
@@ -75,8 +73,9 @@ const DistanceMeasurement = forwardRef(function DistanceMeasurement(
         horizontal: horizDist,
         distance3D: dist3D,
       });
+      onMeasureChange?.(pointA, point, `${dist3D.toFixed(1)} ${unitLabel}`);
     }
-  }, [active, step, pointA, state.terrain, isAbsolute]);
+  }, [active, step, pointA, unitLabel, onMeasureChange]);
 
   useImperativeHandle(ref, () => ({
     handleSelectPoint,
@@ -187,6 +186,49 @@ const DistanceMeasurement = forwardRef(function DistanceMeasurement(
               {result.distance3D.toFixed(1)} {unitLabel}
             </span>
           </div>
+
+          {pointA?.metered && (
+            <div style={{
+              borderTop: '1px solid var(--dw-rim)',
+              paddingTop: 8,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 3,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12, color: 'var(--dw-fg-muted)' }}>
+                  Metered from DSM
+                </span>
+                <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 12, color: 'var(--dw-fg)' }}>
+                  ± {(Math.max(pointA.precision_m ?? 0, pointB?.precision_m ?? 0)).toFixed(4)} {isAbsolute ? 'm' : ''}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12, color: 'var(--dw-fg-muted)' }}>
+                  Height accuracy
+                </span>
+                <span style={{
+                  fontFamily: 'var(--dw-font-data)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: pointA.confidence?.level === 'high' ? '#4ade80'
+                    : pointA.confidence?.level === 'medium' ? '#facc15' : 'var(--dw-fg-ghost)',
+                }}>
+                  {pointA.confidence?.percent != null
+                    ? `${pointA.confidence.percent}% confidence`
+                    : `${pointA.confidence?.level ?? 'unknown'} confidence`}
+                </span>
+              </div>
+              <div style={{
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 11,
+                lineHeight: 1.4,
+                color: 'var(--dw-fg-ghost)',
+              }}>
+                {pointA.confidence?.basis}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

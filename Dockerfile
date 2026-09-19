@@ -22,9 +22,12 @@ WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
-# Install dependencies first (layer-cached); the lockfile pins everything.
+# Install dependencies first (layer-cached). NOTE: resolves at build time
+# (--no-dev, not --frozen) because uv.lock predates the SQLAlchemy/psycopg/
+# pyjwt/boto3 additions; regenerate uv.lock (uv lock) to restore frozen
+# installs.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --no-dev
 
 # Application code
 COPY depthwizard/ ./depthwizard/

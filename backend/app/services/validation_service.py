@@ -213,9 +213,15 @@ def get_validation(
     error_map = None
 
     if error_map_path is not None:
+        from backend.app.storage.service import storage_service
+
+        error_map_url = (
+            storage_service.presign_artifact(scene_id, error_map_path)
+            or f"/api/v1/scenes/{scene_id}/results/error-map"
+        )
         error_map = ValidationAsset(
             name=error_map_path.name,
-            url=f"/api/v1/scenes/{scene_id}/results/error-map",
+            url=error_map_url,
             format=error_map_path.suffix.lstrip("."),
         )
 

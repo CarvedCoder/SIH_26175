@@ -69,7 +69,13 @@ export default function Toolbar({
   disabled = false,
   onOpenValidation,
   onCaptureSnapshot,
+  layerAvailability,
 }) {
+  // Real per-layer availability, fetched from the backend by the workspace
+  // (results + reference endpoints). Defaults to "available" so the popover
+  // stays interactive when the workspace hasn't reported yet; a `false`
+  // entry disables the matching Compare/Layers item with a visible reason.
+  const avail = { dsm: true, reference: true, error: true, ...(layerAvailability ?? {}) };
   const { state } = useApp();
   const [openMenu, setOpenMenu] = useState(null); // 'layers' | 'measure' | 'compare' | 'terrain' | 'camera' | null
   const toolbarRef = useRef(null);
@@ -277,12 +283,13 @@ export default function Toolbar({
         <PopoverPanel title="LAYERS" onClose={() => setOpenMenu(null)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {[
+              { id: 'buildings',     label: 'Buildings (Solid Blocks)', disabled: false },
               { id: 'rgb',           label: 'RGB (Color Photo)' },
               { id: 'depth',         label: 'Depth Map (Greyscale)' },
-              { id: 'dsm',           label: isAbsolute ? 'Absolute DSM (Metric)' : 'Relative DSM' },
-              { id: 'reference_dem', label: 'Reference DEM (SRTM)', disabled: !isAbsolute },
+              { id: 'dsm',           label: isAbsolute ? 'Absolute DSM (Metric)' : 'Relative DSM', disabled: !avail.dsm },
+              { id: 'reference_dem', label: 'Reference DEM (SRTM)', disabled: !avail.reference },
               { id: 'slope',         label: 'Slope Layer (Viridis)' },
-              { id: 'error',         label: 'Error Map (Diverging)', disabled: !isAbsolute },
+              { id: 'error',         label: 'Error Map (Diverging)', disabled: !avail.error },
             ].map(l => (
               <PopoverButton
                 key={l.id}
@@ -317,7 +324,9 @@ export default function Toolbar({
                 icon={m.icon}
                 active={activeTool === m.id}
                 onClick={() => {
-                  onSelectTool(curr => curr === m.id ? 'none' : m.id);
+                  // Pass the tool id — the workspace owns the toggle logic
+                  // (selecting the active tool again deactivates it).
+                  onSelectTool(m.id);
                   setOpenMenu(null);
                 }}
               />
@@ -331,7 +340,16 @@ export default function Toolbar({
         <PopoverPanel title="COMPARE" onClose={() => setOpenMenu(null)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <PopoverButton
-              label="Estimated DSM"
+              label="Buildings (Solid Blocks)"
+              active={activeLayer === 'buildings'}
+              onClick={() => {
+                onSelectLayer('buildings');
+                setOpenMenu(null);
+              }}
+            />
+            <PopoverButton
+              label={avail.dsm ? 'Estimated DSM' : 'Estimated DSM (not processed)'}
+              disabled={!avail.dsm}
               active={activeLayer === 'dsm'}
               onClick={() => {
                 onSelectLayer('dsm');
@@ -339,8 +357,8 @@ export default function Toolbar({
               }}
             />
             <PopoverButton
-              label="Reference DEM"
-              disabled={!isAbsolute}
+              label={avail.reference ? 'Reference DEM' : 'Reference DEM (unavailable)'}
+              disabled={!avail.reference}
               active={activeLayer === 'reference_dem'}
               onClick={() => {
                 onSelectLayer('reference_dem');
@@ -348,14 +366,25 @@ export default function Toolbar({
               }}
             />
             <PopoverButton
-              label="Error Difference Overlay"
-              disabled={!isAbsolute}
+              label={avail.error ? 'Error Difference Overlay' : 'Error Overlay (needs validation)'}
+              disabled={!avail.error}
               active={activeLayer === 'error'}
               onClick={() => {
                 onSelectLayer('error');
                 setOpenMenu(null);
               }}
             />
+            {!avail.dsm && (
+              <p style={{
+                margin: '2px 0 0',
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 12,
+                lineHeight: 1.45,
+                color: 'var(--dw-fg-ghost)',
+              }}>
+                Run the Absolute DSM pipeline for this scene to unlock comparison layers.
+              </p>
+            )}
             {onOpenValidation && (
               <>
                 <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />

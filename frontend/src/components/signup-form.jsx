@@ -13,13 +13,15 @@ import { Input } from "@/components/ui/input"
 export function SignupForm({
   className,
   onSocialLogin,
+  onSubmit,
+  busy,
   ...props
 }) {
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card className="overflow-hidden p-0 border-slate-800 bg-slate-900/90 shadow-2xl backdrop-blur-xl">
         <CardContent className="grid p-0 md:grid-cols-2">
-          <form className="p-6 md:p-8">
+          <form className="p-6 md:p-8" onSubmit={onSubmit}>
             <FieldGroup>
               <div className="flex flex-col items-center gap-2 text-center">
                 <h1 className="text-2xl font-bold text-slate-100">Create your account</h1>
@@ -29,7 +31,7 @@ export function SignupForm({
               </div>
               <Field>
                 <FieldLabel htmlFor="email" className="text-slate-300">Email</FieldLabel>
-                <Input id="email" type="email" placeholder="m@example.com" defaultValue="newuser@terramesh.io" required className="bg-slate-950/60 border-slate-800 text-slate-100" />
+                <Input id="email" type="email" placeholder="m@example.com" autoComplete="email" required className="bg-slate-950/60 border-slate-800 text-slate-100" />
                 <FieldDescription className="text-slate-500 text-xs">
                   We&apos;ll use this to manage your local elevation scene sessions.
                 </FieldDescription>
@@ -38,13 +40,13 @@ export function SignupForm({
                 <Field className="grid grid-cols-2 gap-4">
                   <Field>
                     <FieldLabel htmlFor="password" className="text-slate-300">Password</FieldLabel>
-                    <Input id="password" type="password" defaultValue="secretpassword" required className="bg-slate-950/60 border-slate-800 text-slate-100" />
+                    <Input id="password" type="password" autoComplete="new-password" minLength={8} required className="bg-slate-950/60 border-slate-800 text-slate-100" />
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="confirm-password" className="text-slate-300">
                       Confirm
                     </FieldLabel>
-                    <Input id="confirm-password" type="password" defaultValue="secretpassword" required className="bg-slate-950/60 border-slate-800 text-slate-100" />
+                    <Input id="confirm-password" type="password" autoComplete="new-password" required className="bg-slate-950/60 border-slate-800 text-slate-100" />
                   </Field>
                 </Field>
                 <FieldDescription className="text-slate-500 text-xs">
@@ -52,7 +54,7 @@ export function SignupForm({
                 </FieldDescription>
               </Field>
               <Field>
-                <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium">Create Account</Button>
+                <Button type="submit" disabled={busy} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium">{busy ? 'Creating account…' : 'Create Account'}</Button>
               </Field>
               <FieldSeparator className="text-slate-400 *:data-[slot=field-separator-content]:bg-slate-900">
                 Or continue with

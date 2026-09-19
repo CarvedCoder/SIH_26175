@@ -42,7 +42,8 @@ def test_results_without_job_report_null_provenance(client, uploaded_scene, mock
 
     from backend.app.jobs import manager as manager_module
 
-    manager_module.job_manager._jobs.clear()
+    # SQL-backed store: deleting the persisted rows removes provenance —
+    # there is no separate in-memory cache to clear any more.
     manager_module.job_manager.delete_jobs_for_scene(scene_id)
 
     body = client.get(f"/api/v1/scenes/{scene_id}/results").json()

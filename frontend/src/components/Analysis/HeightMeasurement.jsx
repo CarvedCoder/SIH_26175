@@ -68,18 +68,29 @@ const HeightMeasurement = forwardRef(function HeightMeasurement(
       const calculatedHeight = Math.abs(topElev - groundElev);
 
       try {
-        if (sceneId) {
-          const res = await measureHeight(sceneId, groundPoint, point);
+        if (sceneId && groundPoint.px != null && point.px != null) {
+          // Metered path: the backend samples the exact DSM pixels
+          const res = await measureHeight(
+            sceneId,
+            { x: groundPoint.px, y: groundPoint.py },
+            { x: point.px, y: point.py },
+          );
           setResult({
             groundElevation: res.ground_elevation ?? groundElev,
             topElevation: res.top_elevation ?? topElev,
             estimatedHeight: res.height ?? calculatedHeight,
+            metered: res.height != null,
+            confidence: point.confidence ?? groundPoint.confidence ?? null,
+            precision_m: Math.max(point.precision_m ?? 0, groundPoint.precision_m ?? 0),
           });
         } else {
           setResult({
             groundElevation: groundElev,
             topElevation: topElev,
             estimatedHeight: calculatedHeight,
+            metered: !!point.metered && !!groundPoint.metered,
+            confidence: point.confidence ?? groundPoint.confidence ?? null,
+            precision_m: Math.max(point.precision_m ?? 0, groundPoint.precision_m ?? 0),
           });
         }
       } catch {
@@ -88,6 +99,9 @@ const HeightMeasurement = forwardRef(function HeightMeasurement(
           groundElevation: groundElev,
           topElevation: topElev,
           estimatedHeight: calculatedHeight,
+          metered: !!point.metered && !!groundPoint.metered,
+          confidence: point.confidence ?? groundPoint.confidence ?? null,
+          precision_m: Math.max(point.precision_m ?? 0, groundPoint.precision_m ?? 0),
         });
       } finally {
         setLoading(false);
@@ -204,7 +218,7 @@ const HeightMeasurement = forwardRef(function HeightMeasurement(
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
             <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13.5, fontWeight: 600, color: 'var(--dw-fg)' }}>
-              Estimated Height
+              {result.metered ? 'Metered Height' : 'Estimated Height'}
             </span>
             <span style={{
               fontFamily: 'var(--dw-font-data)',
@@ -215,6 +229,42 @@ const HeightMeasurement = forwardRef(function HeightMeasurement(
               {result.estimatedHeight.toFixed(1)} {unitLabel}
             </span>
           </div>
+
+          {result.metered && result.confidence && (
+            <div style={{
+              borderTop: '1px solid var(--dw-rim)',
+              paddingTop: 8,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 3,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12, color: 'var(--dw-fg-muted)' }}>
+                  Height accuracy
+                </span>
+                <span style={{
+                  fontFamily: 'var(--dw-font-data)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: result.confidence.level === 'high' ? '#4ade80'
+                    : result.confidence.level === 'medium' ? '#facc15' : 'var(--dw-fg-ghost)',
+                }}>
+                  {result.confidence.percent != null
+                    ? `${result.confidence.percent}% confidence`
+                    : `${result.confidence.level} confidence`}
+                </span>
+              </div>
+              <div style={{
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 11,
+                lineHeight: 1.4,
+                color: 'var(--dw-fg-ghost)',
+              }}>
+                {result.precision_m > 0 && `± ${result.precision_m.toFixed(4)} ${unitLabel} · `}
+                {result.confidence.basis}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -32,18 +32,57 @@ class ResultService:
         return bool(self.get_result_files(scene_id))
 
     def get_result_files(self, scene_id: str) -> dict[str, Path]:
-        """Known DepthWizard result artifacts that exist, addressed via
-        the artifact store (keys in scene_artifacts.RESULT_ARTIFACT_KEYS)."""
-        store = scene_artifact_store()
-        files: dict[str, Path] = {}
-        for name, suffix in RESULT_ARTIFACT_KEYS.items():
-            try:
-                path = store.path_for(scene_output_dir_key(scene_id) + "/" + suffix)
-            except Exception:  # noqa: BLE001 — an invalid scene id has no artifacts
+        """Return known DepthWizard result files that exist.
+
+        Read-through cache: artifacts registered in the SQL scene row are
+        re-downloaded from the object store when missing locally (e.g.
+        after a backend restart on a fresh machine)."""
+        output_dir = self.get_output_dir(scene_id)
+
+        if not output_dir.exists():
+            self._materialize_from_object_store(scene_id)
+            if not output_dir.exists():
                 return {}
-            if path.exists() and path.is_file():
-                files[name] = path
-        return files
+
+        # Artifact names from the shared vocabulary (RESULT_ARTIFACT_KEYS
+        # — the API-facing product list), addressed under the scene's
+        # output dir of the artifact store. "dsm" maps to dsm.tif only —
+        # a non-georeferenced scene (dsm.npy only) honestly reports
+        # dsm.available = False (no CRS, no GeoTIFF twin).
+        known_files = {
+            name: output_dir / suffix
+            for name, suffix in RESULT_ARTIFACT_KEYS.items()
+        }
+
+        return {
+            name: path
+            for name, path in known_files.items()
+            if path.exists() and path.is_file()
+        }
+
+    def _materialize_from_object_store(self, scene_id: str) -> None:
+        """Read-through cache miss: pull DB-registered artifacts from the
+        object store back into the local output dir (no-op with the local
+        backend or when the scene has no registered artifacts)."""
+        try:
+            from backend.app.db.database import session_scope
+            from backend.app.db.models import SceneRow
+            from backend.app.storage.service import storage_service
+
+            with session_scope() as session:
+                row = session.get(SceneRow, scene_id)
+                if row is None or not row.artifacts:
+                    return
+                owner_id, artifacts = row.owner_id, dict(row.artifacts)
+            storage_service.ensure_scene_outputs_local(
+                owner_id, scene_id, artifacts
+            )
+        except Exception:
+            # A cache-miss download failure must not break result reads —
+            # the local files (if any) remain the answer.
+            from backend.app.core.logging import logger
+
+            logger.exception("artifact materialization failed for %s", scene_id)
 
     def _load_array_stats(self, path: Path) -> dict[str, Any]:
         """Calculate statistics from a generated NumPy raster.
@@ -67,7 +106,16 @@ class ResultService:
         return stats
 
     def _read_dsm_metadata(self, path: Path) -> dict[str, Any]:
-        """Read spatial metadata from the generated DSM GeoTIFF."""
+        """Read spatial metadata from the generated DSM (GeoTIFF or .npy)."""
+        if path.suffix == ".npy":
+            # Non-georeferenced DSM surface: no CRS/bounds, shape only.
+            array = np.load(path, mmap_mode="r")
+            return {
+                "width": int(array.shape[1]),
+                "height": int(array.shape[0]),
+                "crs": None,
+                "bounds": None,
+            }
         with rasterio.open(path) as dataset:
             return {
                 "width": dataset.width,
@@ -89,11 +137,8 @@ class ResultService:
         summary: dict[str, Any] = {
             "scene_id": scene_id,
             "available": bool(files),
-            "output_dir": str(output_dir),
-            "files": {
-                name: str(path)
-                for name, path in files.items()
-            },
+            # Never expose server filesystem paths in API payloads.
+            "files": {name: path.name for name, path in files.items()},
         }
 
         depth_path = files.get("depth")

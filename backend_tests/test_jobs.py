@@ -180,8 +180,9 @@ def test_job_store_ttl_eviction(fresh_job_manager):
 def test_terminal_status_locked_after_cancellation(fresh_job_manager):
     """A worker finishing after a cancel cannot flip the job to completed."""
     job = fresh_job_manager.create_job("scene_000000000001")
-    fresh_job_manager.request_cancel(job.job_id)
-    assert job.status == "cancelled"
+    cancelled = fresh_job_manager.request_cancel(job.job_id)
+    assert cancelled is not None and cancelled.status == "cancelled"
+    assert fresh_job_manager.get_job(job.job_id).status == "cancelled"
 
     updated = fresh_job_manager.update_job(
         job.job_id, status="completed", result={"ok": True}

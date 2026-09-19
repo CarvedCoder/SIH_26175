@@ -18,6 +18,10 @@ needs to survive for the work to happen:
     * DW_WORKER_MODE=external: the API ONLY records the job — the durable
       record is the queue entry and `python -m backend.app.worker` claims
       and executes it. Any worker, any instance, any time.
+
+Authorization: jobs are owned by their SCENE's owner — the scene SQL row
+is the ownership record, and polling/cancelling enforces it (403 for a
+non-owner; the Supabase-era contract).
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 
 from backend.app.api.routes._deps import require_scene as _require_scene
 from backend.app.appstate import task_queue_for
-from backend.app.core.config import get_settings
+from backend.app.core.auth import current_user, ensure_owner
 from backend.app.core.errors import AppError, SceneBusy
 from backend.app.jobs.manager import job_manager
 from backend.app.schemas.job import (
@@ -75,6 +79,19 @@ def _dispatch(job_id: str, http_request: Request, background_tasks) -> None:
     if queue is not None:
         queue.add_task(processing_service.execute_job_record, job_id)
     # external mode: nothing to do — the record IS the queue entry.
+
+
+def _ensure_job_owner(job) -> None:
+    """A job is owned by its scene's owner: the scene SQL row is the
+    ownership record; a scene without a row (pre-migration/local) is the
+    local owner's."""
+    from backend.app.db.database import session_scope
+    from backend.app.db.models import SceneRow
+
+    with session_scope() as session:
+        row = session.get(SceneRow, job.scene_id)
+        owner_id = row.owner_id if row is not None else current_user().user_id
+    ensure_owner(owner_id, f"job:{job.job_id}")
 
 
 @router.post("/api/v1/scenes/{scene_id}/process", response_model=ProcessAccepted)
@@ -142,6 +159,7 @@ async def get_job(job_id: str):
             message="Job does not exist or has expired.",
             recoverable=False,
         )
+    _ensure_job_owner(job)
 
     return JobResponse(
         job_id=job.job_id,
@@ -171,6 +189,7 @@ async def cancel_job(job_id: str):
             message="Job does not exist or has expired.",
             recoverable=False,
         )
+    _ensure_job_owner(job)
 
     return CancelResponse(
         job_id=job.job_id,

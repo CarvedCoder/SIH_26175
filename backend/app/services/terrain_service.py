@@ -91,9 +91,10 @@ class TerrainService:
         height, width = dsm.shape
 
         dsm_raster = files.get("dsm")
-        if dsm_raster is not None:
+        if dsm_raster is not None and dsm_raster.suffix == ".tif":
             metadata = self._read_dsm_metadata(dsm_raster)
         else:
+            # dsm.npy fallback (or no raster): honest pixel-space metadata.
             metadata = {
                 "width": width,
                 "height": height,
@@ -330,6 +331,130 @@ class TerrainService:
         )
         return out_path
 
+    # ------------------------------------------------------------------
+    # Browser texture layers for the terrain viewer's Layers/Compare menus.
+    # Each writes a single-channel greyscale PNG whose R channel encodes the
+    # normalised value — the viewer's fragment shader applies the viridis /
+    # diverging colormap itself, so the PNG must be colour-free data, not a
+    # matplotlib preview.
+    # ------------------------------------------------------------------
+
+    _LAYER_PNG_CAP = 2048
+
+    @staticmethod
+    def _normalise_grey(arr: np.ndarray) -> np.ndarray:
+        """Fill invalid cells and squeeze the value range into [0, 1]."""
+        arr = TerrainService._fill_invalid(arr.astype(np.float32, copy=False))
+        valid = arr[np.isfinite(arr)]
+        if valid.size == 0:
+            return np.full_like(arr, 0.5)
+        lo, hi = np.percentile(valid, 2.0), np.percentile(valid, 98.0)
+        if hi - lo < 1e-9:
+            return np.full_like(arr, 0.5)
+        return np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+
+    @classmethod
+    def _save_grey_png(cls, normalized: np.ndarray, out_path: Path) -> Path:
+        from PIL import Image
+
+        height, width = normalized.shape
+        stride = max(1, int(np.ceil(max(height, width) / cls._LAYER_PNG_CAP)))
+        if stride > 1:
+            normalized = normalized[::stride, ::stride]
+        encoded = (np.clip(normalized, 0.0, 1.0) * 255.0).round().astype(np.uint8)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(encoded, mode="L").save(out_path, format="PNG")
+        logger.info(
+            "terrain artifact generated: %s (%dx%d)",
+            out_path.name, normalized.shape[1], normalized.shape[0],
+        )
+        return out_path
+
+    def get_dsm_layer_path(self, scene_id: str) -> Path:
+        """Greyscale DSM texture for the viewer's 'Estimated DSM' layer."""
+        from backend.app.services.result_service import result_service
+
+        dsm_path = result_service.get_result_files(scene_id).get("dsm")
+        if dsm_path is None:
+            raise FileNotFoundError(
+                f"No DSM results available for scene '{scene_id}'."
+            )
+        out_path = self.get_output_dir(scene_id) / "dsm_layer.png"
+        if out_path.is_file():
+            return out_path
+        if dsm_path.suffix == ".npy":
+            dsm = np.load(dsm_path, mmap_mode="r")
+        else:
+            with rasterio.open(dsm_path) as ds:
+                dsm = ds.read(1)
+        return self._save_grey_png(self._normalise_grey(np.asarray(dsm)), out_path)
+
+    def get_slope_layer_path(self, scene_id: str) -> Path:
+        """Greyscale slope texture (per-pixel gradient, in degrees)."""
+        from backend.app.services.result_service import result_service
+
+        dsm_path = result_service.get_result_files(scene_id).get("depth")
+        if dsm_path is None:
+            raise FileNotFoundError(
+                f"No depth results available for scene '{scene_id}'."
+            )
+        out_path = self.get_output_dir(scene_id) / "slope_layer.png"
+        if out_path.is_file():
+            return out_path
+        dsm = self._fill_invalid(
+            np.load(dsm_path, mmap_mode="r").astype(np.float32, copy=False)
+        )
+        # Unit pixel spacing — the layer is a relative-gradient visual, and
+        # the shader renders it through the same viridis ramp as the DSM.
+        gy, gx = np.gradient(dsm)
+        slope_deg = np.degrees(np.arctan(np.hypot(gx, gy)))
+        return self._save_grey_png(self._normalise_grey(slope_deg), out_path)
+
+    def get_reference_layer_path(self, scene_id: str) -> Path:
+        """Greyscale reference-DEM texture for the 'Reference DEM' layer."""
+        output_dir = self.get_output_dir(scene_id)
+        out_path = output_dir / "reference_layer.png"
+        if out_path.is_file():
+            return out_path
+
+        raster_ref = next(
+            (
+                output_dir / name
+                for name in ("reference.tif", "reference_dem.tif", "ref_dem.tif")
+                if (output_dir / name).is_file()
+            ),
+            None,
+        )
+        array_ref = next(
+            (
+                output_dir / name
+                for name in ("reference.npy", "reference_dem.npy", "ref_dem.npy")
+                if (output_dir / name).is_file()
+            ),
+            None,
+        )
+
+        if raster_ref is not None:
+            with rasterio.open(raster_ref) as ds:
+                ref = ds.read(1).astype(np.float32, copy=False)
+        elif array_ref is not None:
+            ref = np.load(array_ref, mmap_mode="r").astype(np.float32, copy=False)
+        else:
+            raise FileNotFoundError(
+                f"No reference elevation available for scene '{scene_id}'."
+            )
+        return self._save_grey_png(self._normalise_grey(np.asarray(ref)), out_path)
+
+    def _artifact_url(self, scene_id: str, filename: str, legacy_path: str) -> str:
+        """Presigned URL when the object store is active, else the legacy
+        API-relative path."""
+        from backend.app.storage.service import storage_service
+
+        url = storage_service.presign_artifact(
+            scene_id, self.get_output_dir(scene_id) / filename
+        )
+        return url or legacy_path
+
     def _heightmap_asset(self, scene_id: str, dsm: np.ndarray) -> TerrainAsset:
         try:
             path = self.get_heightmap_path(scene_id)
@@ -337,7 +462,10 @@ class TerrainService:
             return None
         return TerrainAsset(
             name="heightmap",
-            url=f"/api/v1/scenes/{scene_id}/results/heightmap",
+            url=self._artifact_url(
+                scene_id, "heightmap.png",
+                f"/api/v1/scenes/{scene_id}/results/heightmap",
+            ),
             format="png",
             width=path and dsm.shape[1],
             height=dsm.shape[0],
@@ -349,12 +477,18 @@ class TerrainService:
         except (FileNotFoundError, ValueError, RuntimeError):
             return TerrainAsset(
                 name="preview",
-                url=f"/api/v1/scenes/{scene_id}/results/preview",
+                url=self._artifact_url(
+                    scene_id, "dsm_preview.png",
+                    f"/api/v1/scenes/{scene_id}/results/preview",
+                ),
                 format="png",
             )
         return TerrainAsset(
             name="rgb",
-            url=f"/api/v1/scenes/{scene_id}/results/rgb",
+            url=self._artifact_url(
+                scene_id, "rgb_preview.png",
+                f"/api/v1/scenes/{scene_id}/results/rgb",
+            ),
             format="png",
         )
 
@@ -399,6 +533,83 @@ class TerrainService:
                 f"point ({x}, {y}) is outside the {width}x{height} scene grid."
             )
         return float(dsm[y, x])
+
+    def sample_elevation_with_confidence(
+        self, scene_id: str, x: int, y: int
+    ) -> dict:
+        """Exact metered DSM sample plus an honest accuracy assessment.
+
+        The viewer's on-mesh readouts derive elevation from the 16-bit
+        heightmap texture (LANCZOS-resampled, quantised to 65536 levels);
+        this samples the float32 DSM array directly — the metered value —
+        and reports:
+          * precision_m — the quantisation bound of the visual readout
+            (half a heightmap level), i.e. how far the on-screen estimate
+            can sit from the metered value;
+          * confidence — grounded in validation RMSE when a reference DEM
+            exists; otherwise a qualitative level with the reason stated.
+            A percentage is NEVER fabricated without validation evidence.
+        """
+        dsm = self._load_dsm_array(scene_id)
+        height, width = dsm.shape
+        if not (0 <= x < width and 0 <= y < height):
+            raise ValueError(
+                f"point ({x}, {y}) is outside the {width}x{height} scene grid."
+            )
+
+        raw = float(dsm[y, x])
+        span = float(np.nanmax(dsm) - np.nanmin(dsm)) if dsm.size else 0.0
+        precision_m = max(span / 65535.0 / 2.0, 1e-4)
+
+        if not np.isfinite(raw):
+            return {
+                "elevation": None,
+                "metered": False,
+                "precision_m": precision_m,
+                "confidence": {
+                    "level": "none",
+                    "percent": None,
+                    "basis": "No valid DSM sample at this pixel",
+                },
+                "units": "meters",
+            }
+
+        rmse = None
+        try:
+            from backend.app.services.validation_service import get_validation
+
+            rmse = get_validation(scene_id).metrics.rmse
+        except Exception:
+            rmse = None
+
+        if rmse is not None and span > 1e-6:
+            percent = int(round(max(5.0, min(99.0, 100.0 * (1.0 - rmse / span)))))
+            level = "high" if percent >= 85 else "medium" if percent >= 60 else "low"
+            confidence = {
+                "level": level,
+                "percent": percent,
+                "basis": f"Validated against reference DEM (RMSE {rmse:.2f} m)",
+            }
+        elif self._pixel_size(scene_id) is not None:
+            confidence = {
+                "level": "medium",
+                "percent": None,
+                "basis": "GCP-calibrated metric DSM — not validated against ground truth",
+            }
+        else:
+            confidence = {
+                "level": "low",
+                "percent": None,
+                "basis": "Relative DSM — scene-scale depths, not metric-calibrated",
+            }
+
+        return {
+            "elevation": raw,
+            "metered": True,
+            "precision_m": precision_m,
+            "confidence": confidence,
+            "units": "meters",
+        }
 
     def measure_height(
         self, scene_id: str, ground: tuple[int, int], top: tuple[int, int]
@@ -482,7 +693,10 @@ class TerrainService:
                         "y": ty,
                         "width": t_width,
                         "height": t_height,
-                        "url": f"/api/v1/scenes/{scene_id}/results/preview",
+                        "url": self._artifact_url(
+                            scene_id, "dsm_preview.png",
+                            f"/api/v1/scenes/{scene_id}/results/preview",
+                        ),
                     }
                 )
         return {

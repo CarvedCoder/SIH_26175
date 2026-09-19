@@ -113,11 +113,13 @@ async def get_scene_minimap(scene_id: str):
             message="No depth results exist for this scene yet.",
             recoverable=True,
         )
-    return ArtifactUrlResponse(
-        scene_id=scene_id,
-        url=f"/api/v1/scenes/{scene_id}/results/minimap",
-        format="png",
+    from backend.app.storage.service import storage_service
+
+    url = terrain_service._artifact_url(
+        scene_id, "minimap.png",
+        f"/api/v1/scenes/{scene_id}/results/minimap",
     )
+    return ArtifactUrlResponse(scene_id=scene_id, url=url, format="png")
 
 
 @router.get("/{scene_id}/elevation", response_model=ElevationResponse)
@@ -126,10 +128,10 @@ async def get_scene_elevation(
     x: int = Query(..., ge=0),
     y: int = Query(..., ge=0),
 ):
-    """Point elevation probe on the predicted DSM."""
+    """Point elevation probe on the predicted DSM (metered, with accuracy)."""
     _require_depth(scene_id)
     try:
-        elevation = terrain_service.sample_elevation(scene_id, x, y)
+        sample = terrain_service.sample_elevation_with_confidence(scene_id, x, y)
     except ValueError as exc:
         raise AppError(
             status_code=400,
@@ -137,9 +139,7 @@ async def get_scene_elevation(
             message=str(exc),
             recoverable=True,
         )
-    return ElevationResponse(
-        scene_id=scene_id, x=x, y=y, elevation=elevation, units="meters"
-    )
+    return ElevationResponse(scene_id=scene_id, x=x, y=y, **sample)
 
 
 @router.post(

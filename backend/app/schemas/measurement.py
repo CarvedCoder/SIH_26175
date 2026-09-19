@@ -10,6 +10,14 @@ class Point(BaseModel):
     y: int = Field(..., ge=0)
 
 
+class ElevationConfidence(BaseModel):
+    """Honest accuracy statement for a metered elevation sample."""
+
+    level: str  # 'high' | 'medium' | 'low' | 'none'
+    percent: int | None = None  # only when validation RMSE exists
+    basis: str  # what the level is grounded in
+
+
 class ElevationResponse(BaseModel):
     """Point elevation probe (GET /scenes/{id}/elevation)."""
 
@@ -18,6 +26,9 @@ class ElevationResponse(BaseModel):
     y: int
     elevation: float | None
     units: str = "meters"
+    metered: bool = False
+    precision_m: float | None = None
+    confidence: ElevationConfidence | None = None
 
 
 class HeightMeasureRequest(BaseModel):

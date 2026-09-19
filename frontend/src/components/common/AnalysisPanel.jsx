@@ -539,7 +539,7 @@ export default function AnalysisPanel({
                     />
                     <DataRow
                       label="Terrain Segments"
-                      value="256 × 256 (Hi-Res)"
+                      value="512 × 512 (Hi-Res)"
                     />
                   </div>
                 </section>

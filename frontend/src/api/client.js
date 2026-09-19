@@ -5,7 +5,19 @@
  * See DECISIONS.md §D03 and spec §69, §72.
  */
 
+import { getAccessToken, supabase } from '@/lib/supabase';
+
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
+
+/**
+ * Attach the Supabase access token (JWT) to every API request. The
+ * backend verifies the token and derives the user id from its `sub`
+ * claim; we never send a user id in payloads.
+ */
+async function authHeaders() {
+  const token = await getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 /**
  * Normalise any backend error into our standard error shape.
@@ -49,19 +61,27 @@ async function throwApiError(res) {
 export async function apiFetch(path, options = {}) {
   const url = `${BASE_URL}${path}`;
   let res;
-  try {
-    res = await fetch(url, {
-      headers: { 'Accept': 'application/json', ...options.headers },
-      ...options,
-    });
-  } catch (netErr) {
-    throw {
-      code: 'NETWORK_ERROR',
-      message: `Backend unreachable at ${BASE_URL}. Ensure the FastAPI server is running.`,
-      recoverable: true,
-      details: { error: netErr?.message },
-      status: 0,
-    };
+  // One refresh-retry on 401: the Supabase access token may have expired
+  // between requests; refresh the session once and try again.
+  for (let attempt = 0; ; attempt++) {
+    const auth = await authHeaders();
+    try {
+      res = await fetch(url, {
+        ...options,
+        headers: { 'Accept': 'application/json', ...auth, ...options.headers },
+      });
+    } catch (netErr) {
+      throw {
+        code: 'NETWORK_ERROR',
+        message: `Backend unreachable at ${BASE_URL}. Ensure the FastAPI server is running.`,
+        recoverable: true,
+        details: { error: netErr?.message },
+        status: 0,
+      };
+    }
+    if (res.status !== 401 || attempt > 0 || !supabase) break;
+    const { data } = await supabase.auth.refreshSession();
+    if (!data?.session) break;
   }
 
   if (!res.ok) await throwApiError(res);
@@ -70,6 +90,30 @@ export async function apiFetch(path, options = {}) {
   if (res.status === 204) return null;
 
   return res.json();
+}
+
+/**
+ * Authorized download: fetches a protected artifact as a blob (with the
+ * Supabase token attached; signed-URL redirects are followed) and hands
+ * it to the browser as a download. Used by the export module.
+ * @param {string} url
+ * @param {string} [filename]
+ */
+export async function downloadArtifact(url, filename) {
+  const auth = await authHeaders();
+  const res = await fetch(url, { headers: auth });
+  if (!res.ok) {
+    await throwApiError(res);
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  if (filename) a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 /**

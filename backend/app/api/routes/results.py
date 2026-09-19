@@ -16,6 +16,7 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
+from backend.app.api.routes._deps import require_scene as _require_scene
 from backend.app.core.errors import AppError
 from backend.app.jobs.manager import job_manager
 from backend.app.schemas.result import (
@@ -37,8 +38,14 @@ router = APIRouter(
 
 
 def _asset(name: str, scene_id: str, path: Path) -> ResultAsset:
-    """Build a browser-accessible result asset."""
-    url = f"/api/v1/scenes/{scene_id}/results/{name}"
+    """Build a browser-accessible result asset: an absolute short-lived
+    presigned URL when the object store is active (loads fine from <img>/
+    fetch without headers), else the legacy API-relative path."""
+    from backend.app.storage.service import storage_service
+
+    url = storage_service.presign_artifact(scene_id, path) or (
+        f"/api/v1/scenes/{scene_id}/results/{name}"
+    )
     return ResultAsset(
         name=name,
         url=url,
@@ -49,6 +56,8 @@ def _asset(name: str, scene_id: str, path: Path) -> ResultAsset:
 
 @router.get("/{scene_id}/results", response_model=SceneResultsResponse)
 async def get_scene_results(scene_id: str):
+    _require_scene(scene_id)
+
     """Return structured results for a processed scene."""
 
     files = result_service.get_result_files(scene_id)
@@ -138,6 +147,8 @@ async def get_scene_results(scene_id: str):
 
 @router.get("/{scene_id}/depth", response_model=DepthMetaResponse)
 async def get_depth_meta(scene_id: str):
+    _require_scene(scene_id)
+
     """Depth-layer metadata: preview (visual) + raw array download URLs."""
     files = result_service.get_result_files(scene_id)
     depth_path = files.get("depth")
@@ -152,15 +163,26 @@ async def get_depth_meta(scene_id: str):
 
     stats = result_service._load_array_stats(depth_path)
     preview_path = files.get("preview")
+    from backend.app.storage.service import storage_service
+
+    preview_url = (
+        storage_service.presign_artifact(scene_id, preview_path)
+        if preview_path is not None
+        else None
+    ) or (
+        f"/api/v1/scenes/{scene_id}/results/preview"
+        if preview_path is not None
+        else None
+    )
+    depth_url = (
+        storage_service.presign_artifact(scene_id, depth_path)
+        or f"/api/v1/scenes/{scene_id}/results/depth"
+    )
     return DepthMetaResponse(
         scene_id=scene_id,
         available=True,
-        url=(
-            f"/api/v1/scenes/{scene_id}/results/preview"
-            if preview_path is not None
-            else None
-        ),
-        download_url=f"/api/v1/scenes/{scene_id}/results/depth",
+        url=preview_url,
+        download_url=depth_url,
         format="npy",
         width=stats["width"],
         height=stats["height"],
@@ -177,6 +199,8 @@ async def get_depth_meta(scene_id: str):
 
 @router.get("/{scene_id}/dsm", response_model=DsmMetaResponse)
 async def get_dsm_meta(scene_id: str):
+    _require_scene(scene_id)
+
     """DSM-layer metadata: preview (visual) + GeoTIFF download URLs."""
     files = result_service.get_result_files(scene_id)
     dsm_path = files.get("dsm")
@@ -190,17 +214,26 @@ async def get_dsm_meta(scene_id: str):
         )
 
     metadata = result_service._read_dsm_metadata(dsm_path)
-    preview_path = files.get("preview")
+    from backend.app.storage.service import storage_service
+
     return DsmMetaResponse(
         scene_id=scene_id,
         available=True,
         url=(
-            f"/api/v1/scenes/{scene_id}/results/preview"
-            if preview_path is not None
-            else None
+            # Greyscale data texture — the viewer's shader colormaps the red
+            # channel, so the matplotlib preview would render wrong colours.
+            # With the object store this is a presigned URL, generated for
+            # the texture the terrain service materializes on demand.
+            storage_service.presign_artifact(
+                scene_id, result_service.get_output_dir(scene_id) / "dsm_layer.png"
+            )
+            or f"/api/v1/scenes/{scene_id}/results/dsm-texture"
         ),
-        download_url=f"/api/v1/scenes/{scene_id}/results/dsm",
-        format="tif",
+        download_url=(
+            storage_service.presign_artifact(scene_id, dsm_path)
+            or f"/api/v1/scenes/{scene_id}/results/dsm"
+        ),
+        format="tif" if dsm_path.suffix == ".tif" else "npy",
         width=metadata["width"],
         height=metadata["height"],
         crs=metadata["crs"],

@@ -1,19 +1,18 @@
 /** @module api/export */
+import { downloadArtifact } from './client.js';
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
 
 /**
- * Trigger a file download by navigating to the export URL.
- * The backend either streams the file or returns a redirect to a temp URL.
+ * Trigger an authenticated file download: fetches with the Supabase
+ * token attached (the backend streams the file or redirects to a
+ * short-lived signed URL) and hands the blob to the browser.
  */
-function triggerDownload(url, filename) {
-  const a = document.createElement('a');
-  a.href = url;
-  if (filename) a.download = filename;
-  a.click();
+function download(id, type) {
+  return downloadArtifact(`${BASE_URL}/scenes/${id}/export/${type}`, `${id}_${type}`);
 }
 
-export const exportDsm        = (id) => triggerDownload(`${BASE_URL}/scenes/${id}/export/dsm`);
-export const exportDepth      = (id) => triggerDownload(`${BASE_URL}/scenes/${id}/export/depth`);
-export const exportValidation = (id) => triggerDownload(`${BASE_URL}/scenes/${id}/export/validation`);
-export const exportTerrain    = (id) => triggerDownload(`${BASE_URL}/scenes/${id}/export/terrain`);
+export const exportDsm        = (id) => download(id, 'dsm');
+export const exportDepth      = (id) => download(id, 'depth');
+export const exportValidation = (id) => download(id, 'validation');
+export const exportTerrain    = (id) => download(id, 'terrain');

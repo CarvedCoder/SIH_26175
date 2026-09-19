@@ -4,7 +4,11 @@ The business rules live in the application layer
 (``backend.app.application.scenes.service.SceneService``) and the scene
 record in ``infrastructure.persistence.scene_repository``. Routes keep
 only HTTP concerns: streaming an UploadFile to staging (with the hard
-byte cap enforced DURING the write) and shaping Pydantic responses.
+byte cap enforced DURING the write) and shaping Pydantic responses —
+plus the durable registration that turns a committed local scene into a
+FIRST-CLASS TENANT OBJECT: an object-store copy of the input and the SQL
+row (owner, inspection metadata, input/artifact keys) that ownership,
+listing, and read-through materialization are built on.
 
 Upload safety (audit C4/M3/S7, preserved):
     * extension whitelist + declared max size (DW_MAX_UPLOAD_BYTES);
@@ -26,11 +30,19 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from backend.app.api.routes._deps import require_scene
 from backend.app.appstate import settings_for
-from backend.app.core.logging import logger
-from backend.app.application.scenes.service import scene_service
+from backend.app.core.auth import current_user
 from backend.app.core.errors import AppError
-from backend.app.core.paths import UPLOAD_STAGING_DIR
+from backend.app.core.logging import logger
+from backend.app.core.paths import (
+    UPLOAD_STAGING_DIR,
+    delete_scene_directories,
+    valid_scene_id,
+)
+from backend.app.application.scenes.service import scene_service
+from backend.app.db.database import session_scope
+from backend.app.db.models import SceneRow
 from backend.app.jobs.manager import job_manager
+from backend.app.storage.service import storage_service
 from backend.app.schemas.scene import (
     ProcessingPath,
     SceneCapabilities,
@@ -111,6 +123,18 @@ def _build_scene_response(
     )
 
 
+def _response_fields(response: SceneResponse) -> dict:
+    return {
+        "filename": response.filename,
+        "status": response.status,
+        "format": response.format,
+        "dimensions": response.dimensions,
+        "georeference": response.georeference,
+        "processing_path": response.processing_path,
+        "capabilities": response.capabilities,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Upload streaming (the only HTTP-bound part of scene creation)
 # ---------------------------------------------------------------------------
@@ -134,6 +158,42 @@ async def _stream_to_staging(
     finally:
         await file.close()
     return received
+
+
+def _register_scene_input(scene_id: str, filename: str, metadata: dict) -> None:
+    """Durable registration after the local commit: copy the committed
+    input raster into the object store (when configured) and upsert the
+    scene's SQL row (owner, filename, inspection metadata, input key).
+
+    The local files remain the processing cache; the SQL row is what makes
+    the scene owned, listable, and re-materializable after a restart."""
+    input_path = scene_service.find_scene_input(scene_id)
+    object_key = (
+        storage_service.upload_input(current_user().user_id, scene_id, input_path)
+        if input_path is not None
+        else None
+    )
+    serializable = {
+        key: (value.value if hasattr(value, "value") else value)
+        for key, value in metadata.items()
+    }
+    with session_scope() as session:
+        row = session.get(SceneRow, scene_id)
+        if row is None:
+            row = SceneRow(
+                scene_id=scene_id,
+                owner_id=current_user().user_id,
+                filename=filename,
+                input_ext=Path(filename).suffix.lower() or ".tif",
+                raster_metadata=serializable,
+            )
+            session.add(row)
+        else:
+            row.filename = filename
+            row.raster_metadata = serializable
+        if object_key is not None:
+            row.input_object_key = object_key
+        session.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +252,10 @@ async def create_scene(
                 staging_path, scene_dir
             ),
         )
+        _register_scene_input(scene_id, original_filename, metadata)
+    except HTTPException:
+        scene_service.cleanup_failed_upload(staging_path, scene_dir)
+        raise
     except OSError:
         scene_service.cleanup_failed_upload(staging_path, scene_dir)
         logger.exception("failed to persist upload for scene %s", scene_id)
@@ -205,18 +269,6 @@ async def create_scene(
         scene_id=scene_id,
         **_response_fields(scene),
     )
-
-
-def _response_fields(response: SceneResponse) -> dict:
-    return {
-        "filename": response.filename,
-        "status": response.status,
-        "format": response.format,
-        "dimensions": response.dimensions,
-        "georeference": response.georeference,
-        "processing_path": response.processing_path,
-        "capabilities": response.capabilities,
-    }
 
 
 @router.post("/{scene_id}/mosaic", response_model=SceneCreateResponse)
@@ -270,6 +322,11 @@ async def mosaic_scene_inputs(
         metadata = scene_service.commit_mosaic(
             scene_id, [p for _, p in staged], [n for n, _ in staged]
         )
+        _register_scene_input(
+            scene_id,
+            f"mosaic({'+'.join(name for name, _ in staged)})",
+            metadata,
+        )
     except AppError as exc:
         for _, path in staged:
             path.unlink(missing_ok=True)
@@ -299,21 +356,30 @@ def _to_http_error(exc: AppError) -> None:
 
 @router.get("", response_model=list[SceneSummary])
 async def list_scenes():
-    """List registered scenes (most recent first)."""
+    """List the authenticated user's scenes (most recent first)."""
+    from sqlalchemy import select
+
+    user = current_user()
     summaries: list[SceneSummary] = []
-    for scene_id in scene_service._repo.list_scene_ids():
-        stored = scene_service._repo.load_record(scene_id)
-        if stored is None:
+    with session_scope() as session:
+        rows = session.scalars(
+            select(SceneRow)
+            .where(SceneRow.owner_id == user.user_id)
+            .order_by(SceneRow.created_at.desc())
+        ).all()
+
+    for row in rows:
+        if not valid_scene_id(row.scene_id):
             continue
         summaries.append(
             SceneSummary(
-                scene_id=scene_id,
-                filename=stored.get("filename", "unknown"),
+                scene_id=row.scene_id,
+                filename=row.filename,
                 status=SceneStatus.READY,
                 has_results=bool(
-                    result_service.get_result_files(scene_id)
+                    result_service.get_result_files(row.scene_id)
                 ),
-                created_at=stored.get("created_at"),
+                created_at=row.created_at.isoformat() if row.created_at else None,
             )
         )
     return summaries
@@ -323,6 +389,7 @@ async def list_scenes():
 async def get_scene(scene_id: str):
     """Return metadata for an existing scene (from stored metadata — no
     re-inspection of the raster per request)."""
+    require_scene(scene_id)
     stored = scene_service.get_record(scene_id)
     metadata = dict(stored["metadata"])
     return _build_scene_response(
@@ -334,14 +401,28 @@ async def get_scene(scene_id: str):
 
 @router.delete("/{scene_id}", status_code=200)
 async def delete_scene(scene_id: str):
-    """Delete a scene and ALL of its stored artifacts (inputs,
-    intermediates, results) plus its job records."""
-    return scene_service.delete(scene_id, delete_jobs=job_manager.delete_jobs_for_scene)
+    """Delete a scene and ALL of its stored artifacts (SQL rows, local
+    workspace files, object-store objects) plus its job records."""
+    require_scene(scene_id)
+
+    user = current_user()
+    deleted_jobs = job_manager.delete_jobs_for_scene(scene_id)
+    delete_scene_directories(scene_id)
+    storage_service.delete_scene_objects(user.user_id, scene_id)
+    with session_scope() as session:
+        row = session.get(SceneRow, scene_id)
+        if row is not None:
+            session.delete(row)
+    logger.info(
+        "scene deleted: %s (jobs removed: %d)", scene_id, deleted_jobs
+    )
+    return {"scene_id": scene_id, "deleted": True, "jobs_removed": deleted_jobs}
 
 
 @router.post("/{scene_id}/validate", response_model=ValidationCheckResponse)
 async def validate_scene(scene_id: str):
     """Re-check a scene's stored input raster without processing it."""
+    require_scene(scene_id)
     result = scene_service.validate(scene_id)
     metadata = result.get("metadata")
     return ValidationCheckResponse(

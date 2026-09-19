@@ -22,6 +22,7 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../../store/appStore.jsx';
+import { getElevation } from '../../api/terrain.js';
 import { Crosshair } from 'lucide-react';
 
 /**
@@ -40,6 +41,35 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
 
   const isAbsolute = state.results?.elevation_mode === 'absolute';
   const unitLabel = isAbsolute ? 'm' : 'scene units';
+  const sceneId = state.scene?.scene_id;
+  const exactTimer = useRef(null);
+
+  // Debounced metered sample: replaces the instant heightmap estimate with
+  // the exact float32 DSM value + accuracy statement once the backend
+  // answers (the estimate shows immediately so the card never lags).
+  const fetchExactElevation = useCallback((nx, nz) => {
+    if (!sceneId) return;
+    const g = terrainRef.current?.getRef?.()?.current;
+    if (!g?.hmWidth || !g?.hmHeight) return;
+    const px = Math.min(g.hmWidth - 1, Math.max(0, Math.round(nx * (g.hmWidth - 1))));
+    const py = Math.min(g.hmHeight - 1, Math.max(0, Math.round(nz * (g.hmHeight - 1))));
+    if (exactTimer.current) clearTimeout(exactTimer.current);
+    exactTimer.current = setTimeout(async () => {
+      try {
+        const r = await getElevation(sceneId, px, py);
+        if (!r?.metered) return;
+        setProbeData(curr => curr ? {
+          ...curr,
+          elevation: r.elevation ?? curr.elevation,
+          metered: true,
+          precision_m: r.precision_m ?? null,
+          confidence: r.confidence ?? null,
+        } : curr);
+      } catch {
+        /* keep the heightmap estimate */
+      }
+    }, 160);
+  }, [sceneId, terrainRef]);
 
   // Sample elevation at normalised terrain coords [0, 1]
   const sampleElevationAt = useCallback((nx, nz) => {
@@ -148,9 +178,11 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
           x: (nx * 2 - 1).toFixed(3),
           z: (nz * 2 - 1).toFixed(3),
           elevation: elev,
+          metered: false,
         };
         setProbeData(data);
         onProbe?.({ x: nx * 2 - 1, z: nz * 2 - 1, elevation: elev });
+        fetchExactElevation(nx, nz);
       }
 
       setMousePos({ x: clientX, y: clientY, visible: true });
@@ -163,8 +195,9 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
       canvas.removeEventListener('mousemove', onMouseMove);
       canvas.removeEventListener('mouseleave', onMouseLeave);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (exactTimer.current) clearTimeout(exactTimer.current);
     };
-  }, [enabled, terrainRef, sampleElevationAt, onProbe]);
+  }, [enabled, terrainRef, sampleElevationAt, onProbe, fetchExactElevation]);
 
   if (!enabled || !mousePos.visible || !probeData) return null;
 
@@ -207,7 +240,7 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
           fontSize: 13,
           color: 'var(--dw-fg-muted)',
         }}>
-          {isAbsolute ? 'Elevation' : 'Rel. Elevation'}:
+          {probeData.metered ? 'Metered Elevation' : (isAbsolute ? 'Elevation' : 'Rel. Elevation')}:
         </span>
         <span style={{
           fontFamily: 'var(--dw-font-data)',
@@ -225,6 +258,35 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
           {unitLabel}
         </span>
       </div>
+
+      {probeData.metered && probeData.confidence && (
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1,
+          maxWidth: 220,
+        }}>
+          <div style={{
+            fontFamily: 'var(--dw-font-data)',
+            fontSize: 11,
+            color: probeData.confidence.level === 'high' ? '#4ade80'
+              : probeData.confidence.level === 'medium' ? '#facc15' : 'var(--dw-fg-ghost)',
+          }}>
+            {probeData.confidence.percent != null
+              ? `${probeData.confidence.percent}% height confidence`
+              : `${probeData.confidence.level} height confidence`}
+            {probeData.precision_m != null && ` · ± ${probeData.precision_m.toFixed(4)} ${unitLabel}`}
+          </div>
+          <div style={{
+            fontFamily: 'var(--dw-font-ui)',
+            fontSize: 10.5,
+            lineHeight: 1.35,
+            color: 'var(--dw-fg-ghost)',
+          }}>
+            {probeData.confidence.basis}
+          </div>
+        </div>
+      )}
 
       <div style={{
         fontFamily: 'var(--dw-font-data)',

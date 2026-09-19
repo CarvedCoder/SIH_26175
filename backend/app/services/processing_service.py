@@ -184,12 +184,27 @@ class ProcessingService:
                 anchor_dem=None,
                 ground_elev=ground_elev,
                 write_files=True,
+                # Boxy-building refinement: the WLS solver flattens each
+                # RGB-coherent segment (roofs, ground) into piecewise-constant
+                # surfaces and preserves 1-px jumps at image edges, which
+                # renders buildings as boxy volumes with vertical walls
+                # instead of smooth mounds. High lambda dominates the data
+                # term inside segments (flat roofs), small sigma_rgb
+                # hard-gates smoothing at RGB edges (sharp walls).
+                postprocess="wls",
+                postprocess_params={
+                    "wls_lambda": 50.0,
+                    "wls_sigma_rgb": 0.04,
+                    "wls_max_iter": 300,
+                },
             )
 
         if self._check_cancelled(job_id):
             self._discard_outputs(output_dir)
             self.jobs.update_job(job_id, status="cancelled", stage="cancelled")
             return {"cancelled": True}
+
+        self._publish_artifacts(scene_id, output_dir)
 
         self.jobs.update_job(
             job_id,
@@ -279,6 +294,13 @@ class ProcessingService:
                 anchor_dem=None,
                 ground_elev=None,
                 write_files=True,
+                # same boxy-building WLS refinement as the full-scene path
+                postprocess="wls",
+                postprocess_params={
+                    "wls_lambda": 50.0,
+                    "wls_sigma_rgb": 0.04,
+                    "wls_max_iter": 300,
+                },
             )
 
         # Persist the refined product explicitly; run_inference wrote the
@@ -287,6 +309,8 @@ class ProcessingService:
         refined_npy = output_dir / "refined_dsm.npy"
         if dsm_npy.is_file():
             refined_npy.write_bytes(dsm_npy.read_bytes())
+
+        self._publish_artifacts(scene_id, output_dir)
 
         self.jobs.update_job(
             job_id,
@@ -297,6 +321,35 @@ class ProcessingService:
         )
         logger.info("refine job completed: %s scene=%s", job_id, scene_id)
         return payload
+
+    # -- artifact publication ------------------------------------------------
+
+    def _publish_artifacts(self, scene_id: str, output_dir: Path) -> None:
+        """Post-inference persistence: upload every generated artifact to
+        the object store and register its KEY in the scene's SQL row.
+
+        Local files are kept (they are the processing cache); the DB is
+        updated transactionally. Failures are logged and swallowed: the
+        local products still exist and the job must still complete."""
+        try:
+            from backend.app.db.database import session_scope
+            from backend.app.db.models import SceneRow
+            from backend.app.storage.service import storage_service
+
+            with session_scope() as session:
+                row = session.get(SceneRow, scene_id)
+                owner_id = row.owner_id if row is not None else "local"
+            artifacts = storage_service.sync_scene_outputs(owner_id, scene_id)
+            if artifacts:
+                with session_scope() as session:
+                    row = session.get(SceneRow, scene_id)
+                    if row is not None:
+                        row.artifacts = artifacts
+        except Exception:
+            logger.exception(
+                "artifact publication failed for scene %s "
+                "(local outputs remain available)", scene_id,
+            )
 
     # -- failure recording ------------------------------------------------------
 

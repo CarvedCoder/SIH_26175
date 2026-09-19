@@ -13,13 +13,15 @@ import { Input } from "@/components/ui/input"
 export function LoginForm({
   className,
   onSocialLogin,
+  onSubmit,
+  busy,
   ...props
 }) {
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card className="overflow-hidden p-0 border-slate-800 bg-slate-900/90 shadow-2xl backdrop-blur-xl">
         <CardContent className="grid p-0 md:grid-cols-2">
-          <form className="p-6 md:p-8">
+          <form className="p-6 md:p-8" onSubmit={onSubmit}>
             <FieldGroup>
               <div className="flex flex-col items-center gap-2 text-center">
                 <h1 className="text-2xl font-bold text-slate-100">Welcome back</h1>
@@ -29,19 +31,19 @@ export function LoginForm({
               </div>
               <Field>
                 <FieldLabel htmlFor="email" className="text-slate-300">Email</FieldLabel>
-                <Input id="email" type="email" placeholder="m@example.com" defaultValue="guest@terramesh.io" required className="bg-slate-950/60 border-slate-800 text-slate-100" />
+                <Input id="email" type="email" placeholder="m@example.com" autoComplete="email" required className="bg-slate-950/60 border-slate-800 text-slate-100" />
               </Field>
               <Field>
                 <div className="flex items-center">
                   <FieldLabel htmlFor="password" className="text-slate-300">Password</FieldLabel>
-                  <a href="#" onClick={(e) => { e.preventDefault(); alert("Demo mode: Any password is accepted."); }} className="ml-auto text-sm text-slate-400 underline-offset-2 hover:underline hover:text-slate-200">
+                  <a href="#" onClick={(e) => { e.preventDefault(); alert('Password resets are managed by Supabase Auth.'); }} className="ml-auto text-sm text-slate-400 underline-offset-2 hover:underline hover:text-slate-200">
                     Forgot your password?
                   </a>
                 </div>
-                <Input id="password" type="password" defaultValue="password123" required className="bg-slate-950/60 border-slate-800 text-slate-100" />
+                <Input id="password" type="password" autoComplete="current-password" required className="bg-slate-950/60 border-slate-800 text-slate-100" />
               </Field>
               <Field>
-                <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium">Login</Button>
+                <Button type="submit" disabled={busy} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium">{busy ? 'Signing in…' : 'Login'}</Button>
               </Field>
               <FieldSeparator className="text-slate-400 *:data-[slot=field-separator-content]:bg-slate-900">
                 Or continue with

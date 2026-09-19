@@ -48,11 +48,45 @@ class Settings:
             ]
 
         # --- Auth --------------------------------------------------------
-        # When DW_API_KEY is set, every /api/v1 route except /health
-        # requires the X-API-Key header. When unset, auth is DISABLED —
-        # an explicit, logged local-development configuration (never a
-        # silent bypass).
+        # AUTHORITY: Supabase owns authentication. When Supabase is
+        # configured (SUPABASE_JWT_SECRET for HS256 projects, or
+        # SUPABASE_URL for JWKS/asymmetric keys) every /api/v1 route
+        # requires a valid Bearer access token issued by Supabase.
+        # DW_API_KEY remains an explicit LEGACY fallback (CI/tooling);
+        # when neither is configured auth is DISABLED for local
+        # development — an explicit, logged state, never a silent bypass.
+        self.supabase_url: str | None = os.environ.get("SUPABASE_URL") or None
+        self.supabase_jwt_secret: str | None = (
+            os.environ.get("SUPABASE_JWT_SECRET") or None
+        )
+        self.supabase_jwt_audience: str = (
+            os.environ.get("SUPABASE_JWT_AUDIENCE") or "authenticated"
+        )
         self.api_key: str | None = os.environ.get("DW_API_KEY") or None
+
+        # --- Database ------------------------------------------------------
+        # Single source of truth for SQL persistence (scene/job/result
+        # metadata). Defaults to the docker-compose PostgreSQL; there is
+        # no silent SQLite fallback — an unreachable database fails fast
+        # at startup. Tests override DATABASE_URL with a per-test SQLite
+        # file.
+        self.database_url: str = (
+            os.environ.get("DATABASE_URL")
+            or "postgresql+psycopg://depthwizard:depthwizard@localhost:5432/depthwizard"
+        )
+
+        # --- Object storage ---------------------------------------------------
+        # MinIO (S3 API) is the durable object store; the local filesystem
+        # remains the processing workspace + read-through cache. "local"
+        # keeps the pre-migration behavior (no object store).
+        self.storage_backend: str = os.environ.get("STORAGE_BACKEND", "minio")
+        self.minio_endpoint: str = os.environ.get("MINIO_ENDPOINT", "localhost:9000")
+        self.minio_access_key: str = os.environ.get("MINIO_ACCESS_KEY", "")
+        self.minio_secret_key: str = os.environ.get("MINIO_SECRET_KEY", "")
+        self.minio_bucket: str = os.environ.get("MINIO_BUCKET", "depthwizard")
+        self.minio_region: str | None = os.environ.get("MINIO_REGION") or None
+        self.minio_secure: bool = os.environ.get("MINIO_SECURE", "false") == "true"
+        self.storage_signed_url_ttl: int = _int_env("STORAGE_SIGNED_URL_TTL", 300)
 
         # --- Upload limits ------------------------------------------------
         self.max_upload_bytes: int = _int_env("DW_MAX_UPLOAD_BYTES", 500 * 1024 * 1024)

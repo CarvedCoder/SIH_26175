@@ -221,3 +221,11 @@ typing-inspection==0.4.2
     #   pydantic
 uvicorn==0.52.1
     # via depthwizard
+# Added for the Supabase/PostgreSQL/MinIO infrastructure migration:
+SQLAlchemy==2.0.54
+psycopg==3.3.6
+PyJWT==2.14.0
+boto3==1.43.98
+botocore==1.43.98
+s3transfer==0.19.2
+cryptography==50.0.1

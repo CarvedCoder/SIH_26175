@@ -47,6 +47,19 @@ def _build_repository(retention_limit: int, ttl_seconds: int):
         FileJobRepository,
     )
 
+    if settings.job_store == "postgres":
+        # The application PostgreSQL database (Supabase in production) is
+        # the durable job store — same schema as the scenes table, same
+        # job_ops state-machine policy, transactional exactly-once claims.
+        from backend.app.infrastructure.persistence.postgres_job_repository import (
+            PostgresJobRepository,
+        )
+
+        return PostgresJobRepository(
+            retention_limit=retention_limit,
+            ttl_seconds=ttl_seconds,
+            lease_seconds=settings.job_lease_seconds,
+        )
     if settings.job_store == "sqlite":
         from pathlib import Path
 

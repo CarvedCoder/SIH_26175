@@ -47,12 +47,28 @@ async def get_reference(scene_id: str):
     if raster_ref is not None:
         with rasterio.open(raster_ref) as ds:
             crs = ds.crs.to_string() if ds.crs else None
-        download_url = f"/api/v1/scenes/{scene_id}/results/reference"
-        visualization_url = download_url
+        from backend.app.services.terrain_service import terrain_service
+        from backend.app.storage.service import storage_service
+
+        download_url = (
+            storage_service.presign_artifact(scene_id, raster_ref)
+            or f"/api/v1/scenes/{scene_id}/results/reference"
+        )
+        # Browser-renderable greyscale texture (the raw .tif is not
+        # decodable by a WebGL texture loader).
+        visualization_url = terrain_service._artifact_url(
+            scene_id, "reference_layer.png",
+            f"/api/v1/scenes/{scene_id}/results/reference-preview",
+        )
         name = raster_ref.name
     else:
         download_url = None
-        visualization_url = None
+        from backend.app.services.terrain_service import terrain_service
+
+        visualization_url = terrain_service._artifact_url(
+            scene_id, "reference_layer.png",
+            f"/api/v1/scenes/{scene_id}/results/reference-preview",
+        )
         name = array_ref.name if array_ref else None
 
     return ReferenceResponse(
