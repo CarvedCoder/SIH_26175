@@ -8,11 +8,14 @@ file (audit: arbitrary filesystem paths must never be requestable).
 from __future__ import annotations
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from backend.app.api.routes.scenes import _require_scene
 from backend.app.core.errors import AppError
+from backend.app.db.database import session_scope
+from backend.app.db.models import SceneRow
 from backend.app.services.result_service import result_service
+from backend.app.storage.service import storage_service
 
 router = APIRouter(
     prefix="/api/v1/scenes",
@@ -34,8 +37,14 @@ _EXTRA_ALLOWED_FILES = {
 }
 
 
-def _get_result_file(scene_id: str, result_name: str) -> FileResponse:
-    """Return a generated result file for a scene."""
+def _get_result_file(scene_id: str, result_name: str):
+    """Return a generated result file for a scene.
+
+    Delivery: with the S3/MinIO backend the client receives a 307 redirect
+    to a SHORT-LIVED presigned URL (generated only after the ownership
+    guard passed; no credentials are exposed). With the local development
+    backend the file is streamed directly."""
+    from backend.app.core.auth import current_user
 
     files = result_service.get_result_files(scene_id)
     path = files.get(result_name)
@@ -59,6 +68,14 @@ def _get_result_file(scene_id: str, result_name: str) -> FileResponse:
             details={"scene_id": scene_id, "result": result_name},
             recoverable=True,
         )
+
+    if storage_service.is_object_store:
+        with session_scope() as session:
+            row = session.get(SceneRow, scene_id)
+            owner_id = row.owner_id if row is not None else current_user().user_id
+        url = storage_service.publish_and_presign(owner_id, scene_id, path)
+        if url is not None:
+            return RedirectResponse(url=url, status_code=307)
 
     return FileResponse(path=path, filename=path.name)
 
@@ -135,8 +152,11 @@ async def get_rgb_file(scene_id: str):
 # ── Viewer texture layers (greyscale data PNGs, shader-colormapped) ──
 
 
-def _layer_texture_response(scene_id: str, generator) -> FileResponse:
+def _layer_texture_response(scene_id: str, generator):
     """Serve a generated viewer layer texture, or a clean 404."""
+    from backend.app.core.auth import current_user
+    from backend.app.db.database import session_scope as _scope
+    from backend.app.db.models import SceneRow as _SceneRow
     from backend.app.services.terrain_service import terrain_service
 
     try:
@@ -149,6 +169,13 @@ def _layer_texture_response(scene_id: str, generator) -> FileResponse:
             details={"scene_id": scene_id, "reason": str(exc)},
             recoverable=True,
         )
+    if storage_service.is_object_store:
+        with _scope() as session:
+            row = session.get(_SceneRow, scene_id)
+            owner_id = row.owner_id if row is not None else current_user().user_id
+        url = storage_service.publish_and_presign(owner_id, scene_id, path)
+        if url is not None:
+            return RedirectResponse(url=url, status_code=307)
     return FileResponse(path=path, filename=path.name)
 
 

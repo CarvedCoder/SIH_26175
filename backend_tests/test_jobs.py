@@ -148,7 +148,9 @@ def test_job_store_bounded_by_retention(fresh_job_manager):
     for _ in range(20):
         job = fresh_job_manager.create_job("scene_000000000001")
         fresh_job_manager.update_job(job.job_id, status="completed")
-    assert len(fresh_job_manager._jobs) <= 8
+    # SQL-backed store: retention is applied per scene scan (same rule the
+    # disk store applied per scene dir)
+    assert len(fresh_job_manager._scan_scene_jobs("scene_000000000001")) <= 8
 
     # a running job must survive an overflow eviction cycle
     active = fresh_job_manager.create_job("scene_000000000002")
@@ -160,12 +162,18 @@ def test_job_store_bounded_by_retention(fresh_job_manager):
 def test_job_store_ttl_eviction(fresh_job_manager):
     from datetime import datetime, timedelta, timezone
 
+    from backend.app.db.database import session_scope
+    from backend.app.db.models import JobRow
+
     job = fresh_job_manager.create_job("scene_000000000001")
-    # age the job past the TTL
-    stale = (
-        datetime.now(timezone.utc) - timedelta(seconds=fresh_job_manager._ttl_seconds + 10)
-    ).isoformat()
-    job.created_at = stale
+    # age the persisted job past the TTL
+    stale = datetime.now(timezone.utc) - timedelta(
+        seconds=fresh_job_manager._ttl_seconds + 10
+    )
+    with session_scope() as session:
+        row = session.get(JobRow, job.job_id)
+        assert row is not None
+        row.created_at = stale
 
     fresh_job_manager.create_job("scene_000000000002")
     assert fresh_job_manager.get_job(job.job_id) is None
@@ -174,8 +182,9 @@ def test_job_store_ttl_eviction(fresh_job_manager):
 def test_terminal_status_locked_after_cancellation(fresh_job_manager):
     """A worker finishing after a cancel cannot flip the job to completed."""
     job = fresh_job_manager.create_job("scene_000000000001")
-    fresh_job_manager.request_cancel(job.job_id)
-    assert job.status == "cancelled"
+    cancelled = fresh_job_manager.request_cancel(job.job_id)
+    assert cancelled is not None and cancelled.status == "cancelled"
+    assert fresh_job_manager.get_job(job.job_id).status == "cancelled"
 
     updated = fresh_job_manager.update_job(
         job.job_id, status="completed", result={"ok": True}
@@ -256,14 +265,15 @@ def test_orphaned_processing_job_fails_on_read_after_restart(fresh_job_manager):
     job = fresh_job_manager.create_job("scene_000000000001")
     fresh_job_manager.update_job(job.job_id, status="processing")
 
-    # Simulate the restart: the on-disk record points at a dead PID and
+    # Simulate the restart: the persisted record points at a dead PID and
     # the fresh manager has no memory of the job.
-    path = fresh_job_manager._job_path(job.scene_id, job.job_id)
-    import json
+    from backend.app.db.database import session_scope
+    from backend.app.db.models import JobRow
 
-    data = json.loads(path.read_text())
-    data["owner_pid"] = 2 ** 22  # PID that cannot exist in this test env
-    path.write_text(json.dumps(data))
+    with session_scope() as session:
+        row = session.get(JobRow, job.job_id)
+        assert row is not None
+        row.owner_pid = 2 ** 22  # PID that cannot exist in this test env
 
     restarted = JobManager(retention_limit=8, ttl_seconds=3600)
     revived = restarted.get_job(job.job_id)

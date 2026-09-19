@@ -17,13 +17,12 @@ and metadata — no unsorted iterdir, no per-request re-inspection.
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import rasterio
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from backend.app.core.auth import current_user, ensure_owner
 from backend.app.core.config import get_settings
 from backend.app.core.errors import InvalidSceneId, SceneNotFound
 from backend.app.core.logging import logger
@@ -34,7 +33,10 @@ from backend.app.core.paths import (
     get_scene_raw_dir,
     valid_scene_id,
 )
+from backend.app.db.database import session_scope
+from backend.app.db.models import SceneRow
 from backend.app.jobs.manager import job_manager
+from backend.app.storage.service import storage_service
 from backend.app.schemas.scene import (
     ProcessingPath,
     SceneCapabilities,
@@ -120,33 +122,42 @@ def _inspect_raster(path: Path) -> dict:
 
 
 def _load_scene_metadata(scene_id: str) -> dict | None:
-    path = get_scene_raw_dir(scene_id) / SCENE_METADATA_NAME
-    if not path.is_file():
-        return None
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError):
-        return None
+    """Scene metadata from the SQL row (the single source of truth)."""
+    with session_scope() as session:
+        row = session.get(SceneRow, scene_id)
+        if row is None:
+            return None
+        return {
+            "filename": row.filename,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "metadata": dict(row.raster_metadata or {}),
+        }
 
 
 def _store_scene_metadata(
     scene_id: str, filename: str, metadata: dict
 ) -> None:
-    payload = {
-        "filename": filename,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "metadata": {
-            key: (
-                value.value if hasattr(value, "value") else value
-            )
-            for key, value in metadata.items()
-        },
+    """Create/update the scene's SQL row (upsert; used at upload+mosaic)."""
+    serializable = {
+        key: (value.value if hasattr(value, "value") else value)
+        for key, value in metadata.items()
     }
-    path = get_scene_raw_dir(scene_id) / SCENE_METADATA_NAME
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+    user = current_user()
+    with session_scope() as session:
+        row = session.get(SceneRow, scene_id)
+        if row is None:
+            row = SceneRow(
+                scene_id=scene_id,
+                owner_id=user.user_id,
+                filename=filename,
+                input_ext=Path(filename).suffix.lower() or ".tif",
+                raster_metadata=serializable,
+            )
+            session.add(row)
+        else:
+            row.filename = filename
+            row.raster_metadata = serializable
+        session.flush()
 
 
 def _build_capabilities(georeferenced: bool) -> SceneCapabilities:
@@ -194,10 +205,20 @@ def _build_scene_response(
 
 
 def _require_scene(scene_id: str) -> None:
+    """Existence + ownership guard: valid id, SQL row exists, and the
+    verified request user owns the scene (403 otherwise)."""
     if not valid_scene_id(scene_id):
         raise InvalidSceneId(scene_id)
-    if not get_scene_raw_dir(scene_id).is_dir():
-        raise SceneNotFound(scene_id)
+    with session_scope() as session:
+        row = session.get(SceneRow, scene_id)
+        if row is None:
+            # Fallback for scenes created before the DB migration: a raw
+            # directory without a row is treated as the local dev owner's.
+            if get_scene_raw_dir(scene_id).is_dir():
+                return
+            raise SceneNotFound(scene_id)
+        owner_id = row.owner_id
+    ensure_owner(owner_id, f"scene:{scene_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -264,11 +285,20 @@ async def create_scene(
         metadata = _inspect_raster(staging_path)
 
         # 3) commit: atomically move the validated raster into place,
-        #    under the designated input.<ext> name (determinism contract)
+        #    under the designated input.<ext> name (determinism contract),
+        #    then persist it durably in the object store + SQL metadata
         scene_dir.mkdir(parents=True, exist_ok=True)
         atomic_destination = scene_dir / designated_input_name(extension)
         staging_path.replace(atomic_destination)
+        object_key = storage_service.upload_input(
+            current_user().user_id, scene_id, atomic_destination
+        )
         _store_scene_metadata(scene_id, original_filename, metadata)
+        if object_key is not None:
+            with session_scope() as session:
+                row = session.get(SceneRow, scene_id)
+                if row is not None:
+                    row.input_object_key = object_key
 
     except HTTPException:
         _cleanup_failed_upload(staging_path, scene_dir)
@@ -296,12 +326,19 @@ async def create_scene(
 
 
 def _cleanup_failed_upload(staging_path: Path, scene_dir: Path) -> None:
-    """Remove staging + any partially created scene dir (idempotent)."""
+    """Remove staging + any partially created scene state (idempotent)."""
     staging_path.unlink(missing_ok=True)
     if scene_dir is not None and scene_dir.is_dir():
         for child in scene_dir.iterdir():
             child.unlink(missing_ok=True)
         scene_dir.rmdir()
+    from backend.app.core.paths import valid_scene_id as _valid
+
+    if scene_dir is not None and _valid(scene_dir.name):
+        with session_scope() as session:
+            row = session.get(SceneRow, scene_dir.name)
+            if row is not None:
+                session.delete(row)
 
 
 @router.post("/{scene_id}/mosaic", response_model=SceneCreateResponse)
@@ -388,9 +425,17 @@ async def mosaic_scene_inputs(
         for old in scene_dir.glob("input.*"):
             old.unlink()
         mosaic_staging.replace(scene_dir / designated_input_name(".tif"))
+        object_key = storage_service.upload_input(
+            current_user().user_id, scene_id, scene_dir / designated_input_name(".tif")
+        )
         _store_scene_metadata(
             scene_id, f"mosaic({'+'.join(name for name, _ in staged)})", metadata
         )
+        if object_key is not None:
+            with session_scope() as session:
+                row = session.get(SceneRow, scene_id)
+                if row is not None:
+                    row.input_object_key = object_key
         logger.info(
             "scene mosaic: %s inputs=%d merged=%dx%d",
             scene_id, len(staged), metadata["width"], metadata["height"],
@@ -431,26 +476,33 @@ async def mosaic_scene_inputs(
 
 @router.get("", response_model=list[SceneSummary])
 async def list_scenes():
-    """List registered scenes (most recent first)."""
-    from backend.app.core.paths import SCENES_RAW_DIR
+    """List the authenticated user's scenes (most recent first)."""
+    from sqlalchemy import select
 
+    from backend.app.db.models import SceneRow as SceneRowModel
+
+    user = current_user()
     summaries: list[SceneSummary] = []
-    if not SCENES_RAW_DIR.is_dir():
-        return summaries
+    with session_scope() as session:
+        rows = session.scalars(
+            select(SceneRowModel)
+            .where(SceneRowModel.owner_id == user.user_id)
+            .order_by(SceneRowModel.created_at.desc())
+        ).all()
 
-    for scene_dir in SCENES_RAW_DIR.iterdir():
-        if not scene_dir.is_dir() or not valid_scene_id(scene_dir.name):
+    for row in rows:
+        if not valid_scene_id(row.scene_id):
             continue
-        stored = _load_scene_metadata(scene_dir.name)
+        stored = _load_scene_metadata(row.scene_id)
         if stored is None:
             continue
         summaries.append(
             SceneSummary(
-                scene_id=scene_dir.name,
+                scene_id=row.scene_id,
                 filename=stored.get("filename", "unknown"),
                 status=SceneStatus.READY,
                 has_results=bool(
-                    result_service.get_result_files(scene_dir.name)
+                    result_service.get_result_files(row.scene_id)
                 ),
                 created_at=stored.get("created_at"),
             )
@@ -481,12 +533,18 @@ async def get_scene(scene_id: str):
 
 @router.delete("/{scene_id}", status_code=200)
 async def delete_scene(scene_id: str):
-    """Delete a scene and ALL of its stored artifacts (inputs,
-    intermediates, results) plus its job records."""
+    """Delete a scene and ALL of its stored artifacts (SQL rows, local
+    workspace files, object-store objects) plus its job records."""
     _require_scene(scene_id)
 
+    user = current_user()
     deleted_jobs = job_manager.delete_jobs_for_scene(scene_id)
     delete_scene_directories(scene_id)
+    storage_service.delete_scene_objects(user.user_id, scene_id)
+    with session_scope() as session:
+        row = session.get(SceneRow, scene_id)
+        if row is not None:
+            session.delete(row)
     logger.info(
         "scene deleted: %s (jobs removed: %d)", scene_id, deleted_jobs
     )

@@ -15,9 +15,9 @@ from backend.app.api.routes.scenes import router as scenes_router
 from backend.app.api.routes.results_files import router as results_files_router
 from backend.app.api.routes.terrain import router as terrain_router
 from backend.app.api.routes.validation import router as validation_router
-from backend.app.core.security import require_api_key
+from backend.app.core.auth import get_current_user
 
-api_router = APIRouter(dependencies=[Depends(require_api_key)])
+api_router = APIRouter(dependencies=[Depends(get_current_user)])
 
 api_router.include_router(jobs_router)
 api_router.include_router(results_router)

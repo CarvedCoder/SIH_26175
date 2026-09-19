@@ -28,11 +28,17 @@ class ResultService:
         return bool(self.get_result_files(scene_id))
 
     def get_result_files(self, scene_id: str) -> dict[str, Path]:
-        """Return known DepthWizard result files that exist."""
+        """Return known DepthWizard result files that exist.
+
+        Read-through cache: artifacts registered in the SQL scene row are
+        re-downloaded from the object store when missing locally (e.g.
+        after a backend restart on a fresh machine)."""
         output_dir = self.get_output_dir(scene_id)
 
         if not output_dir.exists():
-            return {}
+            self._materialize_from_object_store(scene_id)
+            if not output_dir.exists():
+                return {}
 
         known_files = {
             "depth": output_dir / "dsm.npy",
@@ -53,6 +59,30 @@ class ResultService:
             for name, path in known_files.items()
             if path.exists() and path.is_file()
         }
+
+    def _materialize_from_object_store(self, scene_id: str) -> None:
+        """Read-through cache miss: pull DB-registered artifacts from the
+        object store back into the local output dir (no-op with the local
+        backend or when the scene has no registered artifacts)."""
+        try:
+            from backend.app.db.database import session_scope
+            from backend.app.db.models import SceneRow
+            from backend.app.storage.service import storage_service
+
+            with session_scope() as session:
+                row = session.get(SceneRow, scene_id)
+                if row is None or not row.artifacts:
+                    return
+                owner_id, artifacts = row.owner_id, dict(row.artifacts)
+            storage_service.ensure_scene_outputs_local(
+                owner_id, scene_id, artifacts
+            )
+        except Exception:
+            # A cache-miss download failure must not break result reads —
+            # the local files (if any) remain the answer.
+            from backend.app.core.logging import logger
+
+            logger.exception("artifact materialization failed for %s", scene_id)
 
     def _load_array_stats(self, path: Path) -> dict[str, Any]:
         """Calculate statistics from a generated NumPy raster.
@@ -107,11 +137,8 @@ class ResultService:
         summary: dict[str, Any] = {
             "scene_id": scene_id,
             "available": bool(files),
-            "output_dir": str(output_dir),
-            "files": {
-                name: str(path)
-                for name, path in files.items()
-            },
+            # Never expose server filesystem paths in API payloads.
+            "files": {name: path.name for name, path in files.items()},
         }
 
         depth_path = files.get("depth")

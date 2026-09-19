@@ -232,6 +232,8 @@ class ProcessingService:
             job_manager.update_job(job_id, status="cancelled", stage="cancelled")
             return {"cancelled": True}
 
+        self._publish_artifacts(scene_id, output_dir)
+
         job_manager.update_job(
             job_id,
             status="completed",
@@ -336,6 +338,8 @@ class ProcessingService:
         if dsm_npy.is_file():
             refined_npy.write_bytes(dsm_npy.read_bytes())
 
+        self._publish_artifacts(scene_id, output_dir)
+
         job_manager.update_job(
             job_id,
             status="completed",
@@ -345,6 +349,35 @@ class ProcessingService:
         )
         logger.info("refine job completed: %s scene=%s", job_id, scene_id)
         return payload
+
+    # -- artifact publication ------------------------------------------------
+
+    def _publish_artifacts(self, scene_id: str, output_dir: Path) -> None:
+        """Post-inference persistence: upload every generated artifact to
+        the object store and register its KEY in the scene's SQL row.
+
+        Local files are kept (they are the processing cache); the DB is
+        updated transactionally. Failures are logged and swallowed: the
+        local products still exist and the job must still complete."""
+        try:
+            from backend.app.db.database import session_scope
+            from backend.app.db.models import SceneRow
+            from backend.app.storage.service import storage_service
+
+            with session_scope() as session:
+                row = session.get(SceneRow, scene_id)
+                owner_id = row.owner_id if row is not None else "local"
+            artifacts = storage_service.sync_scene_outputs(owner_id, scene_id)
+            if artifacts:
+                with session_scope() as session:
+                    row = session.get(SceneRow, scene_id)
+                    if row is not None:
+                        row.artifacts = artifacts
+        except Exception:
+            logger.exception(
+                "artifact publication failed for scene %s "
+                "(local outputs remain available)", scene_id,
+            )
 
     # -- failure recording ------------------------------------------------------
 

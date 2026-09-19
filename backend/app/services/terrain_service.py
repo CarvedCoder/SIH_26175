@@ -442,6 +442,16 @@ class TerrainService:
             )
         return self._save_grey_png(self._normalise_grey(np.asarray(ref)), out_path)
 
+    def _artifact_url(self, scene_id: str, filename: str, legacy_path: str) -> str:
+        """Presigned URL when the object store is active, else the legacy
+        API-relative path."""
+        from backend.app.storage.service import storage_service
+
+        url = storage_service.presign_artifact(
+            scene_id, self.get_output_dir(scene_id) / filename
+        )
+        return url or legacy_path
+
     def _heightmap_asset(self, scene_id: str, dsm: np.ndarray) -> TerrainAsset:
         try:
             path = self.get_heightmap_path(scene_id)
@@ -449,7 +459,10 @@ class TerrainService:
             return None
         return TerrainAsset(
             name="heightmap",
-            url=f"/api/v1/scenes/{scene_id}/results/heightmap",
+            url=self._artifact_url(
+                scene_id, "heightmap.png",
+                f"/api/v1/scenes/{scene_id}/results/heightmap",
+            ),
             format="png",
             width=path and dsm.shape[1],
             height=dsm.shape[0],
@@ -461,12 +474,18 @@ class TerrainService:
         except (FileNotFoundError, ValueError, RuntimeError):
             return TerrainAsset(
                 name="preview",
-                url=f"/api/v1/scenes/{scene_id}/results/preview",
+                url=self._artifact_url(
+                    scene_id, "dsm_preview.png",
+                    f"/api/v1/scenes/{scene_id}/results/preview",
+                ),
                 format="png",
             )
         return TerrainAsset(
             name="rgb",
-            url=f"/api/v1/scenes/{scene_id}/results/rgb",
+            url=self._artifact_url(
+                scene_id, "rgb_preview.png",
+                f"/api/v1/scenes/{scene_id}/results/rgb",
+            ),
             format="png",
         )
 
@@ -671,7 +690,10 @@ class TerrainService:
                         "y": ty,
                         "width": t_width,
                         "height": t_height,
-                        "url": f"/api/v1/scenes/{scene_id}/results/preview",
+                        "url": self._artifact_url(
+                            scene_id, "dsm_preview.png",
+                            f"/api/v1/scenes/{scene_id}/results/preview",
+                        ),
                     }
                 )
         return {

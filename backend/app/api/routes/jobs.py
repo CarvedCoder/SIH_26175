@@ -15,6 +15,7 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks
 
 from backend.app.api.routes.scenes import _require_scene
+from backend.app.core.auth import current_user, ensure_owner
 from backend.app.core.errors import AppError, SceneBusy
 from backend.app.jobs.manager import job_manager
 from backend.app.schemas.job import (
@@ -79,7 +80,7 @@ async def process_scene(
     if active is not None:
         raise SceneBusy(scene_id, active.job_id)
 
-    job = job_manager.create_job(scene_id)
+    job = job_manager.create_job(scene_id, owner_id=current_user().user_id)
 
     background_tasks.add_task(_run_processing, job.job_id, scene_id, request)
 
@@ -105,7 +106,7 @@ async def refine_scene(
     if active is not None:
         raise SceneBusy(scene_id, active.job_id)
 
-    job = job_manager.create_job(scene_id)
+    job = job_manager.create_job(scene_id, owner_id=current_user().user_id)
     background_tasks.add_task(_run_refinement, job.job_id, scene_id, request)
 
     return RefineAccepted(
@@ -128,6 +129,7 @@ async def get_job(job_id: str):
             message="Job does not exist or has expired.",
             recoverable=False,
         )
+    ensure_owner(job.owner_id, f"job:{job.job_id}")
 
     return JobResponse(
         job_id=job.job_id,
@@ -157,6 +159,7 @@ async def cancel_job(job_id: str):
             message="Job does not exist or has expired.",
             recoverable=False,
         )
+    ensure_owner(job.owner_id, f"job:{job.job_id}")
 
     return CancelResponse(
         job_id=job.job_id,

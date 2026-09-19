@@ -45,7 +45,40 @@ def isolated_storage(tmp_path, monkeypatch):
         paths, "SCENES_OUTPUT_DIR", tmp_path / "data" / "output" / "scenes"
     )
     paths.ensure_directories()
+
+    # Per-test SQL database (SQLite stand-in for PostgreSQL) + local
+    # object-storage backend, so API tests need no running infrastructure.
+    import backend.app.db.database as db_module
+    import backend.app.jobs.manager as manager_module
+    import backend.app.storage.service as storage_module
+    from backend.app.storage.backends import LocalStorage
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/test.db")
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", "")
+    monkeypatch.setenv("SUPABASE_URL", "")
+    config_module.get_settings.cache_clear()
+    db_module.reset_engine_for_tests()
+    storage_module.storage_service._backend = LocalStorage()
+
+    # Rebind the module-level job manager to a fresh engine-bound instance
+    # (it captured nothing engine-wise, but a clean store keeps tests
+    # isolated from one another).
+    import backend.app.services.processing_service as ps
+    from backend.app.db.database import get_engine
+    from backend.app.db.models import Base
+
+    Base.metadata.create_all(bind=get_engine())
+    fresh_manager = manager_module.JobManager(
+        retention_limit=8, ttl_seconds=3600
+    )
+    monkeypatch.setattr(manager_module, "job_manager", fresh_manager)
+    monkeypatch.setattr(ps, "job_manager", fresh_manager)
     yield tmp_path
+
+    db_module.reset_engine_for_tests()
+    storage_module.storage_service._backend = None
+    config_module.get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)

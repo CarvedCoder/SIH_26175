@@ -19,17 +19,25 @@ from backend.app.core.errors import register_error_handlers
 from backend.app.core.logging import logger
 from backend.app.core.middleware import AccessLogMiddleware, RequestIdMiddleware
 from backend.app.core.paths import ensure_directories
-from backend.app.core.security import auth_enabled
 from backend.app.schemas.health import HealthResponse
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_directories()
+    # Fail fast: unreachable SQL database or object store must stop the
+    # process at startup, never surface as per-request 500s.
+    from backend.app.core.auth import auth_mode
+    from backend.app.db.database import init_db
+    from backend.app.storage.service import storage_service
+
+    init_db()
+    storage_service.ensure_bucket()
     logger.info(
-        "DepthWizard API %s starting; auth=%s; cors_origins=%s",
+        "DepthWizard API %s starting; auth=%s; storage=%s; cors_origins=%s",
         settings.version,
-        "enabled" if auth_enabled() else "DISABLED (local development)",
+        auth_mode(),
+        "minio/s3" if storage_service.is_object_store else "local",
         ",".join(settings.cors_origins),
     )
     yield
@@ -50,14 +58,14 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Accept", "Content-Type", "X-API-Key", "X-Request-ID"],
+    allow_headers=["Accept", "Content-Type", "Authorization", "X-API-Key", "X-Request-ID"],
     expose_headers=["X-Request-ID"],
 )
 
 register_error_handlers(app)
 
-# Public: health only. Everything under api_router requires the API key
-# when DW_API_KEY is configured.
+# Public: health only. Everything under api_router requires Supabase JWT
+# auth (or the legacy API key) per backend.app.core.auth.
 app.include_router(health_router)
 app.include_router(api_router)
 

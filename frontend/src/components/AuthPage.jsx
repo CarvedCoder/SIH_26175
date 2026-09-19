@@ -2,35 +2,54 @@ import { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { LoginForm } from './login-form';
 import { SignupForm } from './signup-form';
+import { useAuth } from '@/store/authContext';
 
 export default function AuthPage({ onAuthenticate, onBackToHome, initialView = 'login' }) {
   const [view, setView] = useState(initialView);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const { signInWithPassword, signUpWithPassword } = useAuth();
 
-  // Authentication handler to extract name from email
-  const handleAuthSubmit = (e) => {
+  // Real Supabase authentication: email/password via the auth context.
+  // The backend later derives the user id from the verified JWT sub —
+  // this profile is display-only.
+  const handleAuthSubmit = async (e) => {
     e.preventDefault();
-    const emailInput = e.target.querySelector('input[type="email"]');
-    const email = emailInput?.value?.trim() || 'user@terramesh.io';
-    
-    // Extract name from email (e.g., john.doe@example.com -> John Doe)
-    const namePart = email.split('@')[0];
-    const name = namePart
-      .split(/[\.\-\_]/)
-      .filter(Boolean)
-      .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-      .join(' ');
+    setError(null);
+    const form = e.currentTarget;
+    const emailInput = form.querySelector('input[type="email"]');
+    const passwordInput = form.querySelector('input[type="password"]');
+    const email = emailInput?.value?.trim() || '';
+    const password = passwordInput?.value || '';
+    if (!email || !password) {
+      setError('Email and password are required.');
+      return;
+    }
 
-    onAuthenticate?.({
-      name: name || 'Explorer',
-      email: email
-    });
+    setBusy(true);
+    try {
+      if (view === 'login') {
+        const profile = await signInWithPassword(email, password);
+        onAuthenticate?.(profile);
+      } else {
+        const { profile, needsConfirmation } = await signUpWithPassword(email, password);
+        if (needsConfirmation) {
+          setError('Check your inbox to confirm your email address, then sign in.');
+          setView('login');
+          setBusy(false);
+          return;
+        }
+        onAuthenticate?.(profile);
+      }
+    } catch (err) {
+      setError(err?.message || 'Authentication failed.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleSocialLogin = (provider) => {
-    onAuthenticate?.({
-      name: `${provider} User`,
-      email: `user@${provider.toLowerCase()}.com`
-    });
+    setError(`${provider} sign-in is not configured yet — use email and password.`);
   };
 
   return (
@@ -59,18 +78,24 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
       </header>
 
       {/* Auth Card Container */}
-      <div className="w-full max-w-4xl relative z-10 pt-16 sm:pt-0" onSubmit={handleAuthSubmit}>
+      <div className="w-full max-w-4xl relative z-10 pt-16 sm:pt-0">
+        {error && (
+          <div role="alert" className="mb-4 px-4 py-3 rounded-lg bg-red-950/60 border border-red-800 text-red-200 text-sm text-center">
+            {error}
+          </div>
+        )}
         {view === 'login' ? (
           <div
             onClick={(e) => {
               const link = e.target.closest('a');
               if (link && (link.textContent?.includes('Sign up') || link.getAttribute('href') === '#signup')) {
                 e.preventDefault();
+                setError(null);
                 setView('signup');
               }
             }}
           >
-            <LoginForm onSocialLogin={handleSocialLogin} />
+            <LoginForm onSocialLogin={handleSocialLogin} onSubmit={handleAuthSubmit} busy={busy} />
           </div>
         ) : (
           <div
@@ -78,11 +103,12 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
               const link = e.target.closest('a');
               if (link && (link.textContent?.includes('Sign in') || link.getAttribute('href') === '#signin')) {
                 e.preventDefault();
+                setError(null);
                 setView('login');
               }
             }}
           >
-            <SignupForm onSocialLogin={handleSocialLogin} />
+            <SignupForm onSocialLogin={handleSocialLogin} onSubmit={handleAuthSubmit} busy={busy} />
           </div>
         )}
       </div>
