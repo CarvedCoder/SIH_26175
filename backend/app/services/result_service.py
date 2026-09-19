@@ -6,7 +6,11 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from backend.app.core.paths import get_scene_output_dir
+from backend.app.infrastructure.storage.scene_artifacts import (
+    RESULT_ARTIFACT_KEYS,
+    scene_artifact_store,
+    scene_output_dir_key,
+)
 
 
 class ResultService:
@@ -20,8 +24,8 @@ class ResultService:
     """
 
     def get_output_dir(self, scene_id: str) -> Path:
-        """Return the output directory for a scene."""
-        return get_scene_output_dir(scene_id)
+        """Output directory for a scene, addressed via the artifact store."""
+        return scene_artifact_store().path_for(scene_output_dir_key(scene_id))
 
     def scene_has_results(self, scene_id: str) -> bool:
         """Return True when the scene has generated results."""
@@ -40,19 +44,15 @@ class ResultService:
             if not output_dir.exists():
                 return {}
 
+        # Artifact names from the shared vocabulary (RESULT_ARTIFACT_KEYS
+        # — the API-facing product list), addressed under the scene's
+        # output dir of the artifact store. "dsm" maps to dsm.tif only —
+        # a non-georeferenced scene (dsm.npy only) honestly reports
+        # dsm.available = False (no CRS, no GeoTIFF twin).
         known_files = {
-            "depth": output_dir / "dsm.npy",
-            "dsm": output_dir / "dsm.tif",
-            "dsm_anchored": output_dir / "dsm_anchored.tif",
-            "preview": output_dir / "dsm_preview.png",
+            name: output_dir / suffix
+            for name, suffix in RESULT_ARTIFACT_KEYS.items()
         }
-
-        # The pipeline writes the DSM surface as dsm.npy; the GeoTIFF twin
-        # exists only for georeferenced exports. Accept either so DSM
-        # availability matches what the pipeline actually produces — a
-        # non-georeferenced scene (dsm.npy only) still has a usable DSM.
-        if not known_files["dsm"].exists() and known_files["depth"].exists():
-            known_files["dsm"] = known_files["depth"]
 
         return {
             name: path

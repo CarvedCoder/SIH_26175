@@ -1,0 +1,54 @@
+# V2 Baseline Configuration (Reproduces V1)
+paths:
+  rgb_dir: "images/train"
+  truth_dir: "heights/train"
+  splits_json: "splits.json"
+  affine_json: "outputs/calib_net/global_affine.json"
+  outputs_dir: "outputs"
+  depth_cache_dir: "outputs/depth_cache"
+
+dataset:
+  name: "mixed"
+  mixing:
+    mode: "ratio"
+    dfc_weight: 0.2
+    gamus_weight: 0.8
+  clamp_agl_min: 0.0
+
+inputs:
+  depth: true
+  rgb: true
+  confidence: false
+  semantic: false
+  dem: false
+
+model:
+  architecture: "CalibrationNet_v2"
+  widths: [16, 32, 64]
+  parameterization: "absolute_affine"
+  bounded: false
+  context: "none"
+  clamp_min: 0.0
+
+fusion:
+  mode: "early"
+  merge: "concat"
+
+loss:
+  main: "l1"
+  gradient_weight: 0.0
+  boundary_weight: 0.0
+  semantic_weight: 0.0
+  uncertainty_weight: 0.0
+  height_balanced: false
+
+train:
+  epochs: 100
+  batch_size: 16
+  lr: 0.001
+  weight_decay: 0.0001
+  crop_size: 256
+  val_subset: 859
+  grad_clip: 5.0
+  patience: 8
+  seed: 42

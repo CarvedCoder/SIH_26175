@@ -105,10 +105,11 @@ def fresh_job_manager(monkeypatch):
     """A clean JobManager (bounded defaults) injected into the module."""
     mgr = manager_module.JobManager(retention_limit=8, ttl_seconds=3600)
     monkeypatch.setattr(manager_module, "job_manager", mgr)
-    # processing_service imported job_manager by name — patch there too
+    # processing_service holds the job store as an INJECTED attribute —
+    # patch the instance (tranche-3 DI), not the module global.
     import backend.app.services.processing_service as ps
 
-    monkeypatch.setattr(ps, "job_manager", mgr)
+    monkeypatch.setattr(ps.processing_service, "_job_service", mgr)
     yield mgr
 
 
@@ -155,6 +156,9 @@ def mock_inference(tmp_path, monkeypatch):
 
     ckpt = _tiny_checkpoint(tmp_path)
     monkeypatch.setenv("DW_CKPT", str(ckpt))
+    # Settings are env-driven and cached (tranche-2 centralization): a test
+    # that changes the environment must rebuild the cached Settings.
+    config_module.get_settings.cache_clear()
 
     calls: list[tuple[Path, dict]] = []
 
@@ -209,6 +213,7 @@ def mock_inference(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ps, "run_inference", fake_run_inference)
     yield calls
+    config_module.get_settings.cache_clear()
 
 
 @pytest.fixture()

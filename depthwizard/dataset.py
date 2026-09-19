@@ -36,7 +36,7 @@ import torch
 from torch.utils.data import Dataset
 
 from .geo import TilePaths, read_tile
-from .normalize import clean_agl, minmax_normalize
+from .normalize import clean_agl, minmax_normalize, minmax_normalize_with_stats
 
 # ImageNet stats — same constants Depth Anything V2's preprocessing uses.
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
@@ -111,9 +111,12 @@ class DFC2019Dataset(Dataset):
         return len(self.tiles)
 
     # ------------------------------------------------------------------
-    def _load_depth(self, stem: str, h: int, w: int) -> Optional[np.ndarray]:
+    def _load_depth_with_stats(
+        self, stem: str, h: int, w: int
+    ) -> tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """(normalized Dn, RAW-tile stats [4]) — FiLM conditioning (Exp 1)."""
         if not self.cfg.load_depth or self.cfg.depth_cache_dir is None:
-            return None
+            return None, None
         # Phase 1 (GAMUS integration): namespaced layout first
         # (<model_tag>/dfc2019/{stem}.npy), legacy flat layout
         # (<model_tag>/{stem}.npy) second — existing caches keep working.
@@ -133,7 +136,10 @@ class DFC2019Dataset(Dataset):
                 f"{(h, w)} — cache and rasters are out of sync. Delete the "
                 "stale .npy and re-run the depth command."
             )
-        return minmax_normalize(raw)
+        return minmax_normalize_with_stats(raw)
+
+    def _load_depth(self, stem: str, h: int, w: int) -> Optional[np.ndarray]:
+        return self._load_depth_with_stats(stem, h, w)[0]
 
     # ------------------------------------------------------------------
     def _resolve_dem(
@@ -229,7 +235,7 @@ class DFC2019Dataset(Dataset):
         rgb, agl, cls = data["rgb"], data["agl"], data["cls"]
         h, w = rgb.shape[:2]
 
-        dn = self._load_depth(tile.stem, h, w)
+        dn, dn_stats = self._load_depth_with_stats(tile.stem, h, w)
         # Method-D ablation: optionally resolve a DEM prior (real on disk
         # or SYNTHETIC-DEM-PROXY). The DEM is folded into the SAME joint
         # crop/flip/rot90 transform as the other layers — one window,
@@ -291,11 +297,17 @@ class DFC2019Dataset(Dataset):
             "dataset": "dfc2019",
             "sample_id": tile.stem,
         }
+        dn_stats_t = (
+            torch.from_numpy(np.asarray(dn_stats, dtype=np.float32))
+            if dn_stats is not None
+            else None
+        )
         return {
             "rgb": rgb_t,
             "agl": agl_t,
             "cls": cls_t,
             "dn": dn_t,
+            "dn_stats": dn_stats_t,
             "dem": dem_t,
             "meta": meta,
         }

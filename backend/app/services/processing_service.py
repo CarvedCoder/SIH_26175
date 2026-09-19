@@ -22,43 +22,62 @@ from pathlib import Path
 from typing import Any
 
 
+from backend.app.core.config import get_settings
+from backend.app.core.errors import AppError
 from backend.app.core.logging import logger
 from backend.app.core.paths import (
     PROJECT_ROOT,
-    get_scene_output_dir,
     get_scene_process_dir,
     get_scene_raw_dir,
+)
+from backend.app.infrastructure.storage.scene_artifacts import (
+    scene_artifact_store,
+    scene_output_dir_key,
 )
 from backend.app.jobs.manager import job_manager
 from depthwizard.inference import run_inference
 
-# Module-level guard shared by ALL jobs in this process: never run more
-# than DW_MAX_CONCURRENT_JOBS torch forwards simultaneously.
-_INFERENCE_SEMAPHORE = threading.Semaphore(
-    max(1, int(os.environ.get("DW_MAX_CONCURRENT_JOBS", "1")))
-)
-
-
-class SceneInputError(FileNotFoundError):
-    """The scene's stored input does not match the deterministic contract."""
+# Process-local GPU guard. HONEST LIMITATION (audit §3.4): this serializes
+# torch forwards within ONE process only; cross-instance concurrency policy
+# belongs to the queue/worker layer (worker concurrency=1 per GPU worker).
+_INFERENCE_SEMAPHORE = threading.Semaphore(1)
 
 
 class ProcessingService:
-    def __init__(self) -> None:
-        self.default_device = os.environ.get("DW_DEVICE", "auto")
-        self.default_backbone = os.environ.get(
-            "DW_BACKBONE",
-            "depth-anything/Depth-Anything-V2-Base-hf",
-        )
-        self.default_live_backbone = os.environ.get("DW_NO_LIVE") != "1"
+    """Inference execution. All serving knobs come from the centralized
+    Settings (core/config.py) — this module never reads os.environ."""
+
+    def __init__(self, settings=None, job_service=None) -> None:
+        # None => resolve lazily per call so test fixtures that rebuild
+        # Settings (fresh_settings) are honored; an explicit Settings may
+        # be injected for workers with their own configuration.
+        self._settings = settings
+        # Job store access is INJECTED (never a bare module global): the
+        # API process uses the default facade; a worker passes its own
+        # JobService bound to whichever repository it was configured with.
+        self._job_service = job_service
+
+    @property
+    def settings(self):
+        return self._settings if self._settings is not None else get_settings()
+
+    @property
+    def jobs(self):
+        """The injected job store facade (module facade by default)."""
+        if self._job_service is not None:
+            return self._job_service
+        from backend.app.jobs.manager import job_manager
+
+        return job_manager
 
     # -- configuration ------------------------------------------------------
 
     def _resolve_checkpoint(self) -> Path:
         """Resolve the calibration checkpoint. Single source of truth:
-        DW_CKPT, else the repo default below (mirrored in docker-compose)."""
+        settings.checkpoint (DW_CKPT), else the repo default below
+        (mirrored in docker-compose)."""
 
-        env_checkpoint = os.environ.get("DW_CKPT")
+        env_checkpoint = self.settings.checkpoint
 
         if env_checkpoint:
             checkpoint = Path(env_checkpoint)
@@ -73,7 +92,7 @@ class ProcessingService:
                 "checkpoint."
             )
 
-        expected_sha = os.environ.get("DW_CKPT_SHA256")
+        expected_sha = self.settings.checkpoint_sha256
         if expected_sha:
             from depthwizard.tifops import sha256_file
 
@@ -86,77 +105,26 @@ class ProcessingService:
 
         return checkpoint
 
-    # -- deterministic input ------------------------------------------------
-
-    # Designated upload names in deterministic check order (the upload route
-    # stores the validated raster as input.<original extension>; PNG/JPG
-    # are first-class inputs alongside GeoTIFF).
-    _DESIGNATED_INPUTS = (
-        "input.tif",
-        "input.tiff",
-        "input.png",
-        "input.jpg",
-        "input.jpeg",
-    )
-    _RASTER_SUFFIXES = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+    # -- deterministic input (delegates to the scene application service) --
 
     def find_scene_input(self, scene_id: str) -> Path | None:
-        """Return the scene's designated input raster, or None.
+        """The scene's designated input raster by exact known filename."""
+        from backend.app.application.scenes.service import scene_service
 
-        Determinism rule (audit M9): pick by exact known filename — never
-        by iteration order.
-        """
-        input_dir = get_scene_raw_dir(scene_id)
-
-        if not input_dir.exists():
-            return None
-
-        for name in self._DESIGNATED_INPUTS:
-            candidate = input_dir / name
-            if candidate.is_file():
-                return candidate
-
-        return None
+        return scene_service.find_scene_input(scene_id)
 
     def resolve_scene_input(self, scene_id: str) -> Path:
-        """Return the ONE input raster of a scene, deterministically.
+        """The ONE input raster of a scene, deterministically. Ambiguous
+        scenes raise the typed SceneInputAmbiguous error — never resolved
+        by iteration order."""
+        from backend.app.application.scenes.service import scene_service
 
-        Falls back to the single-raster rule: several images with no
-        designated input is an ambiguous scene and is REJECTED, never
-        resolved by iteration order.
-        """
-        designated = self.find_scene_input(scene_id)
-        if designated is not None:
-            return designated
-
-        input_dir = get_scene_raw_dir(scene_id)
-
-        if not input_dir.exists():
-            raise FileNotFoundError(f"Scene '{scene_id}' has no stored input.")
-
-        rasters = sorted(
-            path
-            for path in input_dir.iterdir()
-            if path.is_file() and path.suffix.lower() in self._RASTER_SUFFIXES
-        )
-
-        if not rasters:
-            raise FileNotFoundError(
-                f"No image input found for scene '{scene_id}'."
-            )
-        if len(rasters) > 1:
-            raise SceneInputError(
-                f"Scene '{scene_id}' contains multiple images with no "
-                "designated input; rename exactly one to input.tif "
-                "(or input.png / input.jpg)."
-            )
-
-        return rasters[0]
+        return scene_service.resolve_scene_input(scene_id)
 
     # -- cancellation --------------------------------------------------------
 
     def _check_cancelled(self, job_id: str) -> bool:
-        job = job_manager.get_job(job_id)
+        job = self.jobs.get_job(job_id)
         return bool(job and job.cancel_requested)
 
     # -- processing -----------------------------------------------------------
@@ -172,14 +140,14 @@ class ProcessingService:
         """Run DepthWizard inference for a scene (blocking; call from a worker)."""
 
         input_path = self.resolve_scene_input(scene_id)
-        output_dir = get_scene_output_dir(scene_id)
+        output_dir = scene_artifact_store().path_for(scene_output_dir_key(scene_id))
         process_dir = get_scene_process_dir(scene_id)
         output_dir.mkdir(parents=True, exist_ok=True)
         process_dir.mkdir(parents=True, exist_ok=True)
 
         checkpoint = self._resolve_checkpoint()
 
-        job_manager.update_job(
+        self.jobs.update_job(
             job_id,
             status="processing",
             stage="depth_inference",
@@ -188,13 +156,17 @@ class ProcessingService:
 
         if self._check_cancelled(job_id):
             self._discard_outputs(output_dir)
-            job_manager.update_job(job_id, status="cancelled", stage="cancelled")
+            self.jobs.update_job(job_id, status="cancelled", stage="cancelled")
             return {"cancelled": True}
 
-        with _INFERENCE_SEMAPHORE:
+        # Durable lease heartbeat: while this worker runs, the job's lease
+        # is renewed so OTHER instances never finalize it as interrupted.
+        # If THIS process dies, the lease expires and any reader honestly
+        # fails the job — no PID liveness anywhere.
+        with self.jobs.lease_heartbeat(job_id), _INFERENCE_SEMAPHORE:
             if self._check_cancelled(job_id):
                 self._discard_outputs(output_dir)
-                job_manager.update_job(
+                self.jobs.update_job(
                     job_id, status="cancelled", stage="cancelled"
                 )
                 return {"cancelled": True}
@@ -203,12 +175,12 @@ class ProcessingService:
                 input_path=input_path,
                 ckpt_path=checkpoint,
                 out_dir=output_dir,
-                device=self.default_device,
+                device=self.settings.device,
                 mode=mode,
                 dn_path=None,
                 cache_dir=None,
-                live_backbone=self.default_live_backbone,
-                backbone_id=self.default_backbone,
+                live_backbone=self.settings.live_backbone,
+                backbone_id=self.settings.backbone_id,
                 anchor_dem=None,
                 ground_elev=ground_elev,
                 write_files=True,
@@ -229,12 +201,12 @@ class ProcessingService:
 
         if self._check_cancelled(job_id):
             self._discard_outputs(output_dir)
-            job_manager.update_job(job_id, status="cancelled", stage="cancelled")
+            self.jobs.update_job(job_id, status="cancelled", stage="cancelled")
             return {"cancelled": True}
 
         self._publish_artifacts(scene_id, output_dir)
 
-        job_manager.update_job(
+        self.jobs.update_job(
             job_id,
             status="completed",
             stage="completed",
@@ -262,11 +234,11 @@ class ProcessingService:
             raise ValueError("refinement bbox must have positive extent.")
 
         input_path = self.resolve_scene_input(scene_id)
-        output_dir = get_scene_output_dir(scene_id)
+        output_dir = scene_artifact_store().path_for(scene_output_dir_key(scene_id))
         output_dir.mkdir(parents=True, exist_ok=True)
         checkpoint = self._resolve_checkpoint()
 
-        job_manager.update_job(
+        self.jobs.update_job(
             job_id, status="processing", stage="depth_inference", progress=5.0
         )
 
@@ -280,9 +252,9 @@ class ProcessingService:
                 "refinement bbox exceeds the scene raster dimensions."
             )
 
-        with _INFERENCE_SEMAPHORE:
+        with self.jobs.lease_heartbeat(job_id), _INFERENCE_SEMAPHORE:
             if self._check_cancelled(job_id):
-                job_manager.update_job(
+                self.jobs.update_job(
                     job_id, status="cancelled", stage="cancelled"
                 )
                 return {"cancelled": True}
@@ -313,12 +285,12 @@ class ProcessingService:
                 input_path=crop_path,
                 ckpt_path=checkpoint,
                 out_dir=output_dir,
-                device=self.default_device,
+                device=self.settings.device,
                 mode="tiles",
                 dn_path=None,
                 cache_dir=None,
-                live_backbone=self.default_live_backbone,
-                backbone_id=self.default_backbone,
+                live_backbone=self.settings.live_backbone,
+                backbone_id=self.settings.backbone_id,
                 anchor_dem=None,
                 ground_elev=None,
                 write_files=True,
@@ -340,7 +312,7 @@ class ProcessingService:
 
         self._publish_artifacts(scene_id, output_dir)
 
-        job_manager.update_job(
+        self.jobs.update_job(
             job_id,
             status="completed",
             stage="completed",
@@ -384,7 +356,14 @@ class ProcessingService:
     def record_failure(self, job_id: str, exc: Exception) -> None:
         """Map an exception to a typed job error (client contract) and log
         the full detail server-side."""
-        if isinstance(exc, ValueError):
+        if isinstance(exc, AppError):
+            error = {
+                "code": exc.code,
+                "message": exc.message,
+                "details": exc.details,
+                "recoverable": exc.recoverable,
+            }
+        elif isinstance(exc, ValueError):
             error = {
                 "code": "INVALID_INPUT",
                 "message": str(exc),
@@ -409,12 +388,53 @@ class ProcessingService:
         logger.error(
             "job %s failed: %s: %s", job_id, type(exc).__name__, exc
         )
-        job_manager.update_job(
+        self.jobs.update_job(
             job_id,
             status="failed",
             stage="failed",
             error=error,
         )
+
+    # -- external-worker execution -------------------------------------------
+
+    def execute_job_record(self, job_id: str) -> dict[str, Any] | None:
+        """Execute a PERSISTED job record — the external-worker entrypoint.
+
+        Everything needed comes from durable state: the job document
+        (request parameters) + the scene's stored input + configuration.
+        A fresh worker process can execute any job with no memory of the
+        API request that created it (statelessness definition).
+
+        Delivery semantics: at-least-once with idempotent outputs (see
+        FileJobRepository.claim_queued)."""
+        job = self.jobs.get_job(job_id)
+        if job is None:
+            return None
+        if job.is_terminal:
+            return job.result
+        request = job.request or {"kind": "process"}
+        try:
+            if request.get("kind") == "refine":
+                bbox = request.get("bbox") or {}
+                return self.refine_region(
+                    job_id,
+                    job.scene_id,
+                    bbox=(
+                        int(bbox["x_min"]),
+                        int(bbox["y_min"]),
+                        int(bbox["x_max"]),
+                        int(bbox["y_max"]),
+                    ),
+                )
+            return self.process_scene(
+                job_id,
+                job.scene_id,
+                mode=request.get("mode", "auto"),
+                ground_elev=request.get("ground_elev"),
+            )
+        except Exception as exc:
+            self.record_failure(job_id, exc)
+            return None
 
     def _discard_outputs(self, output_dir: Path) -> None:
         """Remove partial outputs of a cancelled run (idempotent)."""

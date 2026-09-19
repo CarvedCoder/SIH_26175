@@ -10,7 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, RedirectResponse
 
-from backend.app.api.routes.scenes import _require_scene
+from backend.app.api.routes._deps import require_scene as _require_scene
 from backend.app.core.errors import AppError
 from backend.app.db.database import session_scope
 from backend.app.db.models import SceneRow

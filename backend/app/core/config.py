@@ -95,9 +95,37 @@ class Settings:
         self.max_concurrent_jobs: int = _int_env("DW_MAX_CONCURRENT_JOBS", 1)
         self.job_retention_limit: int = _int_env("DW_JOB_RETENTION_LIMIT", 500)
         self.job_ttl_seconds: int = _int_env("DW_JOB_TTL_SECONDS", 24 * 3600)
+        # Durable lease for claimed jobs (worker heartbeats renew it at
+        # lease/3). Must comfortably exceed the longest single inference
+        # run even WITHOUT heartbeats, as a belt-and-braces margin.
+        self.job_lease_seconds: int = _int_env("DW_JOB_LEASE_SECONDS", 1800)
+        # Durable job store: "file" (JSON per scene dir) or "sqlite"
+        # (transactional claims; exactly-once across worker processes).
+        self.job_store: str = os.environ.get("DW_JOB_STORE", "file")
+        self.job_db_path: str = os.environ.get("DW_JOB_DB", "") or ""
 
         # --- Serving identity ------------------------------------------------
         self.version: str = "1.0.0"
+
+        # --- Inference / worker domain (tranche 2: centralized here so no
+        # other module reads os.environ for serving behavior) ----------------
+        self.device: str = os.environ.get("DW_DEVICE", "auto")
+        self.backbone_id: str = os.environ.get(
+            "DW_BACKBONE",
+            "depth-anything/Depth-Anything-V2-Base-hf",
+        )
+        # DW_NO_LIVE=1 disables the live DAv2 fallback (offline honesty).
+        self.live_backbone: bool = os.environ.get("DW_NO_LIVE") != "1"
+        self.checkpoint: str | None = os.environ.get("DW_CKPT") or None
+        self.checkpoint_sha256: str | None = (
+            os.environ.get("DW_CKPT_SHA256") or None
+        )
+        # Job execution: "inline" (default; API threadpool — dev mode) or
+        # "external" (API only records jobs; backend.app.worker claims them).
+        self.worker_mode: str = os.environ.get("DW_WORKER_MODE", "inline")
+        self.worker_poll_seconds: float = float(
+            os.environ.get("DW_WORKER_POLL_SECONDS", "1.0")
+        )
 
 
 settings = get_settings()

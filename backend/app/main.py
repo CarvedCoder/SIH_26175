@@ -14,10 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.router import api_router
 from backend.app.api.routes.health import _health_payload, router as health_router
-from backend.app.core.config import settings
+from backend.app.core.config import get_settings, settings
 from backend.app.core.errors import register_error_handlers
 from backend.app.core.logging import logger
 from backend.app.core.middleware import AccessLogMiddleware, RequestIdMiddleware
+from backend.app.appstate import build_task_queue
 from backend.app.core.paths import ensure_directories
 from backend.app.schemas.health import HealthResponse
 
@@ -25,6 +26,9 @@ from backend.app.schemas.health import HealthResponse
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_directories()
+    # Dispatch wiring (config, not state): inline queue in dev mode; None
+    # in external mode (the durable job record is the queue; workers claim).
+    app.state.task_queue = build_task_queue()
     # Fail fast: unreachable SQL database or object store must stop the
     # process at startup, never surface as per-request 500s.
     from backend.app.core.auth import auth_mode
@@ -34,11 +38,12 @@ async def lifespan(app: FastAPI):
     init_db()
     storage_service.ensure_bucket()
     logger.info(
-        "DepthWizard API %s starting; auth=%s; storage=%s; cors_origins=%s",
+        "DepthWizard API %s starting; auth=%s; storage=%s; cors_origins=%s; worker_mode=%s",
         settings.version,
         auth_mode(),
         "minio/s3" if storage_service.is_object_store else "local",
         ",".join(settings.cors_origins),
+        get_settings().worker_mode,
     )
     yield
     logger.info("DepthWizard API shutting down")

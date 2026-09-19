@@ -21,6 +21,8 @@ the layer is absent so torch default_collate stays consistent):
     agl         [1,H,W]  float32   clean_agl (>= clamp_min), metres
     cls         [1,H,W]  int64     RAW dataset class ids (legend in meta)
     dn          [1,H,W]  float32 | None   min-max normalized relative depth
+    dn_stats    [4]      float32 | None   RAW-tile log-stats (Exp 1 FiLM);
+                                          None exactly when dn is None
     dem         [1,H,W]  float32 | None   DEM prior (real or SYNTHETIC tag)
     sem_onehot  [K,H,W]  float32 | None  K = 6 project classes (one-hot)
     sem_ignore  [1,H,W]  bool     | None  explicit semantic ignore mask
@@ -170,8 +172,9 @@ class BaseDepthDataset(Dataset):
         # one-hot itself (pinned by test_joint_transform_alignment_sem) —
         # and it avoids np.rot90 axis ambiguity on channel-first arrays.
         layers: Dict[str, np.ndarray] = {"rgb": rgb, "agl": agl, "cls": cls}
-        for k in ("dn", "dem"):
+        for k in ("dn", "dem", "confidence"):
             if arrs.get(k) is not None:
+
                 layers[k] = arrs[k]
 
         y0 = x0 = 0
@@ -228,6 +231,15 @@ class BaseDepthDataset(Dataset):
             if unmapped:
                 meta_in["sem_unmapped_ids"] = unmapped
 
+        # RAW-tile statistics (Exp 1 FiLM conditioning) — per-sample [4]
+        # scalars: NOT part of the joint spatial transform (dihedral- and
+        # crop-invariant by construction at the normalization granularity).
+        dn_stats_t = (
+            torch.from_numpy(np.asarray(arrs["dn_stats"], dtype=np.float32))
+            if arrs.get("dn_stats") is not None
+            else None
+        )
+
         sid = meta_in.get("sample_id") or meta_in.get("stem")
         meta = dict(meta_in)  # adapter extras
         meta.update(
@@ -250,6 +262,7 @@ class BaseDepthDataset(Dataset):
             "agl": agl_t,
             "cls": cls_t,
             "dn": dn_t,
+            "dn_stats": dn_stats_t,
             "dem": dem_t,
             "sem_onehot": sem_t,
             "sem_ignore": ign_t,

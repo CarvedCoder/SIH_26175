@@ -1,0 +1,53 @@
+# A9: BerHu (reverse Huber) main loss, baseline architecture.
+paths:
+  depth_cache_dir: outputs/depth_cache
+  outputs_dir: outputs
+  affine_json: outputs/baseline/global_affine_gamus.json
+  splits_json: outputs/splits/splits.json
+dataset:
+  name: gamus
+  source: local
+  backend: hdf5
+  local_root: gamus_full
+  limit: 0
+  load_semantics: false
+model:
+  architecture: CalibrationNet_v2
+  widths:
+  - 16
+  - 32
+  - 64
+  parameterization: absolute_affine
+  bounded: false
+  semantic_mode: none
+  context: none
+  clamp_min: 0.0
+train:
+  crop_size: 512
+  batch_size: 1
+  epochs: 40
+  lr: 0.001
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1
+  huber_delta: 5.0
+  workers: 1
+  val_subset: 48
+  patience: 10
+  seed: 42
+inputs:
+  depth: true
+  rgb: true
+  confidence: false
+  semantic: false
+  dem: false
+fusion:
+  mode: early
+  merge: concat
+loss:
+  main: berhu
+  gradient_weight: 0.0
+  boundary_weight: 0.0
+  semantic_weight: 0.0
+  uncertainty_weight: 0.0
+  height_balanced: false

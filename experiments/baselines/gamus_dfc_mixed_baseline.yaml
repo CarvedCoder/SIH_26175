@@ -1,0 +1,68 @@
+# Baseline manifest: V1 Flagship Mixed Training
+experiment: "baseline_mixed_80_20"
+checkpoint: "outputs/calib_net/gamus_dfc_mixed_80_20/best.pt"
+
+training:
+  dataset: "gamus_dfc_mixed"
+  mixing_ratio:
+    dfc_weight: 0.2
+    gamus_weight: 0.8
+  epochs: 100
+  batch_size: 16
+  optimizer: "AdamW"
+  scheduler: "CosineAnnealing"
+  seed: 42
+
+model:
+  architecture: "CalibrationNet_v1"
+  parameterization: "absolute_affine"
+  widths: [16, 32, 64]
+  input_channels: 4
+  fusion: "early_concat"
+  parameter_count: 123634
+
+evaluation:
+  dataset: "GAMUS"
+  split: "val"
+  tiles: 859
+  metrics:
+    mae: 2.770
+    rmse: 5.239
+    pearson_r: 0.643
+    bias: -0.749
+    building_mae: 3.705
+    dc_mae: 4.402
+    phl_mae: 1.599
+
+# ---------------------------------------------------------------------------
+# Local-harness reference (this environment) — NOT comparable to the above.
+# The 859-tile mixed protocol is not runnable here (no DFC2019 rasters, no
+# mixed stats-gate artifact). V2 ablations use the local real-GAMUS subset
+# (78 train / 48 val tiles, DC city) with the SAME recipe, re-trained V1
+# architecture. See configs/exp_local_gamus.yaml for the full protocol note.
+# ---------------------------------------------------------------------------
+local_harness_reference:
+  checkpoint: "outputs/calib_net/exp_baseline/best.pt"
+  config: "configs/exp_local_gamus.yaml"
+  recipe:
+    epochs: 40
+    batch_size: 1
+    crop_size: 512
+    lr: 0.001
+    weight_decay: 0.0001
+    grad_clip: 5.0
+    loss: "l1"
+    seed: 42
+  evaluation:
+    dataset: "GAMUS (local subset)"
+    split: "val"
+    tiles: 48
+    metrics:
+      mae: 4.459
+      rmse: 6.623
+      pearson_r: 0.776
+      bias: -1.291
+      building_mae: 3.960
+      per_tile_mae_mean: 4.459
+      per_tile_mae_std: 1.861
+      phl_mae: null  # no PHL tiles in the local val split — never fabricated

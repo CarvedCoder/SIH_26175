@@ -72,6 +72,34 @@ class InvalidSceneId(AppError):
         )
 
 
+class RasterInvalid(AppError):
+    """An uploaded file could not be parsed as a supported raster."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=400,
+            code="INVALID_RASTER",
+            message="The uploaded file could not be parsed as a supported "
+            "image raster (PNG, JPEG, or GeoTIFF).",
+            recoverable=False,
+        )
+
+
+class SceneInputAmbiguous(AppError):
+    """A scene stores several images with no designated input."""
+
+    def __init__(self, scene_id: str) -> None:
+        super().__init__(
+            status_code=409,
+            code="SCENE_INPUT_AMBIGUOUS",
+            message=f"Scene '{scene_id}' contains multiple images with no "
+            "designated input; rename exactly one to input.tif "
+            "(or input.png / input.jpg).",
+            details={"scene_id": scene_id},
+            recoverable=True,
+        )
+
+
 class Unauthorized(AppError):
     def __init__(self, message: str = "Missing or invalid credentials.") -> None:
         super().__init__(

@@ -80,5 +80,12 @@ class JobRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    # PID of the process running inference (orphan liveness detection).
+    # PID of the process running inference (diagnostics only; liveness is
+    # carried by the durable lease fields below).
     owner_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # -- durable liveness / worker bookkeeping (mirror of the domain Job) ---
+    worker_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_until: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # The validated request payload, persisted so any worker can execute.
+    request: Mapped[dict | None] = mapped_column(JSON, nullable=True)

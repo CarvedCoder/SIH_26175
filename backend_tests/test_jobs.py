@@ -61,7 +61,10 @@ def test_duplicate_process_conflicts(client, uploaded_scene, monkeypatch):
     import backend.app.api.routes.jobs as jobs_mod
 
     # keep the job queued forever (no worker runs) so the scene stays busy
-    monkeypatch.setattr(jobs_mod, "_run_processing", lambda *a, **k: None)
+    # tranche-2 seam: jobs dispatch through execute_job_record; patching it
+    # keeps the job queued forever (the test wants a busy scene)
+    from backend.app.services.processing_service import processing_service as _ps
+    monkeypatch.setattr(_ps, "execute_job_record", lambda job_id: None)
 
     scene_id = uploaded_scene["scene_id"]
     first = client.post(f"/api/v1/scenes/{scene_id}/process", json={})
@@ -113,7 +116,10 @@ def test_cancel_queued_job_immediately(client, uploaded_scene, monkeypatch):
     """A queued job is cancelled synchronously and never starts."""
     import backend.app.api.routes.jobs as jobs_mod
 
-    monkeypatch.setattr(jobs_mod, "_run_processing", lambda *a, **k: None)
+    # tranche-2 seam: jobs dispatch through execute_job_record; patching it
+    # keeps the job queued forever (the test wants a busy scene)
+    from backend.app.services.processing_service import processing_service as _ps
+    monkeypatch.setattr(_ps, "execute_job_record", lambda job_id: None)
 
     scene_id = uploaded_scene["scene_id"]
     response = client.post(f"/api/v1/scenes/{scene_id}/process", json={})
@@ -148,9 +154,7 @@ def test_job_store_bounded_by_retention(fresh_job_manager):
     for _ in range(20):
         job = fresh_job_manager.create_job("scene_000000000001")
         fresh_job_manager.update_job(job.job_id, status="completed")
-    # SQL-backed store: retention is applied per scene scan (same rule the
-    # disk store applied per scene dir)
-    assert len(fresh_job_manager._scan_scene_jobs("scene_000000000001")) <= 8
+    assert len(fresh_job_manager._jobs) <= 8
 
     # a running job must survive an overflow eviction cycle
     active = fresh_job_manager.create_job("scene_000000000002")
@@ -162,18 +166,12 @@ def test_job_store_bounded_by_retention(fresh_job_manager):
 def test_job_store_ttl_eviction(fresh_job_manager):
     from datetime import datetime, timedelta, timezone
 
-    from backend.app.db.database import session_scope
-    from backend.app.db.models import JobRow
-
     job = fresh_job_manager.create_job("scene_000000000001")
-    # age the persisted job past the TTL
-    stale = datetime.now(timezone.utc) - timedelta(
-        seconds=fresh_job_manager._ttl_seconds + 10
-    )
-    with session_scope() as session:
-        row = session.get(JobRow, job.job_id)
-        assert row is not None
-        row.created_at = stale
+    # age the job past the TTL
+    stale = (
+        datetime.now(timezone.utc) - timedelta(seconds=fresh_job_manager._ttl_seconds + 10)
+    ).isoformat()
+    job.created_at = stale
 
     fresh_job_manager.create_job("scene_000000000002")
     assert fresh_job_manager.get_job(job.job_id) is None
@@ -255,25 +253,28 @@ def test_completed_job_survives_manager_restart(fresh_job_manager):
 
 
 def test_orphaned_processing_job_fails_on_read_after_restart(fresh_job_manager):
-    """A job left 'processing' by a dead process must become an honest
-    JOB_INTERRUPTED failure on the next read — never stuck at 'processing'
-    forever."""
-    import os
+    """A job left 'processing' whose DURABLE LEASE expired must become an
+    honest JOB_INTERRUPTED failure on the next read — never stuck at
+    'processing' forever. (Tranche-1 contract: liveness is the lease, not
+    a PID; the legacy PID-format migration has its own test.)"""
+    from datetime import datetime, timedelta, timezone
 
     from backend.app.jobs.manager import JobManager
 
     job = fresh_job_manager.create_job("scene_000000000001")
     fresh_job_manager.update_job(job.job_id, status="processing")
 
-    # Simulate the restart: the persisted record points at a dead PID and
-    # the fresh manager has no memory of the job.
-    from backend.app.db.database import session_scope
-    from backend.app.db.models import JobRow
+    # Simulate the restart: the on-disk record's lease expired and the
+    # fresh manager has no memory of the job.
+    path = fresh_job_manager._job_path(job.scene_id, job.job_id)
+    import json
 
-    with session_scope() as session:
-        row = session.get(JobRow, job.job_id)
-        assert row is not None
-        row.owner_pid = 2 ** 22  # PID that cannot exist in this test env
+    data = json.loads(path.read_text())
+    assert data["lease_until"] is not None  # new records carry a lease
+    data["lease_until"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=1)
+    ).isoformat()
+    path.write_text(json.dumps(data))
 
     restarted = JobManager(retention_limit=8, ttl_seconds=3600)
     revived = restarted.get_job(job.job_id)
@@ -281,4 +282,24 @@ def test_orphaned_processing_job_fails_on_read_after_restart(fresh_job_manager):
     assert revived.error["code"] == "JOB_INTERRUPTED"
     # and the failed state is persisted for every future reader
     assert restarted.get_job(job.job_id).status == "failed"
-    assert os.getpid() != 2 ** 22
+
+
+def test_heartbeat_keeps_leased_job_alive(fresh_job_manager, monkeypatch):
+    """A worker renewing its lease is never finalized as interrupted —
+    even past the original lease window."""
+    import time
+
+    from backend.app.jobs.manager import JobManager
+
+    monkeypatch.setattr(fresh_job_manager._repo, "_lease_seconds", 0.2)
+    job = fresh_job_manager.create_job("scene_000000000001")
+    fresh_job_manager.update_job(job.job_id, status="processing")
+
+    # simulate ~0.5s of "inference" with heartbeats every 0.05s
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline:
+        fresh_job_manager._repo.renew_lease(job.job_id)
+        time.sleep(0.05)
+
+    restarted = JobManager(retention_limit=8, ttl_seconds=3600)
+    assert restarted.get_job(job.job_id).status == "processing"

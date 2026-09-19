@@ -83,6 +83,7 @@ def val_subset_mae(
     device: str,
     use_dem: bool = False,
     use_sem: bool = False,
+    film_stats: bool = False,
 ) -> float:
     """Pooled MAE (metres) over the first `subset` val tiles, full-tile.
 
@@ -107,7 +108,12 @@ def val_subset_mae(
                 if (use_sem and s.get("sem_onehot") is not None)
                 else None
             )
-            pred = net(dn, rgb, dem, sem)["pred"][0, 0].cpu().numpy()
+            stats = (
+                s["dn_stats"].to(device)
+                if (film_stats and s.get("dn_stats") is not None)
+                else None
+            )
+            pred = net(dn, rgb, dem, sem, stats)["pred"][0, 0].cpu().numpy()
             m = height_metrics(pred, s["agl"][0].numpy())
             tot_abs += m["mae"] * m["n"]
             tot_n += m["n"]
@@ -126,7 +132,7 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
     p.add_argument("--epochs", type=int, default=None)
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--lr", type=float, default=None)
-    p.add_argument("--loss", choices=("l1", "huber"), default=None)
+    p.add_argument("--loss", choices=("l1", "huber", "berhu"), default=None)
     p.add_argument("--val-subset", type=int, default=None)
     p.add_argument(
         "--max-train-tiles",
@@ -161,6 +167,14 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
         "enable --w-sem supervision; also enables "
         "predicted-semantics inference later. Default off "
         "(minimal-first).",
+    )
+    # ---- Exp 1: FiLM tile-statistic conditioning ----
+    p.add_argument(
+        "--film-stats",
+        action="store_true",
+        help="condition enc2+ level outputs on the RAW-tile Dn statistics "
+        "(dn_tile_stats: log min/max/range/mean) via a zero-init-to-identity "
+        "FiLM MLP. Requires a dataset that produces the dn_stats layer.",
     )
     # ---- Phase 4 loss weights (ALL default 0 = exact pre-Phase-4 loss) ----
     p.add_argument(
@@ -232,17 +246,46 @@ def run(args) -> int:
     import torch
     from torch.utils.data import DataLoader
 
-    cfg = load_config(args.config)
-    paths, mcfg, tcfg = cfg["paths"], cfg["model"], cfg["train"]
-    use_rgb = args.use_rgb or bool(mcfg.get("use_rgb", False))
-    use_dem = args.use_dem
-    use_sem = args.use_sem or bool(mcfg.get("use_sem", False))
+    from depthwizard.config import CalibrationConfig
+    import yaml
+    with open(args.config, "r", encoding="utf-8") as f:
+        raw_cfg = yaml.safe_load(f)
+    v2_cfg = CalibrationConfig.from_dict(raw_cfg)
+    
+    # Apply CLI overrides if provided
+    if args.epochs is not None: v2_cfg.train.epochs = args.epochs
+    if args.batch_size is not None: v2_cfg.train.batch_size = args.batch_size
+    if args.lr is not None: v2_cfg.train.lr = args.lr
+    if args.loss is not None: v2_cfg.loss.main = args.loss
+    if args.val_subset is not None: v2_cfg.train.val_subset = args.val_subset
+    if args.use_rgb: v2_cfg.inputs.rgb = True
+    if args.use_dem: v2_cfg.inputs.dem = True
+    if args.use_sem: v2_cfg.inputs.semantic = True
+    if args.w_grad is not None: v2_cfg.loss.gradient_weight = args.w_grad
+    if args.w_smooth is not None: v2_cfg.loss.boundary_weight = args.w_smooth
+    if args.w_sem is not None: v2_cfg.loss.semantic_weight = args.w_sem
+    
+    # Legacy fallbacks for compatibility with the script's variables
+    paths = raw_cfg.get("paths", {})
+    tcfg = raw_cfg.get("train", {})
+    mcfg = raw_cfg.get("model", {})
+    
+    use_rgb = v2_cfg.inputs.rgb
+    use_dem = v2_cfg.inputs.dem
+    use_sem = v2_cfg.inputs.semantic
     sem_aux_head = args.sem_aux_head or bool(mcfg.get("sem_aux_head", False))
+    # V2 semantic modes: "joint"/"auxiliary" are PREDICTED-semantics designs —
+    # the aux head is required and the GT one-hot input channels must stay OFF
+    # (privileged information). "input" keeps the legacy GT-channel design.
+    if v2_cfg.model.semantic_mode in ("joint", "auxiliary"):
+        sem_aux_head = True
+        use_sem = False
     # PREDICTED-semantics deployment design (exp4_sem.yaml honesty note):
     # --sem-aux-head WITHOUT --use-sem trains a Dn+RGB model whose aux head
     # PREDICTS semantics from its own (deployment-identical) encoder
     # features — no privileged GT input channels, no train/deploy shift.
     # The legacy --use-sem path (GT one-hot inputs) is unchanged.
+    film_stats = args.film_stats or bool(v2_cfg.model.film)
     sem_classes = NUM_PROJECT_CLASSES if (use_sem or sem_aux_head) else 0
     device = resolve_device(args.device)
     torch.manual_seed(tcfg.get("seed", 42))
@@ -289,7 +332,7 @@ def run(args) -> int:
     # ------------------------------------------------------------------
     # Dataset construction: legacy frozen path OR the multi-dataset factory
     # ------------------------------------------------------------------
-    dcfg = dict(cfg.get("dataset") or {})
+    dcfg = dict(raw_cfg.get("dataset") or {})
     dataset_name = dcfg.get("name")
     mixed_weights_note = None
     if dataset_name:
@@ -353,7 +396,7 @@ def run(args) -> int:
             load_depth=True,
             crop_size=tcfg["crop_size"],
             augment=True,
-            clamp_agl_min=cfg["dataset"]["clamp_agl_min"] if "dataset" in cfg else 0.0,
+            clamp_agl_min=dcfg.get("clamp_agl_min", 0.0),
             dem_dir=dem_dir,
             synth_dem_fallback=synth_dem,
             synth_dem_sigma_m=args.synth_dem_sigma_m,
@@ -449,13 +492,20 @@ def run(args) -> int:
     )
     net = CalibrationNet(
         in_ch=in_ch,
-        widths=tuple(mcfg["widths"]),
+        widths=tuple(v2_cfg.model.widths),
         a0=a0,
         b0=b0,
-        clamp_min=mcfg.get("clamp_min", 0.0),
+        clamp_min=v2_cfg.model.clamp_min,
         sem_classes=sem_classes,
         sem_aux_head=sem_aux_head,
-        sem_input=use_sem,  # False = head-only (predicted semantics)
+        semantic_mode=v2_cfg.model.semantic_mode,
+        parameterization=v2_cfg.model.parameterization,
+        bounded=v2_cfg.model.bounded,
+        max_shift=10.0, # Will be configurable later
+        fusion_mode=v2_cfg.fusion.mode,
+        context_module=v2_cfg.model.context,
+        use_uncertainty=v2_cfg.loss.uncertainty_weight > 0,
+        film_stats=film_stats,
     ).to(device)
     n_par = sum(p.numel() for p in net.parameters())
     print(f"[i] CalibrationNet in_ch={in_ch}  params={n_par:,}")
@@ -476,25 +526,33 @@ def run(args) -> int:
     )
 
     print(f"[i] AMP enabled={amp_enabled} dtype={amp_dtype}")
-    # ---- composite loss (Phase 4): weights default to the EXACT current
-    # behavior (all extra terms off). CLI flags override the train config.
+    # ---- composite loss: v2 `loss:` YAML section is the source of truth,
+    # legacy `train:` keys are the fallback, CLI flags override both.
+    def _loss_w(cli_val, v2_val, legacy_key: str) -> float:
+        if cli_val is not None:
+            return float(cli_val)
+        if float(v2_val) != 0.0:
+            return float(v2_val)
+        return float(tcfg.get(legacy_key, 0.0))
+
     loss_cfg = LossConfig(
-        main=args.loss or tcfg.get("loss", "l1"),
-        huber_delta=float(tcfg.get("huber_delta", 5.0)),
-        w_grad=(
-            args.w_grad if args.w_grad is not None else float(tcfg.get("w_grad", 0.0))
+        main=(
+            args.loss
+            if args.loss is not None
+            else str(v2_cfg.loss.main if v2_cfg.loss.main != "l1" else tcfg.get("loss", "l1"))
         ),
+        huber_delta=float(tcfg.get("huber_delta", v2_cfg.loss.huber_delta)),
+        berhu_c=float(v2_cfg.loss.berhu_c),
+        w_grad=_loss_w(args.w_grad, v2_cfg.loss.gradient_weight, "w_grad"),
         w_slope=(
             args.w_slope
             if args.w_slope is not None
             else float(tcfg.get("w_slope", 0.0))
         ),
-        w_smooth=(
-            args.w_smooth
-            if args.w_smooth is not None
-            else float(tcfg.get("w_smooth", 0.0))
-        ),
-        w_sem=(args.w_sem if args.w_sem is not None else float(tcfg.get("w_sem", 0.0))),
+        w_smooth=_loss_w(args.w_smooth, v2_cfg.loss.boundary_weight, "w_smooth"),
+        w_sem=_loss_w(args.w_sem, v2_cfg.loss.semantic_weight, "w_sem"),
+        height_balanced=bool(v2_cfg.loss.height_balanced),
+        uncertainty_weight=float(v2_cfg.loss.uncertainty_weight),
     )
     if loss_cfg.w_sem > 0 and not sem_aux_head:
         print(
@@ -550,7 +608,12 @@ def run(args) -> int:
                 dtype=torch.float16 if amp_enabled else torch.float32,
                 enabled=amp_enabled,
             ):
-                out = net(dn, rgb, dem, sem)
+                stats = (
+                    batch["dn_stats"].to(device, non_blocking=True)
+                    if (film_stats and batch.get("dn_stats") is not None)
+                    else None
+                )
+                out = net(dn, rgb, dem, sem, stats)
                 pred = out["pred"]
 
                 # Composite loss (Phase 4): extra terms contribute ONLY when
@@ -574,6 +637,7 @@ def run(args) -> int:
                         if (loss_cfg.w_sem > 0 and batch.get("sem_ignore") is not None)
                         else None
                     ),
+                    log_var=out.get("log_var"),
                 )
 
             scaler.scale(loss).backward()
@@ -595,7 +659,8 @@ def run(args) -> int:
         if sched is not None:
             sched.step()
         mae = val_subset_mae(
-            net, ds["val"], k_sub, use_rgb, device, use_dem=use_dem, use_sem=use_sem
+            net, ds["val"], k_sub, use_rgb, device,
+            use_dem=use_dem, use_sem=use_sem, film_stats=film_stats,
         )
         history.append(
             {
@@ -618,11 +683,17 @@ def run(args) -> int:
                     "use_sem": use_sem,  # Exp 4/5 marker (Phase 4)
                     "sem_classes": sem_classes,  # K of the one-hot block
                     "sem_aux_head": sem_aux_head,
-                    "sem_input": use_sem,  # False = head-only checkpoint
+                    "semantic_mode": v2_cfg.model.semantic_mode,
+                    "parameterization": v2_cfg.model.parameterization,
+                    "bounded": v2_cfg.model.bounded,
+                    "fusion_mode": v2_cfg.fusion.mode,
+                    "context_module": v2_cfg.model.context,
+                    "use_uncertainty": v2_cfg.loss.uncertainty_weight > 0,
+                    "film_stats": film_stats,
                     "in_ch": in_ch,  # explicit, future-proofs the
                     # checkpoint against future
                     # variants (derive_in_ch source)
-                    "widths": list(mcfg["widths"]),
+                    "widths": list(v2_cfg.model.widths),
                     "clamp_min": mcfg.get("clamp_min", 0.0),
                     "affine_init": {"a": a0, "b": b0},
                     "loss": loss_cfg.main,

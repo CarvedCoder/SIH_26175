@@ -40,7 +40,7 @@ import numpy as np
 from rasterio import CRS, Affine
 
 from .anchoring import ANCHORED_LABEL, AnchorResult, anchor
-from .normalize import minmax_normalize
+from .normalize import minmax_normalize, minmax_normalize_with_stats
 from .tiling import OverlapStitcher, TilingConfig, iter_tile_windows
 
 TILE = 1024  # training tile size; crop/resize/tiles all target it
@@ -77,17 +77,6 @@ def read_image(path: Path | str) -> tuple[np.ndarray, dict]:
     profile["_transform_obj"] = meta["transform"]
     return rgb, profile
 
-
-def georef_state(profile: dict) -> tuple[bool, CRS | None, Affine | None]:
-    """(is_georeferenced, crs, transform) — CRS None means pixel-space only."""
-    crs = profile.get("_crs_obj")
-    tf = profile.get("_transform_obj")
-    return (crs is not None, crs, tf)
-
-
-# ---------------------------------------------------------------------------
-# Dn resolution: explicit file -> cache -> live backbone
-# ---------------------------------------------------------------------------
 
 
 def load_raw_dn_file(path: Path | str) -> np.ndarray:
@@ -248,16 +237,6 @@ def tile_bounds(h: int, w: int, tile: int = TILE) -> tuple[int, int, int, int]:
     return ny, nx, ny * tile, nx * tile
 
 
-def downsample_stride(h: int, w: int, max_side: int = MAX_GRID_SIDE) -> int:
-    """Integer stride keeping both dims <= max_side (>=1)."""
-    return max(1, int(np.ceil(max(h, w) / max_side)))
-
-
-def downsample_grid(grid: np.ndarray, stride: int) -> np.ndarray:
-    """Stride-subsample [H,W] -> [ceil(H/s), ceil(W/s)] (mesh-friendly, cheap)."""
-    if stride <= 1:
-        return grid
-    return grid[::stride, ::stride]
 
 
 def _resize_sem_probs(
@@ -279,31 +258,22 @@ def _resize_sem_probs(
     return out.astype(np.float32)
 
 
-def compute_stats(dsm: np.ndarray) -> dict[str, float]:
-    """The [stats] line of the infer path — descriptive, NOT citable metrics."""
-    d = np.asarray(dsm, dtype=np.float64)
-    return {
-        "n": int(d.size),
-        "min": float(d.min()),
-        "mean": float(d.mean()),
-        "median": float(np.median(d)),
-        "max": float(d.max()),
-        "neg": int((d < 0).sum()),
-    }
 
 
-def rgb_png_data_url(rgb_u8: np.ndarray, max_side: int = MAX_GRID_SIDE) -> str:
-    """uint8 [H,W,3] -> 'data:image/png;base64,...' (downsampled for the mesh)."""
-    from PIL import Image
-
-    h, w = rgb_u8.shape[:2]
-    s = downsample_stride(h, w, max_side)
-    if s > 1:
-        rgb_u8 = rgb_u8[::s, ::s]
-    buf = io.BytesIO()
-    Image.fromarray(rgb_u8).save(buf, format="PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
-
+# Scene-output + payload functions moved to depthwizard.pipeline.scene_outputs
+# (tranche 3c) — re-exported here so EVERY existing import path keeps working
+# (backend.app, depthwizard.cli, model_tests, golden regression).
+from .pipeline.scene_outputs import (  # noqa: F401 — re-export
+    MAX_GRID_SIDE,
+    build_scene_payload,
+    compute_stats,
+    downsample_grid,
+    downsample_stride,
+    georef_state,
+    rgb_png_data_url,
+    save_preview_png,
+    write_outputs,
+)
 
 # ---------------------------------------------------------------------------
 # Predictor
@@ -482,15 +452,15 @@ class DepthWizardPredictor:
         if raw_dn.shape != (h, w):
             raise ValueError(f"dn {raw_dn.shape} != rgb {(h, w)} grid")
 
-        def _forward(dn_n: np.ndarray, rgb_c: np.ndarray):
+        def _forward(dn_n: np.ndarray, rgb_c: np.ndarray, stats_c: np.ndarray = None):
             """Single-tile forward -> (pred, sem_probs|None)."""
             if want_semantics:
                 ex = self._predict_full_fn(
-                    dn_n, rgb_c if self.model.use_rgb else None
+                    dn_n, rgb_c if self.model.use_rgb else None, stats_c
                 )
                 return ex["pred"], ex.get("sem_probs")
             return (
-                self._predict_fn(dn_n, rgb_c if self.model.use_rgb else None),
+                self._predict_fn(dn_n, rgb_c if self.model.use_rgb else None, stats_c),
                 None,
             )
 
@@ -499,8 +469,9 @@ class DepthWizardPredictor:
             if mode == "resize" or small:
                 rgb_canvas, (y0, x0, h2, w2) = letterbox_to_tile(rgb_u8)
                 dn_canvas, _ = letterbox_to_tile(raw_dn)
+                dn_n, stats = minmax_normalize_with_stats(dn_canvas)
                 pred, sem = _forward(
-                    minmax_normalize(dn_canvas), rgb_canvas
+                    dn_n, rgb_canvas, stats
                 )
                 # keep only the real content, then map back to the source grid
                 core = pred[y0 : y0 + h2, x0 : x0 + w2]
@@ -511,9 +482,13 @@ class DepthWizardPredictor:
                     )
                 return self._pack(out, sem, want_semantics)
             y0, x0 = (h - TILE) // 2, (w - TILE) // 2
+            dn_n, stats = minmax_normalize_with_stats(
+                raw_dn[y0 : y0 + TILE, x0 : x0 + TILE]
+            )
             pred, sem = _forward(
-                minmax_normalize(raw_dn[y0 : y0 + TILE, x0 : x0 + TILE]),
+                dn_n,
                 rgb_u8[y0 : y0 + TILE, x0 : x0 + TILE],
+                stats,
             )
             return self._pack(pred, sem, want_semantics)
 
@@ -527,8 +502,11 @@ class DepthWizardPredictor:
                 tile_dn = _window_tile(raw_dn, window, TILE)
                 tile_rgb = _window_tile(rgb_u8, window, TILE)
                 # Per-window normalization — the EXACT training contract
-                # (each training tile was min-max normalized alone).
-                pred, sem = _forward(minmax_normalize(tile_dn), tile_rgb)
+                # (each training tile was min-max normalized alone); the
+                # FiLM stats come from the SAME window so train/infer
+                # conditioning always matches.
+                dn_n, stats = minmax_normalize_with_stats(tile_dn)
+                pred, sem = _forward(dn_n, tile_rgb, stats)
                 stitcher.add_tile(window, pred)
                 if want_semantics and sem is not None:
                     if not sem_stitchers:
@@ -602,190 +580,12 @@ class DepthWizardPredictor:
 # ---------------------------------------------------------------------------
 
 
-def save_preview_png(dsm: np.ndarray, path: Path, title: str) -> None:
-    """Terrain-colormapped preview (matplotlib, Agg)."""
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
-    im = ax.imshow(dsm, cmap="terrain")
-    ax.set_title(title, fontsize=10)
-    ax.set_axis_off()
-    fig.colorbar(im, ax=ax, label="elevation (m)")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=150)
-    plt.close(fig)
-
-
-def write_outputs(
-    out_dir: Path,
-    dsm: np.ndarray,
-    profile: dict,
-    anchored: AnchorResult | None,
-    preview_title: str,
-    agl_raw: np.ndarray | None = None,
-    postprocess_meta: dict | None = None,
-) -> dict[str, str | None]:
-    """Write dsm.npy (+ dsm.tif when georeferenced) (+ anchored DSM).
-
-    When post-processing ran, ``agl_raw`` (the untouched CalibrationNet
-    output) is ALSO written to agl_raw.npy — the raw signal is never
-    overwritten — and ``postprocess_meta`` lands in postprocess_meta.json.
-
-    Returns relative path strings for the payload's ``outputs`` block.
-    """
-    import json
-
-    import rasterio
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    outputs: dict[str, str | None] = {}
-
-    if agl_raw is not None:
-        np.save(out_dir / "agl_raw.npy", agl_raw.astype(np.float32))
-        outputs["agl_raw_npy"] = str(out_dir / "agl_raw.npy")
-        if postprocess_meta is not None:
-            with open(out_dir / "postprocess_meta.json", "w", encoding="utf-8") as f:
-                json.dump(postprocess_meta, f, indent=2)
-            outputs["postprocess_meta"] = str(out_dir / "postprocess_meta.json")
-
-    np.save(out_dir / "dsm.npy", dsm.astype(np.float32))
-    outputs["dsm_npy"] = str(out_dir / "dsm.npy")
-
-    georef, crs, tf = georef_state(profile)
-    if georef:
-        with rasterio.open(
-            out_dir / "dsm.tif",
-            "w",
-            driver="GTiff",
-            height=dsm.shape[0],
-            width=dsm.shape[1],
-            count=1,
-            dtype="float32",
-            crs=crs,
-            transform=tf,
-            compress="deflate",
-        ) as dst:
-            dst.write(dsm.astype(np.float32), 1)
-        outputs["dsm_tif"] = str(out_dir / "dsm.tif")
-    else:
-        outputs["dsm_tif"] = None
-
-    if anchored is not None:
-        p = out_dir / "dsm_anchored.tif" if georef else out_dir / "dsm_anchored.npy"
-        if georef:
-            with rasterio.open(
-                p,
-                "w",
-                driver="GTiff",
-                height=anchored.dsm.shape[0],
-                width=anchored.dsm.shape[1],
-                count=1,
-                dtype="float32",
-                crs=crs,
-                transform=tf,
-                compress="deflate",
-            ) as dst:
-                dst.write(anchored.dsm.astype(np.float32), 1)
-        else:
-            np.save(p, anchored.dsm.astype(np.float32))
-        outputs["dsm_anchored"] = str(p)
-    else:
-        outputs["dsm_anchored"] = None
-
-    save_preview_png(
-        anchored.dsm if anchored is not None else dsm,
-        out_dir / "dsm_preview.png",
-        preview_title,
-    )
-    outputs["preview_png"] = str(out_dir / "dsm_preview.png")
-    return outputs
 
 
 # ---------------------------------------------------------------------------
 # Scene payload — the backend/frontend contract (webapp consumes this)
 # ---------------------------------------------------------------------------
 
-
-def build_scene_payload(
-    dsm: np.ndarray,
-    rgb_u8: np.ndarray,
-    *,
-    stem: str,
-    mode: str,
-    dn_source: str,
-    model_tag: str,
-    device: str,
-    profile: dict,
-    anchored: AnchorResult | None,
-    outputs: dict[str, str | None],
-    elapsed_sec: float,
-) -> dict:
-    """JSON-serializable scene description for the Three.js viewer.
-
-    Contract (webapp/src/lib/dw.ts mirrors these types):
-        grid.data       row-major flattened [height*width] floats (metres)
-        rgb_png         data-URL PNG, downsampled to the SAME grid footprint
-        stats           descriptive only — never citable metrics
-        anchored        false | {label: 'ANCHORED (not learned)', source: ...}
-        georef.crs      string; "UNKNOWN" when the input carried no CRS
-        meta.pixel_size_m   [float, float] metres-per-source-pixel [x, y]
-                            or null when CRS is absent (Track-1 honest null;
-                            viewers MUST branch on null and refuse metric
-                            claims — see worklog Section 4)
-    """
-    georef, crs, tf = georef_state(profile)
-    stride = downsample_stride(dsm.shape[0], dsm.shape[1])
-    grid = downsample_grid(dsm, stride)
-    stats = compute_stats(dsm)
-    transform_repr = list(tf)[:6] if tf is not None else "UNKNOWN"
-
-    # GSD honesty (worklog Section 4: "GSD honesty regression"): pixel_size_m is
-    # the real ground-sample distance per source pixel, in metres, derived from
-    # the raster's CRS+transform. Honest ``None`` for non-georeferenced Track-1
-    # inputs — never a fallback guess. Consumers (Viewer3D, demprior) MUST
-    # branch on null and refuse metric claims when it is absent.
-    from .geo import pixel_size_metres
-
-    pixel_size_m = pixel_size_metres(crs, tf)
-    pixel_size_m_json = (
-        [round(float(v), 6) for v in pixel_size_m] if pixel_size_m is not None else None
-    )
-
-    payload = {
-        "ok": True,
-        "stem": stem,
-        "grid": {
-            "height": int(grid.shape[0]),
-            "width": int(grid.shape[1]),
-            "stride": int(stride),
-            "data": [round(float(v), 3) for v in grid.ravel()],
-        },
-        "rgb_png": rgb_png_data_url(rgb_u8),
-        "stats": stats,
-        "anchored": (
-            {"label": ANCHORED_LABEL, "source": anchored.source}
-            if anchored is not None
-            else False
-        ),
-        "georef": {
-            "crs": str(crs) if crs is not None else "UNKNOWN",
-            "transform": transform_repr,
-        },
-        "meta": {
-            "model_tag": model_tag,
-            "device": device,
-            "dn_source": dn_source,
-            "mode": mode,
-            "source_shape": [int(dsm.shape[0]), int(dsm.shape[1])],
-            "pixel_size_m": pixel_size_m_json,
-            "elapsed_sec": round(elapsed_sec, 2),
-        },
-        "outputs": outputs,
-    }
-    return payload
 
 
 # ---------------------------------------------------------------------------
