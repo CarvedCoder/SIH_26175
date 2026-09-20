@@ -120,6 +120,28 @@ class Settings:
         self.checkpoint_sha256: str | None = (
             os.environ.get("DW_CKPT_SHA256") or None
         )
+        # Optional inference inputs (unset => auto/None, as before):
+        # DW_DN_PATH forces a specific Dn normalization raster; DW_ANCHOR_DEM
+        # anchors the DSM to a reference DEM; DW_CACHE_DIR is the backbone
+        # weight cache.
+        self.dn_path: str | None = os.environ.get("DW_DN_PATH") or None
+        self.anchor_dem: str | None = os.environ.get("DW_ANCHOR_DEM") or None
+        self.cache_dir: str | None = os.environ.get("DW_CACHE_DIR") or None
+
+        # Post-processing (run_inference postprocess= preset + params).
+        # Presets: none|median|guided|bilateral|wls|conf|semantic|full
+        self.postprocess: str = os.environ.get("DW_POSTPROCESS", "wls")
+        self.wls_lambda: float = float(os.environ.get("DW_WLS_LAMBDA", "50.0"))
+        self.wls_sigma_rgb: float = float(
+            os.environ.get("DW_WLS_SIGMA_RGB", "0.04")
+        )
+        self.wls_max_iter: int = _int_env("DW_WLS_MAX_ITER", 300)
+        # Flip/rotate ensemble inside the refinement (runtime ~3-4x).
+        self.tta: bool = os.environ.get("DW_TTA", "false").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
         # Job execution: "inline" (default; API threadpool — dev mode) or
         # "external" (API only records jobs; backend.app.worker claims them).
         self.worker_mode: str = os.environ.get("DW_WORKER_MODE", "inline")

@@ -105,6 +105,29 @@ class ProcessingService:
 
         return checkpoint
 
+    def _inference_kwargs(self) -> dict[str, Any]:
+        """Every run_inference knob resolved from Settings (env-driven).
+
+        Keeps both call sites (full scene + refine) on one config source:
+        DW_* environment variables — see core/config.py and .env.example.
+        """
+        s = self.settings
+        return {
+            "device": s.device,
+            "dn_path": s.dn_path,
+            "cache_dir": s.cache_dir,
+            "live_backbone": s.live_backbone,
+            "backbone_id": s.backbone_id,
+            "anchor_dem": s.anchor_dem,
+            "postprocess": s.postprocess,
+            "postprocess_params": {
+                "wls_lambda": s.wls_lambda,
+                "wls_sigma_rgb": s.wls_sigma_rgb,
+                "wls_max_iter": s.wls_max_iter,
+            },
+            "tta": s.tta,
+        }
+
     # -- deterministic input (delegates to the scene application service) --
 
     def find_scene_input(self, scene_id: str) -> Path | None:
@@ -175,28 +198,10 @@ class ProcessingService:
                 input_path=input_path,
                 ckpt_path=checkpoint,
                 out_dir=output_dir,
-                device=self.settings.device,
                 mode=mode,
-                dn_path=None,
-                cache_dir=None,
-                live_backbone=self.settings.live_backbone,
-                backbone_id=self.settings.backbone_id,
-                anchor_dem=None,
                 ground_elev=ground_elev,
                 write_files=True,
-                # Boxy-building refinement: the WLS solver flattens each
-                # RGB-coherent segment (roofs, ground) into piecewise-constant
-                # surfaces and preserves 1-px jumps at image edges, which
-                # renders buildings as boxy volumes with vertical walls
-                # instead of smooth mounds. High lambda dominates the data
-                # term inside segments (flat roofs), small sigma_rgb
-                # hard-gates smoothing at RGB edges (sharp walls).
-                postprocess="wls",
-                postprocess_params={
-                    "wls_lambda": 50.0,
-                    "wls_sigma_rgb": 0.04,
-                    "wls_max_iter": 300,
-                },
+                **self._inference_kwargs(),
             )
 
         if self._check_cancelled(job_id):
@@ -285,22 +290,9 @@ class ProcessingService:
                 input_path=crop_path,
                 ckpt_path=checkpoint,
                 out_dir=output_dir,
-                device=self.settings.device,
                 mode="tiles",
-                dn_path=None,
-                cache_dir=None,
-                live_backbone=self.settings.live_backbone,
-                backbone_id=self.settings.backbone_id,
-                anchor_dem=None,
-                ground_elev=None,
                 write_files=True,
-                # same boxy-building WLS refinement as the full-scene path
-                postprocess="wls",
-                postprocess_params={
-                    "wls_lambda": 50.0,
-                    "wls_sigma_rgb": 0.04,
-                    "wls_max_iter": 300,
-                },
+                **self._inference_kwargs(),
             )
 
         # Persist the refined product explicitly; run_inference wrote the
