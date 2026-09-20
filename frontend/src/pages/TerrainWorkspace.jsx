@@ -30,6 +30,7 @@ import HeightMeasurement from '../components/Analysis/HeightMeasurement.jsx';
 import DistanceMeasurement from '../components/Analysis/DistanceMeasurement.jsx';
 import SlopeMeasurement from '../components/Analysis/SlopeMeasurement.jsx';
 import StructureInspector from '../components/Analysis/StructureInspector.jsx';
+import RouteAssist from '../components/Analysis/RouteAssist.jsx';
 import ToolGuard from '../components/Analysis/ToolGuard.jsx';
 import RegionSelector from '../components/Analysis/RegionSelector.jsx';
 import AnalysisPanel from '../components/common/AnalysisPanel.jsx';
@@ -37,6 +38,7 @@ import { useCameraController } from '../hooks/useCameraController.js';
 import { getMinimap, getElevation } from '../api/terrain.js';
 import { getResults, getDepth, getDsm, getReference } from '../api/results.js';
 import { getErrorMap } from '../api/validation.js';
+import { assessRoute, VERDICT_META } from '../api/route.js';
 import { resolveAssetUrl } from '../api/client.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 import {
@@ -128,7 +130,7 @@ export default function TerrainWorkspace() {
   const prevLayerRef = useRef('solid');
 
   // Colormap mode per layer (matches fragment shader uniforms)
-  const COLORMAP_MODE = { rgb: 0, depth: 1, dsm: 2, reference_dem: 2, error: 3, slope: 2, buildings: 4 };
+  const COLORMAP_MODE = { rgb: 0, depth: 1, dsm: 2, reference_dem: 2, error: 3, slope: 2, buildings: 4, passability: 0 };
 
   // ── Layer availability (Compare menu) — real backend state, not guesses ──
   const [layerAvail, setLayerAvail] = useState({ dsm: true, reference: true, error: true });
@@ -189,6 +191,7 @@ export default function TerrainWorkspace() {
     const LAYER_LABEL = {
       rgb: 'RGB', depth: 'Depth map', dsm: 'Estimated DSM',
       reference_dem: 'Reference DEM', error: 'Error map', slope: 'Slope layer',
+      passability: 'Passability map',
     };
 
     try {
@@ -226,6 +229,12 @@ export default function TerrainWorkspace() {
         const res = await fetch(resolveAssetUrl(slopeUrl));
         if (!res.ok) throw new Error('slope preview unavailable');
         url = slopeUrl;
+      } else if (layerId === 'passability') {
+        // Route Assist heat map (jury round 2): traffic-light vehicle
+        // passability PNG — already colored, so colormapMode stays RGB.
+        url = `/api/v1/scenes/${sceneId}/results/passability?vehicle=fire_truck`;
+        const res = await fetch(resolveAssetUrl(url));
+        if (!res.ok) throw new Error('passability layer unavailable');
       } else {
         // Other layers: try results endpoint for URL
         const results = await getResults(sceneId);
@@ -252,6 +261,8 @@ export default function TerrainWorkspace() {
   const distToolRef   = useRef(null);
   const slopeToolRef  = useRef(null);
   const structToolRef = useRef(null);
+  const routeToolRef  = useRef(null);
+  const routeStartRef = useRef(null);
 
   // ── Detail Mode Refinement state (Phase 13, §18, §65) ──
   const [refineBbox, setRefineBbox]               = useState(null);
@@ -267,6 +278,12 @@ export default function TerrainWorkspace() {
       // Leaving the distance tool removes its A/B pins + label from the mesh.
       if (curr === 'distance' && next !== 'distance') {
         terrainRef.current?.setMeasurePoints?.(null);
+      }
+      // Leaving Route Assist clears the path overlay and the pick state.
+      if (curr === 'route' && next !== 'route') {
+        terrainRef.current?.setRoutePath?.(null);
+        routeToolRef.current?.resetPicks?.();
+        routeStartRef.current = null;
       }
       return next;
     });
@@ -338,6 +355,43 @@ export default function TerrainWorkspace() {
       distToolRef.current?.handleSelectPoint(pt);
     } else if (activeTool === 'slope') {
       slopeToolRef.current?.handleSelectPoint(pt);
+    } else if (activeTool === 'route') {
+      // Route Assist: picks are in SOURCE-RASTER pixel coords (the API's
+      // coordinate space), derived from the normalized pick point.
+      const rasterW = state.scene?.width ?? 1024;
+      const rasterH = state.scene?.height ?? 1024;
+      const pixel = {
+        x: Math.min(Math.max(Math.round((rawPt.u ?? 0.5) * (rasterW - 1)), 0), rasterW - 1),
+        y: Math.min(Math.max(Math.round((rawPt.v ?? 0.5) * (rasterH - 1)), 0), rasterH - 1),
+      };
+      const picked = routeToolRef.current?.handleTerrainClick(pixel);
+      if (picked?.picked === 'start') {
+        routeStartRef.current = pixel;
+        terrainRef.current?.setRoutePath?.([pixel, pixel], '#4f8cff');
+      } else if (picked?.picked === 'end') {
+        const startPx = routeStartRef.current ?? pixel;
+        const vehicles = routeToolRef.current?.getVehicles?.() ?? ['fire_truck'];
+        routeToolRef.current?.setAssessing?.();
+        assessRoute(state.scene.scene_id, startPx, pixel, vehicles)
+          .then((response) => {
+            routeToolRef.current?.setAssessment?.(response);
+            // Draw the first vehicle that produced a route; color by verdict.
+            const routed = response.vehicles?.find((v) => v.path?.length);
+            if (routed) {
+              const color =
+                VERDICT_META[routed.verdict]?.color ?? '#2ecc71';
+              terrainRef.current?.setRoutePath?.(routed.path, color);
+            } else {
+              // no route anywhere — leave the pins, drop the line
+              terrainRef.current?.setRoutePath?.(null);
+            }
+          })
+          .catch((err) => {
+            routeToolRef.current?.setAssessError?.(
+              err?.message ?? 'Route assessment failed.',
+            );
+          });
+      }
     } else if (activeTool === 'structure') {
       structToolRef.current?.inspectPoint(pt);
       const idNum = Math.abs(Math.round(pt.x * 100 + pt.z * 100)) % 999;
@@ -476,6 +530,9 @@ export default function TerrainWorkspace() {
                   selectedPoint={selectedPoint}
                   onClear={() => setSelectedPoint(null)}
                 />
+              )}
+              {activeTool === 'route' && (
+                <RouteAssist ref={routeToolRef} active={true} />
               )}
             </ToolGuard>
           </div>
