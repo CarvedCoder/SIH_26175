@@ -886,6 +886,74 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       }
       return raw * 100.0 * (g.heightScale ?? 1.0);
     },
+    /** Route Assist overlay: recommended path polyline + start/goal pins.
+     *  Pass (pathPixels, verdictColor) where pathPixels are source-raster
+     *  pixel coords [{x, y}, ...]; pass (null) to clear. Pixel → world
+     *  mapping uses the heightmap dims (which mirror the DSM raster) and
+     *  Y follows the same visual-height derivation as measurements. */
+    setRoutePath(pathPixels, verdictColor = '#2ecc71') {
+      const g = glRef.current;
+      if (!g.scene) return;
+
+      const disposeGroup = () => {
+        if (!g.routeGroup) return;
+        g.scene.remove(g.routeGroup);
+        g.routeGroup.traverse((o) => {
+          o.geometry?.dispose?.();
+          o.material?.dispose?.();
+        });
+        g.routeGroup = null;
+      };
+
+      if (!pathPixels || pathPixels.length < 2) {
+        disposeGroup();
+        return;
+      }
+      if (!g.heightData || !g.hmWidth || !g.hmHeight) return;
+
+      const toWorld = (px, py) => {
+        const u = Math.min(Math.max(px / (g.hmWidth - 1), 0), 1);
+        const v = Math.min(Math.max(py / (g.hmHeight - 1), 0), 1);
+        const wx = (u - 0.5) * (g.worldWidth ?? LEGACY_WORLD_SIZE);
+        const wz = (v - 0.5) * (g.worldDepth ?? LEGACY_WORLD_SIZE);
+        const elevation = this.sampleElevation(u, v) ?? 0;
+        const raw = g.elevationSpan > 0 ? (elevation - g.minElevation) / g.elevationSpan : 0;
+        const wy = raw * (g.visualHeightScale ?? BASE_VISUAL_HEIGHT_SCALE) * (g.exaggeration ?? 2.5);
+        return new THREE.Vector3(wx, wy, wz);
+      };
+
+      const points = pathPixels.map((p) => toWorld(p.x, p.y));
+      const worldR = Math.max(g.worldWidth ?? LEGACY_WORLD_SIZE, g.worldDepth ?? LEGACY_WORLD_SIZE);
+      const markerR = worldR * 0.008;
+
+      disposeGroup();
+      const grp = new THREE.Group();
+
+      const color = new THREE.Color(verdictColor);
+      const lineMat = new THREE.LineBasicMaterial({
+        color, depthTest: false, transparent: true, opacity: 0.95,
+      });
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+      const line = new THREE.Line(lineGeo, lineMat);
+      line.renderOrder = 999;
+      grp.add(line);
+
+      const pinGeo = new THREE.SphereGeometry(1, 16, 12);
+      const startMat = new THREE.MeshBasicMaterial({ color: 0x4f8cff, depthTest: false, transparent: true, opacity: 0.95 });
+      const endMat = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 });
+      const startPin = new THREE.Mesh(pinGeo, startMat);
+      const endPin = new THREE.Mesh(pinGeo, endMat);
+      startPin.position.copy(points[0]);
+      endPin.position.copy(points[points.length - 1]);
+      startPin.scale.setScalar(markerR);
+      endPin.scale.setScalar(markerR * 1.3);
+      [startPin, endPin].forEach((o) => { o.renderOrder = 999; });
+      grp.add(startPin, endPin);
+
+      g.scene.add(grp);
+      g.routeGroup = grp;
+    },
+
     getTerrainPointFromEvent(event) {
       const canvas = canvasRef.current;
       if (!canvas) return null;

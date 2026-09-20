@@ -11,6 +11,7 @@ from backend.app.api.routes.export import router as export_router
 from backend.app.api.routes.jobs import router as jobs_router
 from backend.app.api.routes.reference import router as reference_router
 from backend.app.api.routes.results import router as results_router
+from backend.app.api.routes.route import router as route_router
 from backend.app.api.routes.scenes import router as scenes_router
 from backend.app.api.routes.results_files import router as results_files_router
 from backend.app.api.routes.terrain import router as terrain_router
@@ -27,3 +28,4 @@ api_router.include_router(results_files_router)
 api_router.include_router(reference_router)
 api_router.include_router(export_router)
 api_router.include_router(validation_router)
+api_router.include_router(route_router)

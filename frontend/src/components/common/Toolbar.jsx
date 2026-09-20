@@ -41,6 +41,7 @@ import {
   Building2,
   Sparkles,
   Download,
+  Route as RouteIcon,
 } from 'lucide-react';
 import ExportPanel from '../Export/ExportPanel.jsx';
 
@@ -289,6 +290,7 @@ export default function Toolbar({
               { id: 'dsm',           label: isAbsolute ? 'Absolute DSM (Metric)' : 'Relative DSM', disabled: !avail.dsm },
               { id: 'reference_dem', label: 'Reference DEM (SRTM)', disabled: !avail.reference },
               { id: 'slope',         label: 'Slope Layer (Viridis)' },
+              { id: 'passability',   label: 'Passability (Risk)' },
               { id: 'error',         label: 'Error Map (Diverging)', disabled: !avail.error },
             ].map(l => (
               <PopoverButton
@@ -316,6 +318,7 @@ export default function Toolbar({
               { id: 'distance',  label: 'Distance Measurement', icon: Ruler },
               { id: 'slope',     label: 'Slope Analysis',       icon: TrendingUp },
               { id: 'structure', label: 'Structure Inspector',  icon: Building2 },
+              { id: 'route',     label: 'Route Assist',         icon: RouteIcon },
               { id: 'refine',    label: 'Detail Mode (Refine)', icon: Sparkles },
             ].map(m => (
               <PopoverButton
