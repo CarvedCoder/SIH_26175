@@ -66,13 +66,14 @@ class Settings:
 
         # --- Database ------------------------------------------------------
         # Single source of truth for SQL persistence (scene/job/result
-        # metadata). Defaults to the docker-compose PostgreSQL; there is
-        # no silent SQLite fallback — an unreachable database fails fast
-        # at startup. Tests override DATABASE_URL with a per-test SQLite
-        # file.
+        # metadata). SQLite IS the default main database (zero-config local
+        # development); Supabase/PostgreSQL is the opt-in upgrade — set
+        # DATABASE_URL to the Supabase connection string to use it (same
+        # schema, same code). Tests override DATABASE_URL with a per-test
+        # SQLite file.
         self.database_url: str = (
             os.environ.get("DATABASE_URL")
-            or "postgresql+psycopg://depthwizard:depthwizard@localhost:5432/depthwizard"
+            or "sqlite:///data/depthwizard.db"
         )
 
         # --- Object storage ---------------------------------------------------
