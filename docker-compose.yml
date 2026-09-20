@@ -1,124 +1,36 @@
-# DepthWizard — canonical stack.
-#
-#   docker compose up --build
-#     backend  -> http://localhost:8000  (health: /api/v1/health, docs: /docs)
-#     minio    -> http://localhost:9000 (S3 API) / http://localhost:9001 (console)
-#     postgres -> localhost:5432 (scene/job/result metadata)
-#
-# The backend deploys backend.app.main:app — the /api/v1 scene/job API the
-# React frontend uses. Point the frontend at it with VITE_API_BASE_URL in
-# frontend/.env (see frontend/.env.example).
-#
-# A trained flagship checkpoint is expected under ./outputs:
-#   outputs/calib_net/<tag>/best.pt   (train: `python model.py train ...`)
-# Set DW_CKPT to select a different one. model_loaded in /api/v1/health
-# reports honestly whether the checkpoint is present.
-#
-# Infrastructure credentials come from the environment (never committed):
-#   POSTGRES_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
-# Copy .env.example to .env and fill them in before starting.
-
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: depthwizard
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-depthwizard}
-      POSTGRES_DB: depthwizard
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U depthwizard -d depthwizard"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-    restart: unless-stopped
-
   minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-depthwizard}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-depthwizard-secret}
-    ports:
-      # API + console are for LOCAL DEVELOPMENT ONLY; do not expose them
-      # beyond localhost in production deployments.
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-    restart: unless-stopped
+    image: quay.io/minio/minio:latest
 
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: depthwizard-backend:latest
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./outputs:/app/outputs
-      - ./data:/app/data
-      # Cache HuggingFace weights between restarts so the live DAv2
-      # fallback does not re-download ~1.3 GB every run.
-      - dwhf:/home/dw/.cache/huggingface
+    command:
+      - server
+      - /data
+      - --console-address
+      - :9001
+
     environment:
-      DW_ROOT: /app
-      DW_DEVICE: auto
-      DW_OUT_ROOT: /app/outputs/service
-      # Explicit CORS allowlist — never '*'. Add your deployed frontend
-      # origin here for non-local deployments.
-      DW_CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
-      # Upload cap (bytes), inference concurrency, job retention:
-      DW_MAX_UPLOAD_BYTES: "524288000" # 500 MB
-      DW_MAX_CONCURRENT_JOBS: "1"
-      DW_JOB_TTL_SECONDS: "86400"
-      # SQL persistence (Supabase/PostgreSQL in production; local compose
-      # postgres here — same schema, same code).
-      DATABASE_URL: postgresql+psycopg://depthwizard:${POSTGRES_PASSWORD:-depthwizard}@db:5432/depthwizard
-      # Object storage (S3 API; bucket is created idempotently at startup)
-      STORAGE_BACKEND: minio
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-depthwizard}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-depthwizard-secret}
-      MINIO_BUCKET: depthwizard
-      MINIO_SECURE: "false"
-      STORAGE_SIGNED_URL_TTL: "300"
-      # Supabase auth (set these to enforce JWT auth; when unset, auth is
-      # DISABLED for local development — explicit and logged at startup):
-      # SUPABASE_URL: https://<project>.supabase.co
-      # SUPABASE_JWT_SECRET: <project JWT secret>
-      # SUPABASE_JWT_AUDIENCE: authenticated
-    depends_on:
-      db:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    # The image runs as uid 10001 (non-root). If bind-mount permission
-    # errors occur, uncomment and match your host user:
-    # user: "${DW_UID}:${DW_GID}"
-    restart: unless-stopped
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+
     healthcheck:
       test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request as u; u.urlopen('http://localhost:8000/api/v1/health', timeout=8)",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 40s
+        - CMD
+        - mc
+        - ready
+        - local
+      timeout: 5s
+      interval: 10s
+      retries: 6
+      start_period: 10s
+
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+    volumes:
+      - minio_data:/data
+
+    restart: unless-stopped
 
 volumes:
-  dwhf:
-  pgdata:
   minio_data:
