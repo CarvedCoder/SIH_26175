@@ -27,6 +27,7 @@ import ApiErrorAlert from '../components/common/ApiErrorAlert.jsx';
 import { useValidation } from '../hooks/useValidation.js';
 import { useApp } from '../store/appStore.jsx';
 import { getDepth, getDsm } from '../api/results.js';
+import { getRouteHeatmap } from '../api/route.js';
 import { resolveAssetUrl } from '../api/client.js';
 
 /**
@@ -42,6 +43,8 @@ export default function ResultDashboard() {
   const [depthData, setDepthData]   = useState(null);
   /** @type {[import('../types/api.js').DsmResult|null, Function]} */
   const [dsmData, setDsmData]       = useState(null);
+  /** Mini passability heat map (jury round 2): URL + blocked/caution stats */
+  const [heatmap, setHeatmap]       = useState(null);
   const [fetchState, setFetchState] = useState(/** @type {FetchState} */ ('loading'));
   const [showExport, setShowExport] = useState(false);
 
@@ -62,11 +65,15 @@ export default function ResultDashboard() {
         const promises = [getDepth(scene.scene_id)];
         if (isAbsolute) promises.push(getDsm(scene.scene_id));
         else promises.push(Promise.resolve(null));
+        // Mini heat map (jury round 2): failure is non-fatal — the card
+        // simply stays hidden when the scene has no passability yet.
+        promises.push(getRouteHeatmap(scene.scene_id).catch(() => null));
 
-        const [depth, dsm] = await Promise.all(promises);
+        const [depth, dsm, heat] = await Promise.all(promises);
         if (cancelled) return;
         setDepthData(depth);
         setDsmData(dsm);
+        setHeatmap(heat);
         setFetchState('done');
       } catch {
         if (!cancelled) setFetchState('error');
@@ -100,6 +107,8 @@ export default function ResultDashboard() {
     { label: 'GEOREF', value: scene.georeferenced ? 'YES' : 'NO' },
     scene.crs ? { label: 'CRS', value: scene.crs } : null,
     { label: 'PIPELINE', value: isAbsolute ? 'Absolute DSM' : 'Relative DSM' },
+    depthData?.statistics ? { label: 'RELIEF', value: `${depthData.statistics.relief?.toFixed(1)} ${elevUnits}` } : null,
+    heatmap ? { label: 'NO-GO AREA', value: `${heatmap.blocked_pct}% (fire truck)` } : null,
   ].filter(Boolean) : [];
 
   return (
@@ -159,6 +168,27 @@ export default function ResultDashboard() {
               {meta.map(({ label, value }) => (
                 <MetaField key={label} label={label} value={value} />
               ))}
+              {/* Mini heat map inline (jury round 2): traffic-light risk
+                  thumbnail for rapid visual recognition of no-go regions */}
+              {heatmap?.url && (
+                <div
+                  data-testid="route-mini-heatmap"
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}
+                >
+                  <img
+                    src={resolveAssetUrl(heatmap.url)}
+                    alt="Vehicle passability heat map (green = passable, red = blocked)"
+                    style={{
+                      height: 44, width: 'auto', maxWidth: 110, objectFit: 'contain',
+                      borderRadius: 4, border: '1px solid var(--dw-rim)', imageRendering: 'pixelated',
+                    }}
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 11 }}>
+                    <span style={{ color: '#e74c3c' }}>■ blocked {heatmap.blocked_pct}%</span>
+                    <span style={{ color: '#f1c40f' }}>■ caution {heatmap.caution_pct}%</span>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         )}
