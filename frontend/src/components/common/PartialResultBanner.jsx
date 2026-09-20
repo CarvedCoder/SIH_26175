@@ -36,13 +36,16 @@ export default function PartialResultBanner({
   hasReference = false,
   compact = false,
 }) {
-  const isGeoTiff = format.toUpperCase().includes('TIFF') || format.toUpperCase().includes('TIF') || georeferenced;
+  // A GeoTIFF is only treated as georeferenced when the scene record says
+  // so — a TIF without valid CRS/transform falls through to the optical
+  // (relative) category instead of claiming georeferencing.
+  const isGeoTiff = georeferenced;
   const isAbsolute = elevationMode === 'absolute' || hasReference;
 
   // Determine §38 category:
   // 1. GeoTIFF + DEM/GCP (isGeoTiff && isAbsolute)
   // 2. GeoTIFF without reference (isGeoTiff && !isAbsolute)
-  // 3. PNG/JPG (!isGeoTiff)
+  // 3. PNG/JPG or non-georeferenced raster (!isGeoTiff)
 
   let items = [];
   let categoryLabel = '';
@@ -58,6 +61,14 @@ export default function PartialResultBanner({
     items = [
       { text: 'Georeferencing detected', status: 'pass' },
       { text: 'Reference elevation unavailable', status: 'warn' },
+      { text: 'Relative DSM available', status: 'pass' },
+    ];
+  } else if (format.toUpperCase().includes('TIF')) {
+    // GeoTIFF container without usable georeferencing
+    categoryLabel = 'Non-Georeferenced Raster Pipeline (§38)';
+    items = [
+      { text: 'Georeferencing unavailable', status: 'warn' },
+      { text: 'Absolute elevation unavailable', status: 'neutral' },
       { text: 'Relative DSM available', status: 'pass' },
     ];
   } else {

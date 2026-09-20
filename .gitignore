@@ -54,3 +54,8 @@ outputs/
 gamus_full
 sih.zip
 
+
+# local dev databases
+*.db
+*.db-shm
+*.db-wal
