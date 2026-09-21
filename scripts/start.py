@@ -431,15 +431,15 @@ def start_backend() -> None:
         fail("uv not found")
 
     cmd = [
-        uv,
-        "run",
-        "uvicorn",
-        "backend.app.main:app",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        str(BACKEND_PORT),
-    ]
+    sys.executable,
+    "-m",
+    "uvicorn",
+    "backend.app.main:app",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    str(BACKEND_PORT),
+    ]   
 
     log(f"starting backend on :{BACKEND_PORT}…")
 
@@ -451,7 +451,7 @@ def start_backend() -> None:
     processes.append(proc)
 
     # Give Uvicorn a moment to start.
-    if not wait_for_port("127.0.0.1", BACKEND_PORT, timeout=15):
+    if not wait_for_port("127.0.0.1", BACKEND_PORT, timeout=30):
         if proc.poll() is not None:
             fail("backend exited during startup. Check the backend output above.")
 
