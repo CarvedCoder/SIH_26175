@@ -97,7 +97,7 @@ export default function ResultDashboard() {
   }, [scene?.scene_id, isAbsolute]);
 
   /** Units label from D10: 'm' for absolute, 'scene units' for relative */
-  const elevUnits = isAbsolute ? 'm' : 'scene units';
+  const elevUnits = 'm'; // world scale is metres (1 m/pixel documented fallback)
 
   /**
    * The backend exposes depth and DSM preview images via their `url` / `download_url`.

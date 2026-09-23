@@ -35,7 +35,7 @@ const SlopeMeasurement = forwardRef(function SlopeMeasurement(
   const [result, setResult] = useState(null);
 
   const isAbsolute = state.results?.elevation_mode === 'absolute';
-  const unitLabel  = isAbsolute ? 'm' : 'scene units';
+  const unitLabel = 'm'; // world scale is metres (1 m/pixel documented fallback)
 
   const clearMeasurement = useCallback(() => {
     setStep(0);

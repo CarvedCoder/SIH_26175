@@ -30,14 +30,14 @@ import { useEffect, useState, useRef } from 'react';
  *   elevationMode: 'absolute'|'relative',
  * }} props
  */
-export default function CameraHUD({ terrainRef, cameraMode, elevationMode }) {
+export default function CameraHUD({ terrainRef, cameraMode, elevationMode, rightOffset = 16 }) {
   // Only render in Walkthrough mode (internal id 'first-person')
   if (cameraMode !== 'first-person') return null;
 
-  return <HUDContent terrainRef={terrainRef} elevationMode={elevationMode} />;
+  return <HUDContent terrainRef={terrainRef} elevationMode={elevationMode} rightOffset={rightOffset} />;
 }
 
-function HUDContent({ terrainRef, elevationMode }) {
+function HUDContent({ terrainRef, elevationMode, rightOffset = 16 }) {
   const [readouts, setReadouts] = useState({
     altitude: null,
     heading: null,
@@ -93,7 +93,7 @@ function HUDContent({ terrainRef, elevationMode }) {
     };
   }, [terrainRef]);
 
-  const elevUnits = elevationMode === 'absolute' ? 'm' : 'scene u.';
+  const elevUnits = 'm'; // world scale is metres (1 m/pixel documented fallback)
   const { altitude, heading, slope, posX, posZ } = readouts;
 
   return (
@@ -104,7 +104,7 @@ function HUDContent({ terrainRef, elevationMode }) {
       style={{
         position: 'absolute',
         bottom: 16,
-        right: 16,
+        right: rightOffset,
         display: 'flex',
         flexWrap: 'wrap',
         justifyContent: 'flex-end',

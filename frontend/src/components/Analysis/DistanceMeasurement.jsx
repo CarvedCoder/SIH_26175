@@ -24,6 +24,7 @@
 import { useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { useApp } from '../../store/appStore.jsx';
 import { Ruler, RotateCcw } from 'lucide-react';
+import { fmtDistance } from '../../api/route.js';
 
 const DistanceMeasurement = forwardRef(function DistanceMeasurement(
   { active = false, onActiveChange, onMeasureChange },
@@ -36,7 +37,7 @@ const DistanceMeasurement = forwardRef(function DistanceMeasurement(
   const [result, setResult] = useState(null);
 
   const isAbsolute = state.results?.elevation_mode === 'absolute';
-  const unitLabel  = isAbsolute ? 'm' : 'scene units';
+  const unitLabel = 'm'; // world scale is metres (1 m/pixel documented fallback)
 
   const clearMeasurement = useCallback(() => {
     setStep(0);
@@ -69,11 +70,15 @@ const DistanceMeasurement = forwardRef(function DistanceMeasurement(
       const horizDist = Math.hypot(dx, dz);
       const dist3D = Math.hypot(horizDist, dy);
 
+      // World coordinates on the mesh are metres (physical scale, or the
+      // documented 1 m/pixel fallback) — always format m, switching to km
+      // at 1 km+.
+      const fmt = (v) => fmtDistance(v, 1);
       setResult({
         horizontal: horizDist,
         distance3D: dist3D,
       });
-      onMeasureChange?.(pointA, point, `${dist3D.toFixed(1)} ${unitLabel}`);
+      onMeasureChange?.(pointA, point, fmt(dist3D));
     }
   }, [active, step, pointA, unitLabel, onMeasureChange]);
 
@@ -169,7 +174,7 @@ const DistanceMeasurement = forwardRef(function DistanceMeasurement(
               Horizontal Distance
             </span>
             <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 14, color: 'var(--dw-fg)' }}>
-              {result.horizontal.toFixed(1)} {unitLabel}
+              {fmtDistance(result.horizontal, 1)}
             </span>
           </div>
 
@@ -183,7 +188,7 @@ const DistanceMeasurement = forwardRef(function DistanceMeasurement(
               fontWeight: 600,
               color: 'var(--dw-accent)',
             }}>
-              {result.distance3D.toFixed(1)} {unitLabel}
+              {fmtDistance(result.distance3D, 1)}
             </span>
           </div>
 

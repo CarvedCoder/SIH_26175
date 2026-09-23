@@ -18,8 +18,11 @@ class RouteAssessRequest(BaseModel):
     vehicles: list[str] = Field(
         default_factory=lambda: ["fire_truck"],
         min_length=1,
-        max_length=4,
-        description="Vehicle profile keys: fire_truck | ambulance | rescue_atv | suv_4x4",
+        max_length=5,
+        description=(
+            "Vehicle profile keys: fire_truck | ambulance | rescue_atv | "
+            "suv_4x4 | rescue_chopper (aerial: landing-zone assessment)"
+        ),
     )
 
 
@@ -37,6 +40,12 @@ class VehicleAssessment(BaseModel):
     caution_fraction: float | None = None
     estimated_travel_seconds: float | None = None
     detour_pixel: PointPixel | None = None
+    # Which picks were auto-moved to standable/reachable ground ('start'
+    # and/or 'end') — the reasons list carries the human explanation.
+    snapped: dict[str, bool] | None = None
+    # Aerial vehicles only: the selected touchdown point near the
+    # destination (flat, open patch) instead of a ground path.
+    landing_zone: dict[str, Any] | None = None
     path_geojson: dict[str, Any] | None = None
 
 

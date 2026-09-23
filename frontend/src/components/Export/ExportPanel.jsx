@@ -86,7 +86,7 @@ export default function ExportPanel({
       id: 'dsm',
       title: isAbsolute ? 'Digital Surface Model (DSM)' : 'Relative DSM',
       format: isAbsolute ? 'GeoTIFF (32-bit float)' : 'GeoTIFF (Normalised)',
-      desc: isAbsolute ? 'Metric calibrated elevation grid' : 'Relative elevation field in scene units',
+      desc: isAbsolute ? 'Metric calibrated elevation grid' : 'Relative elevation field at 1 m/pixel fallback scale',
       icon: FileSpreadsheet,
       enabled: outputs.includes('dsm') || isAbsolute,
       disabledReason: 'DSM export requires completed processing.',

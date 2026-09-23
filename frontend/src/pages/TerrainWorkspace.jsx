@@ -23,7 +23,12 @@ import CameraHUD from '../components/TerrainViewer/CameraHUD.jsx';
 import ControlsHint from '../components/TerrainViewer/ControlsHint.jsx';
 import Joystick from '../components/TerrainViewer/Joystick.jsx';
 import WalkthroughPrompt from '../components/TerrainViewer/WalkthroughPrompt.jsx';
-import LayerControl, { LAYER_META } from '../components/TerrainViewer/LayerControl.jsx';
+import ViewModeBar from '../components/TerrainViewer/ViewModeBar.jsx';
+import TerrainLeftPanel from '../components/TerrainViewer/TerrainLeftPanel.jsx';
+import TerrainRightPanel from '../components/TerrainViewer/TerrainRightPanel.jsx';
+import StatusStrip from '../components/TerrainViewer/StatusStrip.jsx';
+import { useFpsMeter } from '../hooks/useFpsMeter.js';
+import { exportDsm, exportDepth, exportValidation, exportTerrain } from '../api/export.js';
 import Toolbar from '../components/common/Toolbar.jsx';
 import ElevationProbe from '../components/Analysis/ElevationProbe.jsx';
 import HeightMeasurement from '../components/Analysis/HeightMeasurement.jsx';
@@ -36,20 +41,19 @@ import RegionSelector from '../components/Analysis/RegionSelector.jsx';
 import AnalysisPanel from '../components/common/AnalysisPanel.jsx';
 import { useCameraController } from '../hooks/useCameraController.js';
 import { getMinimap, getElevation } from '../api/terrain.js';
-import { getResults, getDepth, getDsm, getReference } from '../api/results.js';
+import { getResults, getDepth, getDsm, getReference, getScene } from '../api/results.js';
+import { getValidation } from '../api/validation.js';
 import { getErrorMap } from '../api/validation.js';
 import { assessRoute, VERDICT_META } from '../api/route.js';
 import { resolveAssetUrl } from '../api/client.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 import {
   RotateCcw,
-  Layers,
   Crosshair,
   ArrowUpDown,
   Ruler,
   TrendingUp,
   Building2,
-  PanelRight,
   X,
 } from 'lucide-react';
 
@@ -111,18 +115,21 @@ export default function TerrainWorkspace() {
     setSelectedStructure(null);
     setRefineBbox(null);
     setActiveTool('none');
-    setActiveLayer('buildings');
+    setActiveLayer('solid');
+    setViewTab('hybrid');
+    setWireframeState(false);
+    setContourEnabled(false);
     layerCache.current = {};
-    prevLayerRef.current = 'buildings';
+    prevLayerRef.current = 'solid';
     elevCache.current.clear();
     terrainRef.current?.setMeasurePoints?.(null);
   }, [state.scene?.scene_id]);
 
   // ── Layer system (Phase 8) ──
-  // DEFAULT: solid-colour building blocks — structures render as flat-
-  // coloured volumes instead of the RGB drape; RGB stays one click away.
-  const [activeLayer, setActiveLayer] = useState('buildings');
-  const [layerPanelOpen, setLayerPanelOpen] = useState(false);
+  // DEFAULT: solid shaded relief — the "Hybrid" view. Structures render as
+  // flat-coloured volumes via the shader; RGB stays one tab click away.
+  const [activeLayer, setActiveLayer] = useState('solid');
+  const [viewTab, setViewTab] = useState('hybrid');
   // Cache of layer URL → { url, colormapMode } to avoid re-fetching
   const layerCache = useRef({});
   // Last layer that was successfully displayed — reverted to when a new
@@ -155,6 +162,188 @@ export default function TerrainWorkspace() {
     return () => { cancelled = true; };
   }, [state.scene?.scene_id, isLoading]);
 
+  // ── Workspace chrome state (docked TerraLens-style panels) ──
+  // View-tab toggles drive shader modes; layer switches keep them honest.
+  const [exaggeration, setExaggerationState] = useState(2.5);
+  const [contourEnabled, setContourEnabled] = useState(false);
+  const [contourInterval, setContourInterval] = useState(5);
+  const [fog, setFogState] = useState(false);
+  const [wireframe, setWireframeState] = useState(false);
+  const [calibration, setCalibration] = useState(null);   // { min, max } applied display range
+  const [dsmRange, setDsmRange] = useState(null);         // { min, max } from the scene's DSM
+  const [depthStats, setDepthStats] = useState(null);     // statistics from /results
+  const [validation, setValidation] = useState(null);
+  const [validationLoading, setValidationLoading] = useState(false);
+  const fps = useFpsMeter(!isLoading);
+  // Walkthrough immersion: the exaggeration in force before Fly mode —
+  // restored when returning to orbit/top so the overview never changes.
+  const preWalkExagRef = useRef(null);
+  // Side panels hidden for easy viewing (auto-hides in walkthrough mode;
+  // the top-bar toggle brings them back / hides them any time).
+  const [panelsHidden, setPanelsHidden] = useState(false);
+  const prevModeRef = useRef(cameraMode);
+  // User height-scale calibration: one known building height rescales all
+  // estimated heights (monocular depth under-scales absolute heights).
+  const [heightScale, setHeightScale] = useState(1);
+  useEffect(() => {
+    const sceneId = state.scene?.scene_id;
+    if (!sceneId) return;
+    try { setHeightScale(parseFloat(localStorage.getItem(`dw_hscale_${sceneId}`)) || 1); } catch {}
+  }, [state.scene?.scene_id]);
+  const handleHeightScaleChange = (f) => {
+    const sceneId = state.scene?.scene_id;
+    setHeightScale(f);
+    try { if (sceneId) localStorage.setItem(`dw_hscale_${sceneId}`, String(f)); } catch {}
+  };
+
+  // DSM range (legend defaults) + depth statistics + validation metrics.
+  // Statistics prefer the already-loaded results state; when the session
+  // was resumed from a stub (no depth block yet), fetch them once.
+  useEffect(() => {
+    const sceneId = state.scene?.scene_id;
+    if (!sceneId || isLoading) return;
+    let cancelled = false;
+
+    const applyStats = (stats) => {
+      if (cancelled || !stats) return;
+      setDepthStats(stats);
+      if (typeof stats.minimum === 'number' && typeof stats.maximum === 'number') {
+        setDsmRange({ min: stats.minimum, max: stats.maximum });
+      }
+    };
+
+    const have = state.results?.depth?.statistics;
+    // One retry: the Supabase token can be mid-refresh when the terrain
+    // turns ready, and the panel would otherwise stay empty forever.
+    if (have) {
+      applyStats(have);
+    } else {
+      const fetchStats = (attempt = 0) => {
+        getResults(sceneId)
+          .then(r => applyStats(r?.depth?.statistics))
+          .catch(() => { if (attempt < 1) setTimeout(() => fetchStats(1), 3000); });
+      };
+      fetchStats();
+    }
+
+    setValidationLoading(true);
+    setValidation(null);
+    const fetchValidation = (attempt = 0) => {
+      getValidation(sceneId)
+        .then(v => { if (!cancelled) { setValidation(v); setValidationLoading(false); } })
+        .catch(() => {
+          if (attempt < 1) setTimeout(() => fetchValidation(1), 3000);
+          else if (!cancelled) setValidationLoading(false);
+        });
+    };
+    fetchValidation();
+    return () => { cancelled = true; };
+  }, [state.scene?.scene_id, isLoading, state.results?.depth?.statistics]);
+
+  /** View tabs: layer swaps + shader render modes over the current texture */
+  const handleViewTab = (tabId) => {
+    setViewTab(tabId);
+    // Wireframe: a toggle tab — selecting it flips the flag; any other tab clears it
+    const nextWireframe = tabId === 'wireframe' ? !wireframe : false;
+    setWireframeState(nextWireframe);
+    terrainRef.current?.setWireframe?.(nextWireframe);
+    // Contour: selecting the tab enables lines at the current interval
+    const nextContours = tabId === 'contour';
+    setContourEnabled(nextContours);
+    terrainRef.current?.setContours?.(nextContours, contourInterval);
+    if (tabId === 'rgb' || tabId === 'depth' || tabId === 'dsm') {
+      handleLayerChange(tabId);
+    } else if (tabId === 'hybrid') {
+      handleLayerChange('solid');
+    }
+  };
+
+  const handleExaggeration = (v) => {
+    setExaggerationState(v);
+    terrainRef.current?.setExaggeration?.(v);
+  };
+
+  // Entering walkthrough hides the docked panels for an unobstructed view;
+  // returning to orbit/top brings them back (unless toggled manually).
+  useEffect(() => {
+    if (isLoading) return;
+    if (prevModeRef.current !== cameraMode) {
+      setPanelsHidden(cameraMode === 'first-person');
+      prevModeRef.current = cameraMode;
+    }
+    // Guard against horizontal scroll drift: off-screen drawers create
+    // scrollable overflow that clicks can scroll into view.
+    if (viewportRef.current) viewportRef.current.scrollLeft = 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraMode, isLoading]);
+
+  // In walkthrough the camera stands at eye height, where a metric relief
+  // reads pancake-flat — raise exaggeration to full for the ground-level
+  // view, restore the user's setting on the way back to orbit/top.
+  useEffect(() => {
+    if (isLoading) return;
+    if (cameraMode === 'first-person') {
+      if (preWalkExagRef.current == null && exaggeration < 5) {
+        preWalkExagRef.current = exaggeration;
+        handleExaggeration(5);
+      }
+    } else if (preWalkExagRef.current != null) {
+      handleExaggeration(preWalkExagRef.current);
+      preWalkExagRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraMode, isLoading]);
+
+  const handleContour = (interval, enabled) => {
+    setContourInterval(interval);
+    setContourEnabled(enabled);
+    terrainRef.current?.setContours?.(enabled, interval);
+    if (enabled) {
+      setViewTab('contour');
+    } else if (viewTab === 'contour') {
+      setViewTab('hybrid');
+      handleLayerChange('solid');
+    }
+  };
+
+  const handleFog = (v) => {
+    setFogState(v);
+    terrainRef.current?.setFog?.(v);
+  };
+
+  const handleWireframeToggle = (v) => {
+    setWireframeState(v);
+    terrainRef.current?.setWireframe?.(v);
+    setViewTab(curr => {
+      if (v) return 'wireframe';
+      return curr === 'wireframe' ? 'hybrid' : curr;
+    });
+    if (!v && viewTab === 'wireframe') terrainRef.current?.setContours?.(contourEnabled, contourInterval);
+  };
+
+  const handleSlopeOverlay = (v) => {
+    handleLayerChange(v ? 'slope' : 'rgb');
+  };
+
+  const handleApplyCalibration = (min, max) => {
+    if (typeof min !== 'number' || typeof max !== 'number' || Number.isNaN(min) || Number.isNaN(max) || max <= min) {
+      showToast('Enter a valid elevation range — max must be greater than min.');
+      return;
+    }
+    setCalibration({ min, max });
+    showToast(`Calibration applied — elevation display range set to ${min}–${max} m.`);
+  };
+
+  /** Export rows for the right panel — every enabled row hits a real endpoint */
+  const buildDownloads = (sceneId) => [
+    { id: 'depth_png', label: 'Depth PNG', sub: 'grayscale raster', run: () => exportDepth(sceneId) },
+    { id: 'depth_npy', label: 'Depth NPY', sub: 'raw float array', disabled: true },
+    { id: 'mesh', label: '3D Mesh (OBJ/GLB)', sub: 'textured scene mesh', run: () => exportTerrain(sceneId) },
+    { id: 'dsm', label: 'DSM GeoTIFF', sub: 'georeferenced surface', run: () => exportDsm(sceneId) },
+    { id: 'contour_png', label: 'Contour PNG', disabled: true },
+    { id: 'metadata', label: 'Metadata JSON', sub: 'validation metrics', run: () => exportValidation(sceneId) },
+  ];
+
   // ── Toast (non-blocking feedback when a tool/layer can't do its job) ──
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
@@ -169,16 +358,12 @@ export default function TerrainWorkspace() {
   async function handleLayerChange(layerId) {
     if (layerId === activeLayer) return;
     setActiveLayer(layerId);
+    // Keep the view-tab highlight in sync with toolbar-driven layer swaps
+    if (layerId === 'solid') setViewTab('hybrid');
+    else if (layerId === 'rgb' || layerId === 'depth' || layerId === 'dsm') setViewTab(layerId);
 
     const sceneId = state.scene?.scene_id;
     if (!sceneId) return;
-
-    // Buildings view is generated in-shader from the heightmap — no texture
-    if (layerId === 'buildings') {
-      terrainRef.current?.setBuildingsView?.();
-      prevLayerRef.current = 'buildings';
-      return;
-    }
 
     // Check cache first
     if (layerCache.current[layerId]) {
@@ -321,6 +506,10 @@ export default function TerrainWorkspace() {
         metered: !!r.metered,
         precision_m: r.precision_m ?? null,
         confidence: r.confidence ?? null,
+        ground_elevation: r.ground_elevation ?? null,
+        height_above_ground_m: r.height_above_ground_m ?? null,
+        is_structure: !!r.is_structure,
+        height_confidence: r.height_confidence ?? null,
       };
       elevCache.current.set(key, patch);
       return { ...pt, ...patch };
@@ -380,7 +569,11 @@ export default function TerrainWorkspace() {
             if (routed) {
               const color =
                 VERDICT_META[routed.verdict]?.color ?? '#2ecc71';
-              terrainRef.current?.setRoutePath?.(routed.path, color);
+              terrainRef.current?.setRoutePath?.(routed.path, color, {
+                // Aerial vehicles touch down on the landing zone, not the
+                // destination itself — label the endpoint accordingly.
+                endLabel: routed.landing_zone ? 'LZ' : 'END',
+              });
             } else {
               // no route anywhere — leave the pins, drop the line
               terrainRef.current?.setRoutePath?.(null);
@@ -393,13 +586,26 @@ export default function TerrainWorkspace() {
           });
       }
     } else if (activeTool === 'structure') {
+      // Absolute rebasing: when the user calibrates the display range
+      // (DEM min/max), metered elevations shift by the same offset so
+      // readouts are absolute against the entered datum.
+      pt.calibrated = calibration && dsmRange
+        ? {
+            ground: (pt.ground_elevation ?? 0) + (calibration.min - dsmRange.min),
+            top: pt.elevation + (calibration.min - dsmRange.min),
+          }
+        : null;
       structToolRef.current?.inspectPoint(pt);
       const idNum = Math.abs(Math.round(pt.x * 100 + pt.z * 100)) % 999;
       setSelectedStructure({
         id: `STR-${String(idNum).padStart(3, '0')}`,
-        ground: pt.elevation,
-        top: pt.elevation * 1.15,
-        height: pt.elevation * 0.15,
+        // Metered DSM values from the backend — ground level, roof sample
+        // and geometric height above ground, with the honest confidence.
+        ground: pt.ground_elevation ?? pt.elevation,
+        top: pt.elevation,
+        height: pt.height_above_ground_m ?? 0,
+        isStructure: !!pt.is_structure,
+        confidence: pt.height_confidence ?? pt.confidence ?? null,
       });
     }
   };
@@ -445,7 +651,20 @@ export default function TerrainWorkspace() {
         {/* Full-bleed OGL canvas */}
         <TerrainCanvas ref={terrainRef} />
 
-        {/* Minimap overlay — top-left of terrain viewport (task 6.1) */}
+        {/* Docked left panel — reference + quality */}
+        {!isLoading && (
+          <TerrainLeftPanel
+            hidden={panelsHidden}
+            dsmRange={dsmRange}
+            calibration={calibration ?? dsmRange}
+            onApplyCalibration={handleApplyCalibration}
+            validation={validation}
+            validationLoading={validationLoading}
+            depthStats={depthStats}
+          />
+        )}
+
+        {/* Minimap overlay — top-left of the live viewport (RGB drape) */}
         {!isLoading && (
           <Minimap
             terrainRef={terrainRef}
@@ -453,6 +672,58 @@ export default function TerrainWorkspace() {
             minimapMeta={minimapMeta}
             terrainMeta={state.terrain}
             selectedPoint={selectedPoint}
+            leftOffset={292}
+            rgbUrl={state.terrain?.texture_url ?? null}
+          />
+        )}
+
+        {/* Top in-viewport control bar — view tabs, camera, interaction mode */}
+        {!isLoading && (
+          <ViewModeBar
+            viewTab={viewTab}
+            onViewTab={handleViewTab}
+            cameraMode={cameraMode}
+            onCameraMode={(m) => {
+              terrainRef.current?.setCameraMode?.(m);
+              setCameraMode(m);
+            }}
+            toolMode={
+              activeTool === 'probe' ? 'inspect'
+                : activeTool === 'none' ? 'navigate'
+                  : 'measure'
+            }
+            onToolMode={(m) => {
+              if (m === 'inspect') handleSelectTool('probe');
+              else if (m === 'measure') handleSelectTool('distance');
+              else if (activeTool !== 'none') handleSelectTool(activeTool);
+            }}
+            disabled={false}
+            analysisOpen={analysisPanelOpen}
+            onToggleAnalysis={() => setAnalysisPanelOpen(v => !v)}
+            panelsHidden={panelsHidden}
+            onTogglePanels={() => setPanelsHidden(v => !v)}
+          />
+        )}
+
+        {/* Minimap moved into the left panel; this overlay only shows when
+            the panel is closed — keep as expand fallback is unnecessary */}
+        {/* Docked right panel — terrain controls, downloads, legends */}
+        {!isLoading && (
+          <TerrainRightPanel
+            hidden={panelsHidden}
+            exaggeration={exaggeration}
+            onExaggeration={handleExaggeration}
+            contourEnabled={contourEnabled}
+            contourInterval={contourInterval}
+            onContour={handleContour}
+            fog={fog}
+            onFog={handleFog}
+            wireframe={wireframe}
+            onWireframe={handleWireframeToggle}
+            slopeOverlay={activeLayer === 'slope'}
+            onSlopeOverlay={handleSlopeOverlay}
+            downloads={buildDownloads(state.scene?.scene_id)}
+            legendRange={calibration ?? dsmRange}
           />
         )}
 
@@ -477,6 +748,7 @@ export default function TerrainWorkspace() {
             terrainRef={terrainRef}
             cameraMode={cameraMode}
             elevationMode={state.results?.elevation_mode ?? 'relative'}
+            rightOffset={296}
           />
         )}
 
@@ -493,7 +765,7 @@ export default function TerrainWorkspace() {
 
         {/* 3D Viewport Controls Guide (bottom-left) */}
         {!isLoading && (
-          <ControlsHint cameraMode={cameraMode} />
+          <ControlsHint cameraMode={cameraMode} leftOffset={296} />
         )}
 
         {/* Active Analysis tool readout panel (Phase 9, tasks 9.2-9.6) */}        {!isLoading && activeTool !== 'none' && activeTool !== 'probe' && (
@@ -502,7 +774,7 @@ export default function TerrainWorkspace() {
             top: 56,
             right: 12,
             maxWidth: 'calc(100vw - 24px)',
-            transform: `translateX(-${analysisPanelOpen ? 'min(320px, calc(100vw - 40px))' : (layerPanelOpen ? 'min(240px, calc(100vw - 40px))' : '0px')})`,
+            transform: `translateX(-${analysisPanelOpen ? 'min(320px, calc(100vw - 40px))' : '296px'})`,
             zIndex: 12,
             transition: 'transform 200ms ease-out',
           }}>
@@ -529,6 +801,8 @@ export default function TerrainWorkspace() {
                   active={true}
                   selectedPoint={selectedPoint}
                   onClear={() => setSelectedPoint(null)}
+                  heightScale={heightScale}
+                  onHeightScaleChange={handleHeightScaleChange}
                 />
               )}
               {activeTool === 'route' && (
@@ -552,59 +826,11 @@ export default function TerrainWorkspace() {
           />
         )}
 
-        {/* Layer panel — collapsible right overlay (Phase 8, Phase 17) */}
-        {!isLoading && (
-          <div style={{
-            position: 'absolute',
-            top: 0,
-            right: 0,
-            bottom: 0,
-            width: 'min(260px, 100vw)',
-            transform: layerPanelOpen ? 'translateX(0)' : 'translateX(100%)',
-            transition: 'transform 200ms ease-out',
-            zIndex: 14,
-            pointerEvents: layerPanelOpen ? 'auto' : 'none',
-          }}>
-            <div style={{
-              width: '100%',
-              height: '100%',
-              background: 'var(--dw-panel)',
-              borderLeft: '1px solid var(--dw-rim)',
-              padding: 14,
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setLayerPanelOpen(false)}
-                  aria-label="Close layers"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--dw-fg-muted)',
-                    cursor: 'pointer',
-                    padding: 6,
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
-                >
-                  <X size={16} strokeWidth={1.5} />
-                </button>
-              </div>
-              <LayerControl
-                activeLayer={activeLayer}
-                onLayerChange={handleLayerChange}
-              />
-            </div>
-          </div>
-        )}
-
         {/* Side Analysis Panel — collapsible 320px right drawer (Phase 10 & 12, §25, §16) */}
         {!isLoading && (
           <AnalysisPanel
             open={analysisPanelOpen}
+            rightOffset={panelsHidden ? 0 : 280}
             onToggle={() => setAnalysisPanelOpen(v => !v)}
             selectedLocation={selectedLocation}
             selectedStructure={selectedStructure}
@@ -630,101 +856,6 @@ export default function TerrainWorkspace() {
             scenario={scenario}
             onSelectScenario={setScenario}
           />
-        )}
-
-        {/* Right side panel buttons (Layers & Analysis) — always accessible */}
-        {!isLoading && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 14,
-              right: 14,
-              transform: `translateX(-${analysisPanelOpen ? 320 : (layerPanelOpen ? 260 : 0)}px)`,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              zIndex: 16,
-              transition: 'transform 200ms ease-out',
-            }}
-          >
-            {/* Layers toggle */}
-            <button
-              onClick={() => {
-                setLayerPanelOpen(v => {
-                  const next = !v;
-                  if (next) setAnalysisPanelOpen(false);
-                  return next;
-                });
-              }}
-              aria-expanded={layerPanelOpen}
-              aria-label="Toggle layer panel"
-              title={layerPanelOpen ? 'Close layers' : 'Open layers'}
-              style={{
-                height: 36,
-                padding: '0 12px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 7,
-                background: layerPanelOpen ? 'var(--dw-surface)' : 'rgba(13,17,23,0.92)',
-                border: layerPanelOpen ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
-                borderRadius: 'var(--dw-radius-sm)',
-                fontFamily: 'var(--dw-font-ui)',
-                fontSize: 13.5,
-                fontWeight: 500,
-                color: layerPanelOpen ? 'var(--dw-accent)' : 'var(--dw-fg)',
-                cursor: 'pointer',
-                outline: 'none',
-                transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
-              }}
-              onFocus={e => {
-                e.currentTarget.style.outline = '2px solid var(--dw-accent)';
-                e.currentTarget.style.outlineOffset = '2px';
-              }}
-              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
-            >
-              <Layers size={16} strokeWidth={1.5} aria-hidden="true" />
-              Layers
-            </button>
-
-            {/* Analysis Panel toggle */}
-            <button
-              onClick={() => {
-                setAnalysisPanelOpen(v => {
-                  const next = !v;
-                  if (next) setLayerPanelOpen(false);
-                  return next;
-                });
-              }}
-              aria-expanded={analysisPanelOpen}
-              aria-label="Toggle analysis panel"
-              title={analysisPanelOpen ? 'Close analysis' : 'Open analysis'}
-              style={{
-                height: 36,
-                padding: '0 12px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 7,
-                background: analysisPanelOpen ? 'var(--dw-surface)' : 'rgba(13,17,23,0.92)',
-                border: analysisPanelOpen ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
-                borderRadius: 'var(--dw-radius-sm)',
-                fontFamily: 'var(--dw-font-ui)',
-                fontSize: 13.5,
-                fontWeight: 500,
-                color: analysisPanelOpen ? 'var(--dw-accent)' : 'var(--dw-fg)',
-                cursor: 'pointer',
-                outline: 'none',
-                transition: 'border-color 120ms ease, color 120ms ease, background 120ms ease',
-              }}
-              onFocus={e => {
-                e.currentTarget.style.outline = '2px solid var(--dw-accent)';
-                e.currentTarget.style.outlineOffset = '2px';
-              }}
-              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
-            >
-              <PanelRight size={16} strokeWidth={1.5} aria-hidden="true" />
-              Analysis
-            </button>
-          </div>
         )}
 
         {/* Loading overlay — while TERRAIN_LOADING */}
@@ -792,6 +923,14 @@ export default function TerrainWorkspace() {
           setAnalysisPanelTab('validation');
         }}
         onCaptureSnapshot={handleCaptureSnapshot}
+      />
+
+      {/* 28px telemetry strip — picked point, FPS, mesh stats */}
+      <StatusStrip
+        selectedPoint={selectedPoint}
+        fps={fps}
+        terrainMeta={state.terrain}
+        exaggeration={exaggeration}
       />
     </div>
   );

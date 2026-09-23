@@ -22,14 +22,16 @@ import { useApp } from '../../store/appStore.jsx';
 import { Building2, RotateCcw } from 'lucide-react';
 
 const StructureInspector = forwardRef(function StructureInspector(
-  { terrainRef, active = false, selectedPoint, onClear },
+  { terrainRef, active = false, selectedPoint, onClear, heightScale = 1, onHeightScaleChange },
   ref
 ) {
   const { state } = useApp();
   const [inspection, setInspection] = useState(null);
 
   const isAbsolute = state.results?.elevation_mode === 'absolute';
-  const unitLabel  = isAbsolute ? 'm' : 'scene units';
+  // The terrain world is metres via the documented 1 m/pixel fallback,
+  // so heights are labelled m — scaled by the user's calibration factor.
+  const unitLabel = 'm';
 
   const clearInspection = useCallback(() => {
     setInspection(null);
@@ -40,6 +42,25 @@ const StructureInspector = forwardRef(function StructureInspector(
   const inspectPoint = useCallback((point) => {
     if (!point) {
       setInspection(null);
+      return;
+    }
+
+    // Metered path: the workspace resolved this click against the backend
+    // DSM — ground level, geometric height and honest confidence come from
+    // the API, not from the visual heightmap.
+    if (point.metered && point.height_above_ground_m != null && point.ground_elevation != null) {
+      const idNum = Math.abs(Math.round(point.x * 100 + point.z * 100)) % 999;
+      setInspection({
+        id: `STR-${String(idNum).padStart(3, '0')}`,
+        groundElevation: point.ground_elevation,
+        topElevation: point.elevation,
+        rawHeight: point.height_above_ground_m,
+        estimatedHeight: point.height_above_ground_m,
+        isStructure: !!point.is_structure,
+        confidence: point.height_confidence ?? null,
+        metered: true,
+        calibrated: point.calibrated ?? null,
+      });
       return;
     }
 
@@ -119,7 +140,9 @@ const StructureInspector = forwardRef(function StructureInspector(
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
           }}>
-            STRUCTURE INSPECTION
+            {inspection?.metered
+              ? (inspection.isStructure ? 'STRUCTURE · BUILDING-LIKE' : 'SURFACE POINT')
+              : 'STRUCTURE INSPECTION'}
           </span>
         </div>
 
@@ -175,7 +198,7 @@ const StructureInspector = forwardRef(function StructureInspector(
               Ground Elevation
             </span>
             <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 14, color: 'var(--dw-fg)' }}>
-              {inspection.groundElevation.toFixed(1)} {unitLabel}
+              {(inspection.calibrated ? inspection.calibrated.ground : inspection.groundElevation)?.toFixed(1) ?? '—'} {inspection.metered ? 'm' : unitLabel}
             </span>
           </div>
 
@@ -184,7 +207,12 @@ const StructureInspector = forwardRef(function StructureInspector(
               Top Elevation
             </span>
             <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 14, color: 'var(--dw-fg)' }}>
-              {inspection.topElevation.toFixed(1)} {unitLabel}
+              {(inspection.calibrated ? inspection.calibrated.top : inspection.topElevation)?.toFixed(1) ?? '—'} {inspection.metered ? 'm' : unitLabel}
+              {inspection.calibrated && (
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 10.5, color: 'var(--dw-fg-ghost)', marginLeft: 6 }}>
+                  (absolute)
+                </span>
+              )}
             </span>
           </div>
 
@@ -200,9 +228,84 @@ const StructureInspector = forwardRef(function StructureInspector(
               fontWeight: 600,
               color: 'var(--dw-accent)',
             }}>
-              {inspection.estimatedHeight.toFixed(1)} {unitLabel}
+              {inspection.estimatedHeight != null
+                ? (inspection.estimatedHeight * heightScale).toFixed(1)
+                : '—'}{' '}
+              {inspection.metered ? 'm' : unitLabel}
             </span>
           </div>
+          {inspection.metered && inspection.estimatedHeight != null && heightScale !== 1 && (
+            <div style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 10.5, color: 'var(--dw-fg-ghost)' }}>
+              Scaled ×{heightScale.toFixed(2)} from your reference building
+            </div>
+          )}
+          {inspection.metered && inspection.estimatedHeight != null && (
+            <div style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)' }}>
+              ≈ {Math.max(1, Math.round((inspection.estimatedHeight * heightScale) / 3))} storeys at 3 m per floor
+            </div>
+          )}
+          {inspection.metered && onHeightScaleChange && inspection.rawHeight > 0.5 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-ghost)' }}>
+                If you know this building's real height, set it:
+              </span>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                placeholder="m"
+                style={{
+                  width: 52, height: 24, padding: '0 6px',
+                  background: 'var(--dw-surface)', border: '1px solid var(--dw-rim)',
+                  borderRadius: 'var(--dw-radius-sm)', color: 'var(--dw-fg)',
+                  fontFamily: 'var(--dw-font-data)', fontSize: 12, outline: 'none',
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const known = parseFloat(e.currentTarget.value);
+                    if (known > 0 && inspection.rawHeight > 0) onHeightScaleChange(known / inspection.rawHeight);
+                  }
+                }}
+                onBlur={(e) => {
+                  const known = parseFloat(e.currentTarget.value);
+                  if (known > 0 && inspection.rawHeight > 0) {
+                    onHeightScaleChange(known / inspection.rawHeight);
+                    e.currentTarget.value = '';
+                  }
+                }}
+              />
+            </div>
+          )}
+          {inspection.confidence && (
+            <div style={{ marginTop: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12, color: 'var(--dw-fg-muted)' }}>
+                  Height Confidence
+                </span>
+                <span style={{
+                  fontFamily: 'var(--dw-font-data)',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  color: inspection.confidence.level === 'high'
+                    ? 'var(--dw-confirm)'
+                    : inspection.confidence.level === 'low' ? 'var(--dw-fault)' : 'var(--dw-live)',
+                  textTransform: 'uppercase',
+                }}>
+                  {inspection.confidence.percent != null
+                    ? `${inspection.confidence.percent}%`
+                    : inspection.confidence.level}
+                </span>
+              </div>
+              <div style={{ marginTop: 3, fontFamily: 'var(--dw-font-ui)', fontSize: 11, lineHeight: 1.45, color: 'var(--dw-fg-ghost)' }}>
+                {inspection.confidence.basis}
+              </div>
+            </div>
+          )}
+          {!inspection.metered && (
+            <div style={{ marginTop: 6, fontFamily: 'var(--dw-font-ui)', fontSize: 11, lineHeight: 1.45, color: 'var(--dw-fg-ghost)' }}>
+              Visual estimate from the display heightmap — click a point to meter it against the DSM.
+            </div>
+          )}
         </div>
       )}
     </div>

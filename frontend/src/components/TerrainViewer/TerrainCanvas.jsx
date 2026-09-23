@@ -231,6 +231,7 @@ const BASE_VISUAL_HEIGHT_SCALE = 0.22;
  * no physical world size. Matches the pre-metric [-1,1] plane. */
 const LEGACY_WORLD_SIZE = 2.0;
 
+
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 
 /**
@@ -521,6 +522,22 @@ function SceneBridge({ canvasRef, glRef, orbitControlsRef, materialRef, sceneSta
       }
     }
 
+    // Route Assist destination marker: gentle pulse (breathing pin) with a
+    // breathing landing-zone highlight beneath it.
+    const pulse = g.routeGroup?.userData?.pulse;
+    if (pulse?.pin) {
+      pulse.t += dt * 3.2;
+      const s = 1.0 + 0.25 * Math.sin(pulse.t);
+      pulse.pin.scale.setScalar(pulse.base * s);
+      if (pulse.disc) {
+        pulse.disc.material.opacity = 0.2 + 0.14 * (0.5 + 0.5 * Math.sin(pulse.t));
+        pulse.ring.material.opacity = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(pulse.t));
+        const rs = 1.0 + 0.12 * Math.sin(pulse.t);
+        pulse.ring.scale.setScalar(rs);
+        pulse.disc.scale.setScalar(rs);
+      }
+    }
+
     // Walkthrough mode (internal id 'first-person') — tick is registered
     // from TerrainWorkspace via setFpTick; free-flight movement, no clamp.
     if (g.cameraMode === 'first-person' && typeof g.fpTick === 'function') {
@@ -530,6 +547,7 @@ function SceneBridge({ canvasRef, glRef, orbitControlsRef, materialRef, sceneSta
 
   return null;
 }
+
 
 /* ─── Main TerrainCanvas Component ──────────────────────────────────────── */
 
@@ -656,6 +674,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         mat.uniforms.uFogEnabled.value = v ? 1.0 : 0.0;
       }
     },
+
     resetCamera() {
       const g = glRef.current;
       if (g.camera && g.orbit) {
@@ -887,11 +906,12 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       return raw * 100.0 * (g.heightScale ?? 1.0);
     },
     /** Route Assist overlay: recommended path polyline + start/goal pins.
-     *  Pass (pathPixels, verdictColor) where pathPixels are source-raster
-     *  pixel coords [{x, y}, ...]; pass (null) to clear. Pixel → world
-     *  mapping uses the heightmap dims (which mirror the DSM raster) and
-     *  Y follows the same visual-height derivation as measurements. */
-    setRoutePath(pathPixels, verdictColor = '#2ecc71') {
+     *  Pass (pathPixels, verdictColor, opts) where pathPixels are source-
+     *  raster pixel coords [{x, y}, ...]; pass (null) to clear. Pixel →
+     *  world mapping uses the heightmap dims (which mirror the DSM raster)
+     *  and Y follows the same visual-height derivation as measurements.
+     *  opts.endLabel — text on the destination marker ('END' | 'LZ'). */
+    setRoutePath(pathPixels, verdictColor = '#2ecc71', opts = {}) {
       const g = glRef.current;
       if (!g.scene) return;
 
@@ -901,6 +921,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         g.routeGroup.traverse((o) => {
           o.geometry?.dispose?.();
           o.material?.dispose?.();
+          if (o.userData?.disposeMap) o.material?.map?.dispose?.();
         });
         g.routeGroup = null;
       };
@@ -925,30 +946,148 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       const points = pathPixels.map((p) => toWorld(p.x, p.y));
       const worldR = Math.max(g.worldWidth ?? LEGACY_WORLD_SIZE, g.worldDepth ?? LEGACY_WORLD_SIZE);
       const markerR = worldR * 0.008;
+      const beaconH = worldR * 0.05;
+
+      // Text sprite for the endpoint labels (START / END / LZ).
+      const makeLabel = (text, cssColor) => {
+        const c = document.createElement('canvas');
+        c.width = 256; c.height = 64;
+        const ctx = c.getContext('2d');
+        ctx.font = 'bold 40px ui-monospace, monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = cssColor;
+        ctx.shadowColor = 'rgba(0,0,0,0.9)';
+        ctx.shadowBlur = 8;
+        ctx.fillText(text, 128, 32);
+        const tex = new THREE.CanvasTexture(c);
+        const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: tex, depthTest: false, transparent: true,
+        }));
+        spr.userData.disposeMap = true;
+        spr.scale.set(markerR * 10, markerR * 2.5, 1);
+        spr.renderOrder = 1000;
+        return spr;
+      };
+
+      const marker = (colorHex, label) => {
+        const pin = new THREE.Mesh(
+          new THREE.SphereGeometry(1, 16, 12),
+          new THREE.MeshBasicMaterial({ color: colorHex, depthTest: false, transparent: true, opacity: 0.95 }),
+        );
+        pin.scale.setScalar(markerR);
+        pin.renderOrder = 999;
+        const beacon = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, beaconH, 0),
+          ]),
+          new THREE.LineBasicMaterial({ color: colorHex, depthTest: false, transparent: true, opacity: 0.6 }),
+        );
+        beacon.renderOrder = 998;
+        const grp = new THREE.Group();
+        grp.add(pin, beacon);
+        if (label) {
+          const spr = makeLabel(label.text, label.color);
+          spr.position.set(0, beaconH + markerR * 2, 0);
+          grp.add(spr);
+        }
+        return { grp, pin };
+      };
 
       disposeGroup();
       const grp = new THREE.Group();
 
       const color = new THREE.Color(verdictColor);
-      const lineMat = new THREE.LineBasicMaterial({
-        color, depthTest: false, transparent: true, opacity: 0.95,
-      });
-      const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
-      const line = new THREE.Line(lineGeo, lineMat);
-      line.renderOrder = 999;
-      grp.add(line);
 
-      const pinGeo = new THREE.SphereGeometry(1, 16, 12);
-      const startMat = new THREE.MeshBasicMaterial({ color: 0x4f8cff, depthTest: false, transparent: true, opacity: 0.95 });
-      const endMat = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 });
-      const startPin = new THREE.Mesh(pinGeo, startMat);
-      const endPin = new THREE.Mesh(pinGeo, endMat);
-      startPin.position.copy(points[0]);
-      endPin.position.copy(points[points.length - 1]);
-      startPin.scale.setScalar(markerR);
-      endPin.scale.setScalar(markerR * 1.3);
-      [startPin, endPin].forEach((o) => { o.renderOrder = 999; });
-      grp.add(startPin, endPin);
+      // Traced path: broad tube hugging the terrain + a soft outer glow +
+      // a white dash overlay so the route reads clearly against any texture.
+      const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.0);
+      const tube = new THREE.Mesh(
+        new THREE.TubeGeometry(
+          curve,
+          Math.min(points.length * 4, 1200),
+          markerR * 0.6,
+          8,
+          false,
+        ),
+        new THREE.MeshBasicMaterial({
+          color, depthTest: false, transparent: true, opacity: 0.9,
+        }),
+      );
+      tube.renderOrder = 997;
+      grp.add(tube);
+
+      // Outer glow — a faint wider sheath so the "safe corridor" reads
+      // at a glance from orbit height.
+      const glow = new THREE.Mesh(
+        new THREE.TubeGeometry(
+          curve,
+          Math.min(points.length * 4, 1200),
+          markerR * 1.15,
+          8,
+          false,
+        ),
+        new THREE.MeshBasicMaterial({
+          color, depthTest: false, transparent: true, opacity: 0.22,
+        }),
+      );
+      glow.renderOrder = 996;
+      grp.add(glow);
+
+      const dashMat = new THREE.LineDashedMaterial({
+        color: 0xffffff, depthTest: false, transparent: true,
+        opacity: 0.7, dashSize: markerR * 2.2, gapSize: markerR * 1.6,
+        scale: 1,
+      });
+      const dashLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points), dashMat,
+      );
+      dashLine.computeLineDistances();
+      dashLine.renderOrder = 999;
+      grp.add(dashLine);
+
+      // Start / destination markers with beacons and labels.
+      const endLabel = opts.endLabel ?? 'END';
+      const startM = marker(0x4f8cff, { text: 'START', color: '#9fc4ff' });
+      startM.grp.position.copy(points[0]);
+      const endM = marker(color, { text: endLabel, color: `#${color.getHexString()}` });
+      endM.grp.position.copy(points[points.length - 1]);
+      endM.pin.scale.setScalar(markerR * 1.3);
+      grp.add(startM.grp, endM.grp);
+
+      // Destination highlight: a flat glowing disc + ring on the terrain —
+      // the "reach area" the vehicle is heading for, visible from any angle.
+      const endPt = points[points.length - 1];
+      const lzY = endPt.y + markerR * 0.35;
+      const disc = new THREE.Mesh(
+        new THREE.CircleGeometry(markerR * 7, 48),
+        new THREE.MeshBasicMaterial({
+          color, depthTest: false, transparent: true, opacity: 0.3,
+          side: THREE.DoubleSide,
+        }),
+      );
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(endPt.x, lzY, endPt.z);
+      disc.renderOrder = 995;
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(markerR * 6.1, markerR * 7, 48),
+        new THREE.MeshBasicMaterial({
+          color, depthTest: false, transparent: true, opacity: 0.95,
+          side: THREE.DoubleSide,
+        }),
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(endPt.x, lzY + markerR * 0.05, endPt.z);
+      ring.renderOrder = 996;
+      grp.add(disc, ring);
+
+      // Pulse data consumed by useFrame (destination marker breathes and
+      // the landing-zone ring expands/contracts).
+      grp.userData.pulse = {
+        pin: endM.pin, base: markerR * 1.3, t: 0,
+        disc, ring, ringR: markerR * 7,
+      };
 
       g.scene.add(grp);
       g.routeGroup = grp;

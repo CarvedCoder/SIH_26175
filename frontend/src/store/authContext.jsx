@@ -78,9 +78,12 @@ export function AuthProvider({ children }) {
 
   /**
    * Real Supabase email/password sign-in. Throws { message } on failure.
+   * LOCAL MODE (Supabase unconfigured — e.g. plain local dev): the profile
+   * is derived from the email and kept on this device only; there is no
+   * server-side account and the backend runs with auth disabled.
    */
   const signInWithPassword = async (email, password) => {
-    if (!supabase) throw { message: 'Supabase is not configured.' };
+    if (!supabase) return login(localProfile(email));
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -94,9 +97,10 @@ export function AuthProvider({ children }) {
   /**
    * Real Supabase email/password sign-up. May return a user with no
    * session when email confirmation is enabled — the UI should say so.
+   * LOCAL MODE: no server round-trip; the profile is created locally.
    */
   const signUpWithPassword = async (email, password) => {
-    if (!supabase) throw { message: 'Supabase is not configured.' };
+    if (!supabase) return { profile: login(localProfile(email)), needsConfirmation: false };
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) throw { message: error.message, code: error.code ?? 'AUTH_FAILED' };
     if (data.session && data.user) login(profileFromSupabase(data.user));
@@ -123,6 +127,26 @@ export function AuthProvider({ children }) {
       {children}
     </AuthContext.Provider>
   );
+}
+
+/**
+ * LOCAL MODE profile: stable pseudo-id per email so scene ownership stays
+ * consistent across reloads of the same browser profile.
+ */
+function localProfile(email) {
+  const clean = (email ?? '').trim().toLowerCase() || 'guest@terramesh.io';
+  let hash = 0;
+  for (let i = 0; i < clean.length; i += 1) {
+    hash = (hash * 31 + clean.charCodeAt(i)) >>> 0;
+  }
+  const namePart = clean.split('@')[0] || 'Explorer';
+  const name =
+    namePart
+      .split(/[.\-_]/)
+      .filter(Boolean)
+      .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+      .join(' ') || 'Explorer';
+  return { id: `local_${hash.toString(16)}`, name, email: clean };
 }
 
 function profileFromSupabase(supabaseUser) {

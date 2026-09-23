@@ -62,7 +62,7 @@ export default function SceneSwitcher({ disabled = false }) {
       aria-label="Switch between uploaded scenes"
       style={{
         position: 'absolute',
-        top: 12,
+        bottom: 64,
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 12,

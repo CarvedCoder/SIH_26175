@@ -63,7 +63,7 @@ export default function ComparisonView({
 
   const minErr = errorMapMeta?.min_error != null ? errorMapMeta.min_error : -12.0;
   const maxErr = errorMapMeta?.max_error != null ? errorMapMeta.max_error : 18.0;
-  const errUnits = errorMapMeta?.units ?? (isAbsolute ? 'm' : 'scene units');
+  const errUnits = 'm'; // world scale is metres (1 m/pixel documented fallback)
 
   const handleOpacitySlider = (val) => {
     setBlendOpacity(val);

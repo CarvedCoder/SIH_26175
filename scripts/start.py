@@ -33,6 +33,8 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
+VENV = ROOT / ".venv"
+PID_FILE = ROOT / "data" / ".dw-dev.pids"
 
 BACKEND_PORT = int(os.environ.get("DW_PORT", "8000"))
 FRONTEND_PORT = int(os.environ.get("VITE_PORT", "5173"))
@@ -99,6 +101,93 @@ def port_open(port: int, host: str = "127.0.0.1") -> bool:
         return sock.connect_ex((host, port)) == 0
 
 
+def backend_healthy(port: int) -> bool:
+    """True when something answering on ``port`` is OUR backend (its
+    /health reports status ok + a version)."""
+    import json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/health", timeout=2
+        ) as resp:
+            data = json.loads(resp.read().decode())
+        return data.get("status") == "ok" and "version" in data
+    except Exception:
+        return False
+
+
+def frontend_healthy(port: int) -> bool:
+    """True when something answering on ``port`` serves the Vite app."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/", timeout=2
+        ) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def reap_orphans() -> None:
+    """Terminate dev servers left over from a previous run that died
+    without cleanup (SIGKILL, closed terminal). Children are recorded in
+    ``data/.dw-dev.pids``."""
+    if not PID_FILE.is_file():
+        return
+
+    try:
+        pids = [int(p) for p in PID_FILE.read_text().split() if p.strip()]
+    except ValueError:
+        pids = []
+
+    stopped = 0
+    for pid in pids:
+        if pid == os.getpid():
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            stopped += 1
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            log(f"cannot stop leftover pid {pid} (not ours)")
+
+    PID_FILE.unlink(missing_ok=True)
+    if stopped:
+        log(f"stopped {stopped} leftover dev server(s)")
+        time.sleep(1.5)
+
+
+def record_children() -> None:
+    """Persist child PIDs so a later run can reap orphans."""
+    try:
+        PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PID_FILE.write_text(
+            " ".join(str(p.pid) for p in processes if p.poll() is None)
+        )
+    except OSError:
+        pass
+
+
+def ensure_venv_interpreter() -> None:
+    """Re-exec under the managed interpreter when launched with a foreign
+    Python. The in-process PostgreSQL driver check imports the project's
+    dependencies, which only exist in ``.venv`` (a bare ``python
+    scripts/start.py`` with system Python would otherwise crash with
+    ModuleNotFoundError)."""
+    venv_python = VENV / "bin" / "python"
+    if not venv_python.is_file():
+        return
+    # No .resolve() here: it would follow the venv symlink to the BASE
+    # interpreter and wrongly conclude we are already inside .venv.
+    if Path(sys.executable) == venv_python:
+        return
+    log(f"re-launching under {VENV.name} interpreter…")
+    os.execv(str(venv_python), [str(venv_python), str(Path(__file__).resolve())])
+
+
 def wait_for_port(
     host: str,
     port: int,
@@ -162,6 +251,12 @@ def docker_command() -> str:
         )
 
     return docker
+
+
+def docker_command_optional() -> str | None:
+    """Like :func:`docker_command` but returns None instead of failing —
+    used where a local-services fallback exists."""
+    return shutil.which("docker")
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +562,10 @@ def start_backend() -> None:
 
 def start_frontend() -> None:
     if port_open(FRONTEND_PORT):
-        log(f"port {FRONTEND_PORT} already in use — skipping frontend dev server")
+        if frontend_healthy(FRONTEND_PORT):
+            log(f"frontend already running on :{FRONTEND_PORT} — reusing it")
+            return
+        log(f"port {FRONTEND_PORT} already in use by another program — frontend not started")
         return
 
     npm = shutil.which("npm")
@@ -484,6 +582,7 @@ def start_frontend() -> None:
             cwd=FRONTEND,
         )
     )
+    record_children()
 
 
 # ---------------------------------------------------------------------------
@@ -536,6 +635,7 @@ def main() -> None:
     )
 
     ensure_python_env()
+    ensure_venv_interpreter()
     ensure_frontend_deps()
     validate_config()
     start_infra()

@@ -40,7 +40,7 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
   const pendingMouse = useRef(null);
 
   const isAbsolute = state.results?.elevation_mode === 'absolute';
-  const unitLabel = isAbsolute ? 'm' : 'scene units';
+  const unitLabel = 'm'; // world scale is metres (1 m/pixel documented fallback)
   const sceneId = state.scene?.scene_id;
   const exactTimer = useRef(null);
 

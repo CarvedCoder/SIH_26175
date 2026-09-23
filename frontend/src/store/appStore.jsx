@@ -149,7 +149,7 @@ const initialState = {
           results: {
             scene_id: 'hill_area',
             elevation_mode: 'relative',
-            units: 'scene units',
+            units: 'm',
             reference_source: null,
             reference_dem_available: false,
             min_elevation: 0.0,
@@ -341,7 +341,7 @@ function reducer(state, action) {
       const results = project.results ?? {
         scene_id: project.scene_id,
         elevation_mode: isAbsolute ? 'absolute' : 'relative',
-        units: isAbsolute ? 'm' : 'scene units',
+        units: 'm',
         reference_source: isAbsolute ? 'SRTM' : null,
         reference_dem_available: isAbsolute,
         min_elevation: isAbsolute ? 100 : 0,

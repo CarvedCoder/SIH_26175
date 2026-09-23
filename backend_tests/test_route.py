@@ -282,3 +282,38 @@ def test_unknown_vehicle_400(client, processed_scene):
     response = client.post(f"/api/v1/scenes/{scene_id}/route/assess", json=body)
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "INVALID_VEHICLE"
+
+
+# ── rescue chopper: aerial landing-zone assessment ─────────────────────────
+
+def test_chopper_lands_on_flat_terrain(scene_env, monkeypatch):
+    install_dsm(monkeypatch, "s", flat_scene(), gsd=0.5)
+    res = route_service.assess("s", (10, 10), (190, 190), ["rescue_chopper"])
+    ch = res["vehicles"][0]
+    assert ch["verdict"] in ("CAN_GO", "CAUTION")
+    assert ch["landing_zone"] is not None
+    assert ch["path"] and len(ch["path"]) >= 2  # straight flight line
+
+
+def test_chopper_denied_on_rough_destination(scene_env, monkeypatch):
+    rng = np.random.default_rng(7)
+    rough = flat_scene() + rng.normal(0, 2.0, flat_scene().shape).astype(np.float32)
+    install_dsm(monkeypatch, "s", rough.astype(np.float32), gsd=0.5)
+    res = route_service.assess("s", (10, 10), (190, 190), ["rescue_chopper"])
+    ch = res["vehicles"][0]
+    assert ch["verdict"] == "CANNOT_GO"
+    assert ch["landing_zone"] is None
+    assert ch["path"] is None
+
+
+def test_chopper_lz_search_radius_respects_scale(scene_env, monkeypatch):
+    # Flat scene but destination far from any special terrain: LZ should be
+    # within the declared search radius of the destination pixel.
+    install_dsm(monkeypatch, "s", flat_scene(), gsd=0.5)
+    res = route_service.assess("s", (5, 5), (250, 250), ["rescue_chopper"])
+    ch = res["vehicles"][0]
+    lz = ch["landing_zone"]
+    assert lz is not None
+    dx = abs(lz["pixel"]["x"] - 250) / 2  # grid factor 2 for 256px/1024cap
+    dy = abs(lz["pixel"]["y"] - 250) / 2
+    assert max(dx, dy) <= 26  # radius 25m / 0.5m-cell * factor 2 = 25 cells

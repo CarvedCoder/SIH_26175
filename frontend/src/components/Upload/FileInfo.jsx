@@ -151,7 +151,7 @@ export default function FileInfo() {
         }}>
           {scene.processing_path === 'absolute_dsm'
             ? 'Georeferencing detected. Metric scale recovery enabled. Producing absolute elevation values in metres.'
-            : 'No georeferencing. Producing relative elevation in scene units. Absolute elevation is unavailable for this input.'}
+            : 'No georeferencing. Producing relative elevation on the 1 m/pixel fallback scale. Absolute elevation requires a reference DEM.'}
         </p>
       </div>
 

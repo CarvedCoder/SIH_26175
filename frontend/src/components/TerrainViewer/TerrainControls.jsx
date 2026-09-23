@@ -32,7 +32,7 @@ export default function TerrainControls({ terrainRef, disabled = false }) {
   const [interval, setIntervalVal]      = useState(5);
 
   const isAbsolute = state.results?.elevation_mode === 'absolute';
-  const unitLabel  = isAbsolute ? 'm' : 'scene-units';
+  const unitLabel = 'm'; // world scale is metres (1 m/pixel documented fallback)
 
   function handleExaggeration(e) {
     const v = parseFloat(e.target.value);

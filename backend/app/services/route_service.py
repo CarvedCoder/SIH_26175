@@ -50,6 +50,7 @@ class VehicleProfile:
     max_step_m: float
     max_roughness_m: float
     vmax_kmh: float
+    is_aerial: bool = False
 
 
 VEHICLE_PROFILES: dict[str, VehicleProfile] = {
@@ -57,6 +58,12 @@ VEHICLE_PROFILES: dict[str, VehicleProfile] = {
     "ambulance": VehicleProfile("ambulance", "Ambulance", 8.0, 0.25, 0.20, 50.0),
     "rescue_atv": VehicleProfile("rescue_atv", "Rescue ATV", 20.0, 0.60, 0.60, 40.0),
     "suv_4x4": VehicleProfile("suv_4x4", "4x4 SUV", 16.0, 0.50, 0.45, 60.0),
+    # Aerial: no ground route is planned. The assessment instead searches
+    # for a LANDING ZONE near the destination (flat, open, low roughness)
+    # and reports a straight flight line; denial means "no viable LZ".
+    "rescue_chopper": VehicleProfile(
+        "rescue_chopper", "Rescue Chopper", 6.0, 0.30, 0.35, 140.0, is_aerial=True
+    ),
 }
 
 CLASS_GRID_CAP = 1024          # classification grid long-side cap
@@ -247,7 +254,10 @@ def find_path(
     cg = (goal[0] // f2, goal[1] // f2)
     coarse_path = _astar(coarse_cost, coarse_blocked, cs, cg)
     if coarse_path is None:
-        return None
+        # The coarse abstraction can disconnect regions the fine grid
+        # traverses (block-mean thresholding is lossy) — fall back to the
+        # full fine search so reachability verdicts stay consistent.
+        return _astar(cost, blocked, start, goal)
 
     # Corridor mask around the coarse path (matplotlib-free dilation via
     # scipy's binary dilation on the path cells).
@@ -262,7 +272,11 @@ def find_path(
 
     # Corridor-restricted fine search: everything outside is "blocked".
     fine_blocked = blocked | ~mask
-    return _astar(cost, fine_blocked, start, goal)
+    fine_path = _astar(cost, fine_blocked, start, goal)
+    if fine_path is not None:
+        return fine_path
+    # Ribbon too tight for the actual fine topology — unrestricted retry.
+    return _astar(cost, blocked, start, goal)
 
 
 # ── reachability (island detection) ───────────────────────────────────────
@@ -288,6 +302,35 @@ def nearest_reachable(
     d2 = (xs - target[1]) ** 2 + (ys - target[0]) ** 2
     i = int(np.argmin(d2))
     return int(ys[i]), int(xs[i])
+
+
+def nearest_standable(
+    grid: PassabilityGrid, target: tuple[int, int], radius: int
+) -> tuple[int, int] | None:
+    """Closest non-blocked cell to ``target`` within ``radius`` (Chebyshev
+    ring search on the classification grid). None when everything nearby
+    is blocked for this vehicle."""
+    th, tw = grid.classes.shape
+    ty, tx = target
+    r0 = min(radius, max(th, tw))
+    for r in range(1, r0 + 1):
+        best = None
+        best_d2 = None
+        y0, y1 = max(0, ty - r), min(th - 1, ty + r)
+        x0, x1 = max(0, tx - r), min(tw - 1, tx + r)
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                # ring-only after the first pass keeps it cheap
+                if r > 1 and max(abs(y - ty), abs(x - tx)) != r:
+                    continue
+                if grid.classes[y, x] == 2:
+                    continue
+                d2 = (y - ty) ** 2 + (x - tx) ** 2
+                if best_d2 is None or d2 < best_d2:
+                    best_d2, best = d2, (y, x)
+        if best is not None:
+            return best
+    return None
 
 
 # ── assessment orchestration ───────────────────────────────────────────────
@@ -370,6 +413,8 @@ class RouteService:
     def _assess_vehicle(
         self, scene_id, dsm, gsd, profile, start, goal, geo
     ) -> dict[str, Any]:
+        if profile.is_aerial:
+            return self._assess_chopper(dsm, gsd, profile, start, goal, geo)
         grid = classify_grid(dsm, gsd, profile)
         f = grid.factor
         gstart = (start[0] // f, start[1] // f)
@@ -385,35 +430,53 @@ class RouteService:
             },
         }
 
-        # Start/goal themselves on blocked terrain: honest immediate no.
-        for role, cell in (("start", gstart), ("end", ggoal)):
-            if grid.classes[cell] == 2:
+        # Picks that land on blocked or disconnected ground are snapped to
+        # the nearest standable / reachable cell (within a bounded radius)
+        # instead of refusing outright — a clicked pixel is an intent, and
+        # the job of the router is to make it work where physically possible.
+        snap_radius_cells = 64  # ~1/8 of the typical grid per axis
+        snapped: dict[str, bool] = {}
+
+        if grid.classes[gstart] == 2:
+            alt = nearest_standable(grid, gstart, snap_radius_cells)
+            if alt is None:
                 result.update(
                     verdict="CANNOT_GO",
-                    reasons=[f"The {role} point is on terrain this vehicle "
-                             f"cannot stand on (blocked cell)."],
+                    reasons=["No standable ground for this vehicle anywhere "
+                             "near the start point."],
                     path=None,
                 )
                 return result
+            gstart = alt
+            snapped["start"] = True
 
         labels, component = reachability(grid, gstart)
         if labels[ggoal] != component:
             detour = nearest_reachable(labels, component, ggoal)
-            reasons = [
-                "The destination is on ground disconnected from the start "
-                "by passable terrain for this vehicle (blocked by slope, "
-                "steps or roughness)."
-            ]
-            if detour is not None:
-                reasons.append(
-                    "Nearest reachable point to the destination suggested "
-                    "as a detour target."
+            if detour is None:
+                result.update(
+                    verdict="CANNOT_GO",
+                    reasons=["No passable ground reachable from the start "
+                             "for this vehicle."],
+                    path=None,
                 )
+                return result
+            dy = math.hypot(detour[0] - ggoal[0], detour[1] - ggoal[1])
+            if dy > snap_radius_cells:
                 result["detour_pixel"] = {
                     "x": detour[1] * f, "y": detour[0] * f,
                 }
-            result.update(verdict="CANNOT_GO", reasons=reasons, path=None)
-            return result
+                result.update(
+                    verdict="CANNOT_GO",
+                    reasons=["The destination is too far from any ground "
+                             "reachable by this vehicle to route to.",
+                             "Nearest reachable point to the destination "
+                             "suggested as a detour target."],
+                    path=None,
+                )
+                return result
+            ggoal = detour
+            snapped["end"] = True
 
         grid_path = find_path(grid, gstart, ggoal)
         if grid_path is None:
@@ -445,6 +508,16 @@ class RouteService:
 
         verdict = "CAN_GO"
         reasons: list[str] = []
+        if snapped.get("start"):
+            reasons.append(
+                "Start point snapped to the nearest standable ground for "
+                "this vehicle."
+            )
+        if snapped.get("end"):
+            reasons.append(
+                "Destination snapped to the nearest reachable ground for "
+                "this vehicle."
+            )
         if caution_frac > 0.30:
             verdict = "CAUTION"
             reasons.append(
@@ -458,6 +531,8 @@ class RouteService:
                 "10% of this vehicle's limit."
             )
 
+        if snapped:
+            result["snapped"] = snapped
         pixel_path = [
             {"x": int(y * f), "y": int(x * f)} for x, y in grid_path
         ]
@@ -484,6 +559,164 @@ class RouteService:
                     ],
                 },
                 "properties": {"vehicle": profile.key, "verdict": verdict},
+            }
+        return result
+
+    # -- aerial assessment (rescue chopper) ----------------------------------
+
+    LZ_RADIUS_M = 25.0          # search radius around the destination
+    LZ_MIN_PATCH_CELLS = 3      # ≥3×3 free cells ≈ a pad the chopper fits on
+
+    @staticmethod
+    def _straight_line(
+        start: tuple[int, int], goal: tuple[int, int]
+    ) -> list[tuple[int, int]]:
+        """Grid cells along the start→goal segment (Bresenham-style)."""
+        x0, y0 = start
+        x1, y1 = goal
+        n = max(abs(x1 - x0), abs(y1 - y0), 1)
+        return [
+            (int(round(x0 + (x1 - x0) * i / n)),
+             int(round(y0 + (y1 - y0) * i / n)))
+            for i in range(n + 1)
+        ]
+
+    def _assess_chopper(
+        self, dsm, gsd, profile, start, goal, geo
+    ) -> dict[str, Any]:
+        """Aerial verdict: fly start→destination directly, but only if a
+        viable LANDING ZONE exists near the destination. No LZ ⇒ denial."""
+        grid = classify_grid(dsm, gsd, profile)
+        f = grid.factor
+        cell_m = (gsd * f) if gsd is not None else float(f)
+
+        result: dict[str, Any] = {
+            "vehicle": profile.key,
+            "vehicle_label": profile.label,
+            "limits": {
+                "max_slope_deg": profile.max_slope_deg,
+                "max_step_m": profile.max_step_m,
+                "max_roughness_m": profile.max_roughness_m,
+            },
+        }
+
+        ggoal = (goal[0] // f, goal[1] // f)
+        radius_cells = max(1, int(self.LZ_RADIUS_M / max(cell_m, 1e-6)))
+
+        # Landing patch = free cell whose (LZ_MIN_PATCH_CELLS)² neighbourhood
+        # is entirely free — guarantees a pad of at least ~3×3 cells.
+        from scipy.ndimage import uniform_filter
+
+        free = (grid.classes == 0).astype(np.float32)
+        patch = uniform_filter(free, size=self.LZ_MIN_PATCH_CELLS) >= 0.999
+
+        h, w = patch.shape
+        x0 = max(0, ggoal[0] - radius_cells)
+        x1 = min(h, ggoal[0] + radius_cells + 1)
+        y0 = max(0, ggoal[1] - radius_cells)
+        y1 = min(w, ggoal[1] + radius_cells + 1)
+        window = patch[x0:x1, y0:y1]
+
+        if not window.any():
+            result.update(
+                verdict="CANNOT_GO",
+                reasons=[
+                    "No viable landing zone within "
+                    f"{self.LZ_RADIUS_M:.0f}{'m' if gsd is not None else 'px'} "
+                    "of the destination — terrain is too steep, stepped or "
+                    "rough for a rotorcraft touchdown. Chopper request denied."
+                ],
+                path=None,
+                landing_zone=None,
+            )
+            return result
+
+        # Best patch cell: flattest first, then closest to the destination.
+        ys, xs = np.nonzero(window)
+        xs_abs = xs + y0
+        ys_abs = ys + x0
+        slope_c = grid.slope_deg[ys_abs, xs_abs]
+        rough_c = grid.roughness_m[ys_abs, xs_abs]
+        dist_c = np.hypot(ys_abs - ggoal[0], xs_abs - ggoal[1])
+        score = (
+            4.0 * (slope_c / max(profile.max_slope_deg, 1e-6)) ** 2
+            + 2.0 * (rough_c / max(profile.max_roughness_m, 1e-6)) ** 2
+            + dist_c / max(radius_cells, 1)
+        )
+        best = int(np.argmin(score))
+        lz = (int(ys_abs[best]), int(xs_abs[best]))
+        lz_slope = float(grid.slope_deg[lz])
+        lz_step = float(grid.step_m[lz])
+
+        lz_radius_m = radius_cells * cell_m
+        verdict = "CAN_GO"
+        reasons: list[str] = [
+            f"Landing zone found {dist_c[best] * cell_m:.0f}"
+            f"{'m' if gsd is not None else 'px'} from the destination "
+            f"(slope {lz_slope:.1f}°, step {lz_step:.2f}"
+            f"{'m' if gsd is not None else 'px'})."
+        ]
+        if lz_slope > 0.75 * profile.max_slope_deg:
+            verdict = "CAUTION"
+            reasons.append(
+                f"Landing zone slope ({lz_slope:.1f}°) is within 25% of the "
+                "touchdown limit — approach with care."
+            )
+
+        # Flight line: straight start → landing zone, no ground pathfinding.
+        flight = self._straight_line((start[0] // f, start[1] // f), lz)
+        pixel_path = [{"x": int(y * f), "y": int(x * f)} for x, y in flight]
+        seg = np.hypot(*np.diff(np.asarray(flight), axis=0).T) if len(flight) > 1 else np.array([])
+        length_m = float(seg.sum() * cell_m) if seg.size else 0.0
+
+        result.update(
+            verdict=verdict,
+            reasons=reasons,
+            path=pixel_path,
+            landing_zone={
+                "pixel": {"x": int(lz[1] * f), "y": int(lz[0] * f)},
+                "slope_deg": round(lz_slope, 2),
+                "distance_to_goal_m": (
+                    round(float(dist_c[best] * cell_m), 1)
+                    if gsd is not None
+                    else None
+                ),
+                "distance_to_goal_px": (
+                    round(float(dist_c[best] * cell_m), 1)
+                    if gsd is None
+                    else None
+                ),
+                "search_radius_m": (
+                    round(lz_radius_m, 1) if gsd is not None else round(lz_radius_m, 1)
+                ),
+            },
+            path_length_m=length_m if gsd is not None else None,
+            path_length_px=length_m if gsd is None else None,
+            max_slope_on_path_deg=round(lz_slope, 2),
+            max_step_on_path_m=(
+                round(lz_step, 3) if gsd is not None else None
+            ),
+            caution_fraction=0.0,
+            estimated_travel_seconds=(
+                round(length_m / (profile.vmax_kmh / 3.6), 1)
+                if gsd is not None
+                else None
+            ),
+        )
+        if geo is not None:
+            result["path_geojson"] = {
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [
+                        geo["pixel_to_world"](p["x"], p["y"]) for p in pixel_path
+                    ],
+                },
+                "properties": {
+                    "vehicle": profile.key,
+                    "verdict": verdict,
+                    "kind": "flight_line",
+                },
             }
         return result
 
