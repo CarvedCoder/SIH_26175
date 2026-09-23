@@ -1,4 +1,4 @@
-# GAMUS integration configuration — Phase 2/3 of the GAMUS plan.
+1# GAMUS integration configuration — Phase 2/3 of the GAMUS plan.
 #
 # This file makes ONE config cover BOTH datasets:
 #   * paths:  = the DFC2019 Track-1 layout (unchanged, used by dfc2019

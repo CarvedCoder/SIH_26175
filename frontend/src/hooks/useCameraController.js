@@ -29,13 +29,21 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 /* ─── Walkthrough tuning — all speeds in METRES / second ──────────────────
  * The terrain plane is sized to its real-world footprint (world_width_m ×
- * world_depth_m from the backend; see TerrainCanvas), so speeds are physical:
- * 5 m/s is a brisk inspection pace, boost ~4x for crossing large scenes.
- * Vertical is slightly slower for precision. */
-const WALKTHROUGH_SPEED = 5.0;
-const WALKTHROUGH_BOOST_SPEED = 20.0;
-const VERTICAL_SPEED = 4.0;
+ * world_depth_m from the backend; see TerrainCanvas), so speeds are physical.
+ * Normal flight is a fast inspection pace that crosses a full scene in
+ * under a minute; boost (Shift) is a sprint for covering the whole image
+ * in seconds. Vertical is faster too so overflying ridges is effortless. */
+const WALKTHROUGH_SPEED = 16.0;
+const WALKTHROUGH_BOOST_SPEED = 60.0;
+const VERTICAL_SPEED = 14.0;
 const MOUSE_SENSITIVITY = 0.0022;
+
+/* ─── Walkthrough field of view ────────────────────────────────────────────
+ * Orbit inspection uses a tighter 45° lens; walkthrough switches to a wide
+ * 72° human FOV so the terrain fills the view and reads at real-world
+ * scale — the single biggest lever for "I am standing there" immersion. */
+const WALKTHROUGH_FOV = 72;
+const WALKTHROUGH_FOV_EXIT = 45;
 
 /* ─── Motion smoothing (Google-Maps-style damped movement) ─────────────────
  * The walkthrough never starts or stops at full speed: actual velocity is
@@ -178,7 +186,8 @@ export function useCameraController({ canvasRef, glRef }) {
   }, []);
 
   /** Tear down walkthrough interaction: keys, joystick, lock flag, browser
-   * pointer lock */
+   * pointer lock. Also restores the orbit FOV — walkthrough widens it for
+   * a full-scale, eyes-on-the-ground feel. */
   const exitWalkthrough = useCallback(() => {
     const fp = fpState.current;
     fp.active = false;
@@ -190,6 +199,11 @@ export function useCameraController({ canvasRef, glRef }) {
     fp.vel.x = 0;
     fp.vel.y = 0;
     fp.vel.z = 0;
+    const g = glRef.current;
+    if (g.camera && g.camera.fov !== WALKTHROUGH_FOV_EXIT) {
+      g.camera.fov = WALKTHROUGH_FOV_EXIT;
+      g.camera.updateProjectionMatrix();
+    }
     if (document.pointerLockElement) {
       try { document.exitPointerLock(); } catch { /* ignore */ }
     }
@@ -246,6 +260,9 @@ export function useCameraController({ canvasRef, glRef }) {
       fp.vel.y = 0;
       fp.vel.z = 0;
       g.camera.position.set(0, startH, d * 0.05);
+      // Wide human FOV — the terrain fills the view at real-world scale
+      g.camera.fov = WALKTHROUGH_FOV;
+      g.camera.updateProjectionMatrix();
       applyLook(g.camera, fp);
     }
   }, [glRef, sampleVisualHeight, applyLook, exitWalkthrough]);

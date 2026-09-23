@@ -21,6 +21,15 @@ from backend.app.schemas.terrain import (
     TerrainScene,
 )
 
+def get_validation_rmse(scene_id: str):
+    """Validation RMSE for the scene, or None when unavailable."""
+    from backend.app.services.validation_service import get_validation
+    try:
+        return get_validation(scene_id).metrics.rmse
+    except Exception:
+        return None
+
+
 class TerrainService:
     """Builds a normalized terrain representation from DepthWizard outputs."""
 
@@ -574,13 +583,7 @@ class TerrainService:
                 "units": "meters",
             }
 
-        rmse = None
-        try:
-            from backend.app.services.validation_service import get_validation
-
-            rmse = get_validation(scene_id).metrics.rmse
-        except Exception:
-            rmse = None
+        rmse = get_validation_rmse(scene_id)
 
         if rmse is not None and span > 1e-6:
             percent = int(round(max(5.0, min(99.0, 100.0 * (1.0 - rmse / span)))))
@@ -603,12 +606,56 @@ class TerrainService:
                 "basis": "Relative DSM — scene-scale depths, not metric-calibrated",
             }
 
+        # Local ground level + structure height: the ground around the
+        # sampled pixel is the low percentile of the DSM in a window
+        # (~GROUND_WINDOW px) — roofs and other elevated structures stand
+        # out against it. This is a GEOMETRIC estimate from the predicted
+        # surface, stated as such (no fabricated accuracy).
+        gw = 64
+        hy, hx = dsm.shape
+        y0, y1 = max(0, y - gw // 2), min(hy, y + gw // 2)
+        x0, x1 = max(0, x - gw // 2), min(hx, x + gw // 2)
+        patch = dsm[y0:y1, x0:x1]
+        ground = float(np.nanpercentile(patch, 10.0))
+        height_ag = raw - ground
+        is_structure = bool(np.isfinite(height_ag) and height_ag >= 2.0)
+
         return {
             "elevation": raw,
             "metered": True,
             "precision_m": precision_m,
             "confidence": confidence,
+            "ground_elevation": ground if np.isfinite(ground) else None,
+            "height_above_ground_m": float(height_ag) if np.isfinite(height_ag) else None,
+            "is_structure": is_structure,
+            "height_confidence": self._height_confidence(scene_id),
             "units": "meters",
+        }
+
+    def _height_confidence(self, scene_id: str) -> dict:
+        """Honest accuracy statement for the geometric structure-height
+        estimate. Without a validated reference the scale itself is the
+        limiting factor, so the basis says exactly what is trusted."""
+        try:
+            rmse = get_validation_rmse(scene_id)
+            if rmse is not None:
+                return {
+                    "level": "high",
+                    "percent": None,
+                    "basis": f"Geometric height on a DSM validated against a reference DEM (RMSE {rmse:.2f} m)",
+                }
+        except Exception:
+            pass
+        if self._pixel_size(scene_id) is not None:
+            return {
+                "level": "medium",
+                "percent": None,
+                "basis": "Geometric height on a CRS-calibrated metric DSM",
+            }
+        return {
+            "level": "medium",
+            "percent": None,
+            "basis": "Geometric height at the documented 1 m/pixel fallback scale — no ground truth available",
         }
 
     def measure_height(

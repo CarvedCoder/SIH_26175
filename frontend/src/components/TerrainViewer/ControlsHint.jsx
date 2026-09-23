@@ -24,7 +24,7 @@ const STORAGE_KEY = 'dw_controls_hint_collapsed';
  *   cameraMode: 'orbit'|'first-person'|'top',
  * }} props
  */
-export default function ControlsHint({ cameraMode = 'orbit' }) {
+export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) {
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === 'true';
@@ -94,7 +94,7 @@ export default function ControlsHint({ cameraMode = 'orbit' }) {
       style={{
         position: 'absolute',
         bottom: 60,
-        left: 16,
+        left: leftOffset,
         zIndex: 11,
         maxWidth: 'calc(100vw - 32px)',
         pointerEvents: 'auto',

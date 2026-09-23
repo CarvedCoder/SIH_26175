@@ -8,7 +8,7 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
   const [view, setView] = useState(initialView);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const { signInWithPassword, signUpWithPassword } = useAuth();
+  const { signInWithPassword, signUpWithPassword, supabaseConfigured } = useAuth();
 
   // Real Supabase authentication: email/password via the auth context.
   // The backend later derives the user id from the verified JWT sub —
@@ -23,6 +23,11 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
     const password = passwordInput?.value || '';
     if (!email || !password) {
       setError('Email and password are required.');
+      return;
+    }
+    // Local mode has no server-side policy — enforce the advertised rule.
+    if (!supabaseConfigured && password.length < 8) {
+      setError('Password must be at least 8 characters long.');
       return;
     }
 
@@ -79,6 +84,16 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
 
       {/* Auth Card Container */}
       <div className="w-full max-w-4xl relative z-10 pt-16 sm:pt-0">
+        {!supabaseConfigured && (
+          <div
+            role="status"
+            className="mb-4 px-4 py-3 rounded-lg bg-amber-950/50 border border-amber-800 text-amber-200 text-sm text-center"
+          >
+            Local mode — Supabase is not configured. Accounts stay on this
+            device only; enter any email and a password (8+ characters) to
+            continue.
+          </div>
+        )}
         {error && (
           <div role="alert" className="mb-4 px-4 py-3 rounded-lg bg-red-950/60 border border-red-800 text-red-200 text-sm text-center">
             {error}

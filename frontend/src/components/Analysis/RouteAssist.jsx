@@ -11,7 +11,7 @@
  */
 import { forwardRef, useImperativeHandle, useState } from 'react';
 import { Route, RotateCcw, AlertTriangle } from 'lucide-react';
-import { VEHICLES, VERDICT_META } from '../../api/route.js';
+import { VEHICLES, VERDICT_META, fmtDistance } from '../../api/route.js';
 
 const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
   const [phase, setPhase] = useState('pick-start'); // pick-start | pick-end | assessing | done
@@ -160,7 +160,14 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
         <div style={{ color: '#8fb0ff' }}>Click the START point on the terrain…</div>
       )}
       {phase === 'pick-end' && (
-        <div style={{ color: '#8fb0ff' }}>Click the DESTINATION point…</div>
+        <div style={{ color: '#8fb0ff' }}>
+          Click the DESTINATION point…
+          {vehicles.includes('rescue_chopper') && (
+            <span style={{ color: '#6d7f9f' }}>
+              {' '}the chopper will look for a landing zone near it.
+            </span>
+          )}
+        </div>
       )}
       {phase === 'assessing' && <div style={{ color: '#8fb0ff' }}>Assessing routes…</div>}
       {error && (
@@ -217,7 +224,15 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                 {v.path_length_m != null && (
                   <>
                     <span>Length</span>
-                    <span style={{ color: '#cfe0ff' }}>{v.path_length_m.toFixed(0)} m</span>
+                    <span style={{ color: '#cfe0ff' }}>{fmtDistance(v.path_length_m)}</span>
+                  </>
+                )}
+                {v.landing_zone?.distance_to_goal_m != null && (
+                  <>
+                    <span>LZ→target</span>
+                    <span style={{ color: '#cfe0ff' }}>
+                      {fmtDistance(v.landing_zone.distance_to_goal_m)}
+                    </span>
                   </>
                 )}
                 {v.estimated_travel_seconds != null && (
@@ -238,6 +253,30 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                     <span style={{ color: '#cfe0ff' }}>{v.max_step_on_path_m} m</span>
                   </>
                 )}
+              </div>
+            )}
+
+            {v.landing_zone && (
+              <div
+                data-testid={`route-lz-${v.vehicle}`}
+                style={{
+                  marginTop: 8,
+                  padding: '6px 8px',
+                  borderRadius: 6,
+                  border: '1px dashed rgba(91,140,255,0.45)',
+                  background: 'rgba(91,140,255,0.08)',
+                  color: '#8fb0ff',
+                }}
+              >
+                <div style={{ fontWeight: 700, letterSpacing: 1, fontSize: 10 }}>
+                  ⛉ LANDING ZONE (pix {v.landing_zone.pixel?.x}, {v.landing_zone.pixel?.y})
+                </div>
+                <div style={{ marginTop: 2, color: '#a9bcdc' }}>
+                  Slope {v.landing_zone.slope_deg}° ·
+                  {' '}{v.landing_zone.distance_to_goal_m != null
+                    ? `${fmtDistance(v.landing_zone.distance_to_goal_m)} from target`
+                    : `${v.landing_zone.distance_to_goal_px} px from target`}
+                </div>
               </div>
             )}
 

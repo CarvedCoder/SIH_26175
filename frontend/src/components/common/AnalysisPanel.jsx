@@ -76,6 +76,7 @@ import {
  */
 export default function AnalysisPanel({
   open = true,
+  rightOffset = 280,
   onToggle,
   selectedLocation = null,
   selectedStructure = null,
@@ -96,7 +97,7 @@ export default function AnalysisPanel({
   const { state } = useApp();
 
   const isAbsolute = state.results?.elevation_mode === 'absolute';
-  const unitLabel  = isAbsolute ? 'm' : 'scene units';
+  const unitLabel = 'm'; // world scale is metres (1 m/pixel documented fallback)
 
   // Internal scenario state if not controlled externally
   const [internalScenario, setInternalScenario] = useState('exploration');
@@ -131,7 +132,9 @@ export default function AnalysisPanel({
       style={{
         position: 'absolute',
         top: 0,
-        right: 0,
+        // Sit to the LEFT of the docked terrain-controls panel (280px) so
+        // the two never overlap — the drawer slides out beside it.
+        right: rightOffset,
         bottom: 0,
         width: 'min(var(--dw-panel-w, 320px), 100vw)',
         maxWidth: '100vw',
@@ -140,8 +143,11 @@ export default function AnalysisPanel({
         zIndex: 15,
         display: 'flex',
         flexDirection: 'column',
-        transform: open ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 200ms ease-out',
+        // Closed: fully off-screen (beyond the dock offset) AND
+        // visibility:hidden so it can't be hit, painted, or scrolled to.
+        transform: open ? 'translateX(0)' : `translateX(calc(100% + ${rightOffset}px))`,
+        visibility: open ? 'visible' : 'hidden',
+        transition: 'transform 200ms ease-out, visibility 200ms ease-out',
         pointerEvents: open ? 'auto' : 'none',
       }}
     >

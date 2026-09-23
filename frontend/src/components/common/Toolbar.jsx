@@ -27,9 +27,6 @@ import { useApp } from '../../store/appStore.jsx';
 import {
   Layers,
   Ruler,
-  GitCompare,
-  Mountain,
-  Camera,
   RotateCcw,
   Grid3x3,
   Spline,
@@ -78,19 +75,11 @@ export default function Toolbar({
   // entry disables the matching Compare/Layers item with a visible reason.
   const avail = { dsm: true, reference: true, error: true, ...(layerAvailability ?? {}) };
   const { state } = useApp();
-  const [openMenu, setOpenMenu] = useState(null); // 'layers' | 'measure' | 'compare' | 'terrain' | 'camera' | null
+  const [openMenu, setOpenMenu] = useState(null); // 'layers' | 'measure' | 'export' | null
   const toolbarRef = useRef(null);
 
-  // Terrain settings state (default 2.5× — true-metric relief over a wide
-  // footprint reads pancake-flat at 1×; matches TerrainCanvas initial value)
-  const [exaggeration, setExaggeration] = useState(2.5);
-  const [wireframe, setWireframe]       = useState(false);
-  const [contours, setContours]         = useState(false);
-  const [contourInterval, setContourInterval] = useState(5);
-  const [fog, setFog]                   = useState(false);
-
   const isAbsolute = state.results?.elevation_mode === 'absolute';
-  const unitLabel  = isAbsolute ? 'm' : 'scene-units';
+  const unitLabel = 'm'; // world scale is metres (1 m/pixel documented fallback)
 
   // Close menus on outside click or ESC key
   useEffect(() => {
@@ -121,47 +110,10 @@ export default function Toolbar({
     terrainRef.current?.setWireframe(false);
     terrainRef.current?.setContours(false, 5);
     terrainRef.current?.setFog?.(false);
-    setExaggeration(2.5);
-    setWireframe(false);
-    setContours(false);
-    setContourInterval(5);
-    setFog(false);
     onSetCameraMode('orbit');
     onSelectTool('none');
     setOpenMenu(null);
   }, [terrainRef, onSetCameraMode, onSelectTool]);
-
-  /* ── Terrain control handlers ── */
-  function handleExaggerationChange(v) {
-    setExaggeration(v);
-    terrainRef.current?.setExaggeration(v);
-  }
-
-  function handleWireframeToggle() {
-    const next = !wireframe;
-    setWireframe(next);
-    terrainRef.current?.setWireframe(next);
-  }
-
-  function handleContoursToggle() {
-    const next = !contours;
-    setContours(next);
-    terrainRef.current?.setContours(next, contourInterval);
-  }
-
-  function handleContourIntervalChange(val) {
-    const safe = Math.max(1, parseFloat(val) || 1);
-    setContourInterval(safe);
-    if (contours) {
-      terrainRef.current?.setContours(true, safe);
-    }
-  }
-
-  function handleFogToggle() {
-    const next = !fog;
-    setFog(next);
-    terrainRef.current?.setFog?.(next);
-  }
 
   return (
     <footer
@@ -202,35 +154,8 @@ export default function Toolbar({
       />
 
       {/* ── 3. Compare Menu ── */}
-      <ToolbarItem
-        id="compare"
-        label="Compare"
-        icon={GitCompare}
-        isOpen={openMenu === 'compare'}
-        isActive={activeLayer === 'reference_dem' || activeLayer === 'error'}
-        onToggle={() => toggleMenu('compare')}
-      />
-
       {/* ── 4. Terrain Menu ── */}
-      <ToolbarItem
-        id="terrain"
-        label="Terrain"
-        icon={Mountain}
-        isOpen={openMenu === 'terrain'}
-        isActive={wireframe || contours || fog || exaggeration !== 2.5}
-        onToggle={() => toggleMenu('terrain')}
-      />
-
       {/* ── 5. Camera Menu ── */}
-      <ToolbarItem
-        id="camera"
-        label="Camera"
-        icon={Camera}
-        isOpen={openMenu === 'camera'}
-        isActive={cameraMode !== 'orbit'}
-        onToggle={() => toggleMenu('camera')}
-      />
-
       {/* ── Spacer ── */}
       <div style={{ flex: 1 }} />
 
@@ -284,13 +209,13 @@ export default function Toolbar({
         <PopoverPanel title="LAYERS" onClose={() => setOpenMenu(null)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {[
-              { id: 'buildings',     label: 'Buildings (Solid Blocks)', disabled: false },
+              { id: 'solid',         label: 'Solid (Shaded Relief)' },
               { id: 'rgb',           label: 'RGB (Color Photo)' },
               { id: 'depth',         label: 'Depth Map (Greyscale)' },
+              { id: 'passability',   label: 'Passability Heat Map (Vehicle Risk)' },
               { id: 'dsm',           label: isAbsolute ? 'Absolute DSM (Metric)' : 'Relative DSM', disabled: !avail.dsm },
               { id: 'reference_dem', label: 'Reference DEM (SRTM)', disabled: !avail.reference },
               { id: 'slope',         label: 'Slope Layer (Viridis)' },
-              { id: 'passability',   label: 'Passability (Risk)' },
               { id: 'error',         label: 'Error Map (Diverging)', disabled: !avail.error },
             ].map(l => (
               <PopoverButton
@@ -304,6 +229,19 @@ export default function Toolbar({
                 }}
               />
             ))}
+            {onOpenValidation && (
+              <>
+                <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
+                <PopoverButton
+                  label="Validation Accuracy Metrics"
+                  icon={ShieldCheck}
+                  onClick={() => {
+                    onOpenValidation();
+                    setOpenMenu(null);
+                  }}
+                />
+              </>
+            )}
           </div>
         </PopoverPanel>
       )}
@@ -330,232 +268,6 @@ export default function Toolbar({
                   // Pass the tool id — the workspace owns the toggle logic
                   // (selecting the active tool again deactivates it).
                   onSelectTool(m.id);
-                  setOpenMenu(null);
-                }}
-              />
-            ))}
-          </div>
-        </PopoverPanel>
-      )}
-
-      {/* Popover 3: Compare */}
-      {openMenu === 'compare' && (
-        <PopoverPanel title="COMPARE" onClose={() => setOpenMenu(null)}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <PopoverButton
-              label="Buildings (Solid Blocks)"
-              active={activeLayer === 'buildings'}
-              onClick={() => {
-                onSelectLayer('buildings');
-                setOpenMenu(null);
-              }}
-            />
-            <PopoverButton
-              label={avail.dsm ? 'Estimated DSM' : 'Estimated DSM (not processed)'}
-              disabled={!avail.dsm}
-              active={activeLayer === 'dsm'}
-              onClick={() => {
-                onSelectLayer('dsm');
-                setOpenMenu(null);
-              }}
-            />
-            <PopoverButton
-              label={avail.reference ? 'Reference DEM' : 'Reference DEM (unavailable)'}
-              disabled={!avail.reference}
-              active={activeLayer === 'reference_dem'}
-              onClick={() => {
-                onSelectLayer('reference_dem');
-                setOpenMenu(null);
-              }}
-            />
-            <PopoverButton
-              label={avail.error ? 'Error Difference Overlay' : 'Error Overlay (needs validation)'}
-              disabled={!avail.error}
-              active={activeLayer === 'error'}
-              onClick={() => {
-                onSelectLayer('error');
-                setOpenMenu(null);
-              }}
-            />
-            {!avail.dsm && (
-              <p style={{
-                margin: '2px 0 0',
-                fontFamily: 'var(--dw-font-ui)',
-                fontSize: 12,
-                lineHeight: 1.45,
-                color: 'var(--dw-fg-ghost)',
-              }}>
-                Run the Absolute DSM pipeline for this scene to unlock comparison layers.
-              </p>
-            )}
-            {onOpenValidation && (
-              <>
-                <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
-                <PopoverButton
-                  label="Validation Accuracy Metrics"
-                  icon={ShieldCheck}
-                  onClick={() => {
-                    onOpenValidation();
-                    setOpenMenu(null);
-                  }}
-                />
-              </>
-            )}
-          </div>
-        </PopoverPanel>
-      )}
-
-      {/* Popover 4: Terrain */}
-      {openMenu === 'terrain' && (
-        <PopoverPanel title="TERRAIN SETTINGS" onClose={() => setOpenMenu(null)}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* Exaggeration */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
-                  Exaggeration
-                </span>
-                <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 13, color: 'var(--dw-fg)' }}>
-                  {exaggeration.toFixed(1)}×
-                </span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={5}
-                step={0.1}
-                value={exaggeration}
-                onChange={e => handleExaggerationChange(parseFloat(e.target.value))}
-                aria-label="Terrain vertical exaggeration"
-                style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--dw-accent)' }}
-              />
-            </div>
-
-            {/* Wireframe Toggle */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
-                Wireframe Mesh
-              </span>
-              <button
-                onClick={handleWireframeToggle}
-                aria-pressed={wireframe}
-                style={{
-                  height: 28,
-                  padding: '0 10px',
-                  background: wireframe ? 'var(--dw-surface)' : 'none',
-                  border: wireframe ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
-                  borderRadius: 'var(--dw-radius-sm)',
-                  fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 12.5,
-                  color: wireframe ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                {wireframe ? 'Enabled' : 'Disabled'}
-              </button>
-            </div>
-
-            {/* Contours Toggle & Interval */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
-                  Contour Lines
-                </span>
-                <button
-                  onClick={handleContoursToggle}
-                  aria-pressed={contours}
-                  style={{
-                    height: 28,
-                    padding: '0 10px',
-                    background: contours ? 'var(--dw-surface)' : 'none',
-                    border: contours ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
-                    borderRadius: 'var(--dw-radius-sm)',
-                    fontFamily: 'var(--dw-font-ui)',
-                    fontSize: 12.5,
-                    color: contours ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
-                    cursor: 'pointer',
-                    outline: 'none',
-                  }}
-                >
-                  {contours ? 'Enabled' : 'Disabled'}
-                </button>
-              </div>
-
-              {contours && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12, color: 'var(--dw-fg-ghost)' }}>
-                    Interval ({unitLabel}):
-                  </span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={500}
-                    step={1}
-                    value={contourInterval}
-                    onChange={e => handleContourIntervalChange(e.target.value)}
-                    aria-label={`Contour interval in ${unitLabel}`}
-                    style={{
-                      width: 60,
-                      height: 28,
-                      background: 'var(--dw-surface)',
-                      border: '1px solid var(--dw-rim)',
-                      borderRadius: 'var(--dw-radius-sm)',
-                      padding: '0 6px',
-                      fontFamily: 'var(--dw-font-data)',
-                      fontSize: 13,
-                      color: 'var(--dw-fg)',
-                      textAlign: 'right',
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Fog Toggle (§20, task 19.4) */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
-                Atmospheric Fog
-              </span>
-              <button
-                onClick={handleFogToggle}
-                aria-pressed={fog}
-                style={{
-                  height: 28,
-                  padding: '0 10px',
-                  background: fog ? 'var(--dw-surface)' : 'none',
-                  border: fog ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
-                  borderRadius: 'var(--dw-radius-sm)',
-                  fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 12.5,
-                  color: fog ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
-                  cursor: 'pointer',
-                  outline: 'none',
-                }}
-              >
-                {fog ? 'Enabled' : 'Disabled'}
-              </button>
-            </div>
-          </div>
-        </PopoverPanel>
-      )}
-
-      {/* Popover 5: Camera */}
-      {openMenu === 'camera' && (
-        <PopoverPanel title="CAMERA MODE" onClose={() => setOpenMenu(null)}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {[
-              { id: 'orbit',        label: 'Orbit (Arcball View)' },
-              { id: 'first-person', label: 'Walkthrough (Free Flight)' },
-              { id: 'top',          label: 'Top View (Overhead 2D)' },
-            ].map(c => (
-              <PopoverButton
-                key={c.id}
-                label={c.label}
-                active={cameraMode === c.id}
-                onClick={() => {
-                  terrainRef.current?.setCameraMode(c.id);
-                  onSetCameraMode(c.id);
                   setOpenMenu(null);
                 }}
               />

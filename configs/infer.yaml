@@ -11,7 +11,7 @@ paths:
 infer:
   # Flagship checkpoint (rgb_cos). Train your own with:
   #   python model.py train --use-rgb --cosine --out-tag rgb_cos
-  checkpoint: outputs/calib_net/rgb_cos/best.pt
+  checkpoint: outputs/calib_net/mixed_slope_005_retrained/best.pt
   device: auto                  # auto | cuda | cpu
   mode: auto                    # auto | crop | resize | tiles
   # Live Depth-Anything-V2 when no cached Dn exists (arbitrary uploads).

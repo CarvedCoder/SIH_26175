@@ -48,7 +48,7 @@ const TRAIL_MAX = 200;
  *   selectedPoint: { x: number, z: number }|null,
  * }} props
  */
-export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMeta, selectedPoint }) {
+export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMeta, selectedPoint, leftOffset = 12, rgbUrl }) {
   const [collapsed, setCollapsed] = useState(false);
   const canvasRef   = useRef(null);
   const bgRef       = useRef(null);  // loaded HTMLImageElement for the source photo
@@ -57,14 +57,17 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMe
   const rafRef      = useRef(null);
 
   /* ── Load background image ─────────────────────────────────────────── */
+  // Prefer the RGB drape of the scene (what the user actually uploaded);
+  // the minimap artifact is a heightmap render and reads as a gray blob.
+  const imageUrl = rgbUrl ?? minimapMeta?.url ?? minimapMeta?.image_url ?? null;
   useEffect(() => {
-    const imageUrl = resolveAssetUrl(minimapMeta?.url ?? minimapMeta?.image_url ?? null);
-    if (!imageUrl) return;
+    const resolved = resolveAssetUrl(imageUrl);
+    if (!resolved) return;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => { bgRef.current = img; };
-    img.src = imageUrl;
-  }, [minimapMeta?.url, minimapMeta?.image_url]);
+    img.src = resolved;
+  }, [imageUrl]);
 
   /* ── World → canvas coordinate mapping (task 6.5) ─────────────────── */
   /**
@@ -320,7 +323,7 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMe
         style={{
           position: 'absolute',
           top: 12,
-          left: 12,
+          left: leftOffset,
           zIndex: 12,
           background: 'rgba(13,17,23,0.92)',
           border: '1px solid var(--dw-rim)',
@@ -352,7 +355,7 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMe
       style={{
         position: 'absolute',
         top: 12,
-        left: 12,
+        left: leftOffset,
         width: 'min(var(--dw-minimap-sz, 220px), 45vw)',
         height: 'min(var(--dw-minimap-sz, 220px), 45vw)',
         maxWidth: 220,

@@ -44,8 +44,8 @@ export default function LayerControl({ activeLayer, onLayerChange }) {
   const { state } = useApp();
   const isAbsolute = state.results?.elevation_mode === 'absolute' || state.scene?.is_georeferenced;
   const defaultAvailable = isAbsolute
-    ? ['buildings', 'solid', 'rgb', 'depth', 'dsm', 'reference_dem', 'error', 'slope']
-    : ['buildings', 'solid', 'rgb', 'depth', 'dsm', 'slope'];
+    ? ['solid', 'rgb', 'depth', 'dsm', 'reference_dem', 'error', 'slope']
+    : ['solid', 'rgb', 'depth', 'dsm', 'slope'];
   const availableLayers = state.results?.available_layers ?? defaultAvailable;
 
   return (

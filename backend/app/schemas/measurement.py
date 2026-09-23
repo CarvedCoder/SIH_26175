@@ -29,6 +29,13 @@ class ElevationResponse(BaseModel):
     metered: bool = False
     precision_m: float | None = None
     confidence: ElevationConfidence | None = None
+    # Local ground level (low percentile of the DSM around the point) and
+    # the sampled pixel's height above it — a geometric structure-height
+    # estimate from the predicted surface, present when the sample is valid.
+    ground_elevation: float | None = None
+    height_above_ground_m: float | None = None
+    is_structure: bool = False
+    height_confidence: ElevationConfidence | None = None
 
 
 class HeightMeasureRequest(BaseModel):

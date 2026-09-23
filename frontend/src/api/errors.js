@@ -43,7 +43,7 @@ export const ERROR_DEFINITIONS = {
     title: 'No Georeference Tags Found',
     what: 'This image lacks coordinate reference system (CRS) and spatial resolution tags.',
     why: 'Absolute elevation calibration requires real-world coordinates and geographic bounds.',
-    whatNext: 'You can proceed using the Relative DSM pipeline (in scene units) or upload a georeferenced GeoTIFF.',
+    whatNext: 'You can proceed using the Relative DSM pipeline (1 m/pixel fallback scale) or upload a georeferenced GeoTIFF.',
     recoverable: true,
     canFallbackRelative: true,
   },
