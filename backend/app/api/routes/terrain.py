@@ -100,6 +100,72 @@ async def get_scene_terrain_tiles(
     )
 
 
+@router.get("/{scene_id}/terrain/tile/height")
+async def get_scene_terrain_tile_height(
+    scene_id: str,
+    x: int = Query(..., ge=0),
+    y: int = Query(..., ge=0),
+    z: int = Query(default=0, ge=0, le=8),
+    size: int = Query(default=128, ge=16, le=512),
+):
+    """Return a 16-bit PNG chunk of heights for quadtree tile (x, y) at level z.
+
+    z is the quadtree level (0 = whole raster); x/y are grid indices with
+    0 <= x, y < 2**z, row 0 = north.
+    """
+    from fastapi.responses import Response
+
+    if x >= 2 ** z or y >= 2 ** z:
+        raise AppError(
+            status_code=400,
+            code="TILE_INDEX_OUT_OF_RANGE",
+            message=f"tile indices must satisfy 0 <= x,y < 2**z ({2 ** z} at z={z})",
+            recoverable=True,
+        )
+    _require_depth(scene_id)
+    try:
+        data = terrain_service.get_terrain_tile_height(scene_id, x=x, y=y, z=z, size=size)
+    except Exception as exc:
+        raise AppError(
+            status_code=500,
+            code="TILE_GENERATION_FAILED",
+            message=str(exc),
+            recoverable=True,
+        )
+    return Response(content=data, media_type="image/png")
+
+
+@router.get("/{scene_id}/terrain/tile/texture")
+async def get_scene_terrain_tile_texture(
+    scene_id: str,
+    x: int = Query(..., ge=0),
+    y: int = Query(..., ge=0),
+    z: int = Query(default=0, ge=0, le=8),
+    size: int = Query(default=256, ge=16, le=1024),
+):
+    """Return an RGB PNG chunk of surface imagery for quadtree tile (x, y) at level z."""
+    from fastapi.responses import Response
+
+    if x >= 2 ** z or y >= 2 ** z:
+        raise AppError(
+            status_code=400,
+            code="TILE_INDEX_OUT_OF_RANGE",
+            message=f"tile indices must satisfy 0 <= x,y < 2**z ({2 ** z} at z={z})",
+            recoverable=True,
+        )
+    _require_depth(scene_id)
+    try:
+        data = terrain_service.get_terrain_tile_texture(scene_id, x=x, y=y, z=z, size=size)
+    except Exception as exc:
+        raise AppError(
+            status_code=500,
+            code="TILE_GENERATION_FAILED",
+            message=str(exc),
+            recoverable=True,
+        )
+    return Response(content=data, media_type="image/png")
+
+
 @router.get("/{scene_id}/minimap", response_model=ArtifactUrlResponse)
 async def get_scene_minimap(scene_id: str):
     """Return a small overview image of the predicted terrain."""

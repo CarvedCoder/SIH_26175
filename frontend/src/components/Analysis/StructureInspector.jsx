@@ -70,8 +70,10 @@ const StructureInspector = forwardRef(function StructureInspector(
 
     // Scan nearby radius in heightmap (approx 5x5 neighborhood) to find local peak
     if (g?.heightData && g.hmWidth && g.hmHeight) {
-      const nx = (point.x + 1) / 2;
-      const nz = (point.z + 1) / 2;
+      const worldW = (typeof g.worldWidth === 'number' && g.worldWidth > 0 ? g.worldWidth : 2);
+      const worldD = (typeof g.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2);
+      const nx = point.u != null ? point.u : Math.max(0, Math.min(1, point.x / worldW + 0.5));
+      const nz = point.v != null ? point.v : Math.max(0, Math.min(1, point.z / worldD + 0.5));
       const cx = Math.round(nx * (g.hmWidth - 1));
       const cz = Math.round(nz * (g.hmHeight - 1));
       const radius = 6;

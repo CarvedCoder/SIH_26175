@@ -59,14 +59,19 @@ class TerrainService:
         """Read the spatial metadata required by the terrain API."""
 
         with rasterio.open(path) as dataset:
+            crs_str = (
+                dataset.crs.to_string()
+                if dataset.crs is not None
+                else None
+            )
+            is_proj = bool(getattr(dataset.crs, "is_projected", False)) if dataset.crs else False
+            transform = list(dataset.transform)[:6] if dataset.transform else None
             return {
                 "width": dataset.width,
                 "height": dataset.height,
-                "crs": (
-                    dataset.crs.to_string()
-                    if dataset.crs is not None
-                    else None
-                ),
+                "crs": crs_str,
+                "is_projected": is_proj,
+                "transform": transform,
                 "bounds": {
                     "min_x": float(dataset.bounds.left),
                     "min_y": float(dataset.bounds.bottom),
@@ -264,7 +269,11 @@ class TerrainService:
             )
 
         out_path = self.get_output_dir(scene_id) / "heightmap.png"
-        if out_path.is_file():
+        if (
+            out_path.is_file()
+            and depth_path.is_file()
+            and out_path.stat().st_mtime >= depth_path.stat().st_mtime
+        ):
             return out_path
 
         dsm = np.load(depth_path).astype(np.float32, copy=False)
@@ -814,14 +823,55 @@ class TerrainService:
         stats = result_service._load_array_stats(depth_path)
 
         gsd = self._pixel_size(scene_id)
+        crs = None
+        projected_crs = None
+        transform = None
+        local_origin = [0.0, 0.0, 0.0]
+
+        dsm_raster = files.get("dsm")
+        if dsm_raster is not None and dsm_raster.suffix == ".tif":
+            try:
+                meta = self._read_dsm_metadata(dsm_raster)
+                crs = meta.get("crs")
+                transform = meta.get("transform")
+                if meta.get("is_projected"):
+                    projected_crs = crs
+                b = meta.get("bounds")
+                if b:
+                    local_origin = [
+                        float((b["min_x"] + b["max_x"]) / 2.0),
+                        float((b["min_y"] + b["max_y"]) / 2.0),
+                        float((stats["minimum"] + stats["maximum"]) / 2.0),
+                    ]
+            except Exception:
+                pass
+
         if gsd is not None:
             world_width_m = scene.dimensions.width * gsd[0]
             world_depth_m = scene.dimensions.height * gsd[1]
             is_georeferenced_scale = True
+            gsd_x, gsd_y = float(gsd[0]), float(gsd[1])
         else:
             world_width_m = float(scene.dimensions.width)
             world_depth_m = float(scene.dimensions.height)
             is_georeferenced_scale = False
+            gsd_x, gsd_y = None, None
+
+        tile_size = 256
+        max_lod = max(0, int(np.floor(np.log2(max(scene.dimensions.width, scene.dimensions.height) / tile_size))))
+
+        tile_config = {
+            "tile_size": tile_size,
+            "max_lod": max_lod,
+            "raster_width": int(scene.dimensions.width),
+            "raster_height": int(scene.dimensions.height),
+            "world_width_m": float(world_width_m),
+            "world_depth_m": float(world_depth_m),
+            "gsd_x": gsd_x,
+            "gsd_y": gsd_y,
+            "height_tile_url": f"/api/v1/scenes/{scene_id}/terrain/tile/height",
+            "texture_tile_url": f"/api/v1/scenes/{scene_id}/terrain/tile/texture",
+        }
 
         return {
             "heightmap_url": (
@@ -834,8 +884,146 @@ class TerrainService:
             "world_width_m": float(world_width_m),
             "world_depth_m": float(world_depth_m),
             "is_georeferenced_scale": is_georeferenced_scale,
+            "crs": crs,
+            "projected_crs": projected_crs,
+            "affine_transform": transform,
+            "gsd_x": gsd_x,
+            "gsd_y": gsd_y,
+            "raster_width": int(scene.dimensions.width),
+            "raster_height": int(scene.dimensions.height),
+            "local_origin": local_origin,
+            "tile_config": tile_config,
         }
 
+    @staticmethod
+    def _quadtree_window(full: int, x: int, y: int, z: int) -> tuple[int, int, int, int]:
+        """Fractional-quadtree window for tile (x, y) at level z over a raster axis.
+
+        Level 0 is the whole raster; each level halves the tile extent. Integer
+        boundaries are shared between adjacent tiles (round((i+1)*full/2^z) ==
+        round(((i+1)+1)*full/2^z) start), so neighbouring tiles always sample
+        the same source pixels along their shared edge.
+        """
+        grid = 2 ** z
+        x0 = int(round(x * full / grid))
+        x1 = int(round((x + 1) * full / grid))
+        y0 = int(round(y * full / grid))
+        y1 = int(round((y + 1) * full / grid))
+        if x1 <= x0:
+            x1 = min(full, x0 + 1)
+        if y1 <= y0:
+            y1 = min(full, y0 + 1)
+        return x0, x1, y0, y1
+
+    def get_terrain_tile_height(
+        self, scene_id: str, x: int, y: int, z: int = 0, size: int = 128
+    ) -> bytes:
+        """Render a single 16-bit grayscale PNG chunk of heights for quadtree tile (x, y, z).
+
+        Convention (matches the frontend quadtree exactly):
+          * z is the quadtree level: 0 = the whole raster, each level halves the extent
+          * x, y are tile column and row at that level (0 <= x, y < 2**z), row 0 = north
+          * size is the returned tile resolution (size x size samples, Lanczos-resampled)
+
+        Heights are normalized with the SCENE-GLOBAL min/max so every tile shares
+        the same encoding scale as the full heightmap.
+        """
+        import io
+        import math
+        from PIL import Image
+
+        if z < 0 or z > 8:
+            raise ValueError(f"LOD level z must be in [0, 8], got {z}")
+        grid = 2 ** z
+        if not (0 <= x < grid) or not (0 <= y < grid):
+            raise ValueError(f"tile indices must satisfy 0 <= x,y < 2**z = {grid}")
+
+        tile_cache_dir = self.get_output_dir(scene_id) / "tiles" / "height"
+        tile_cache_path = tile_cache_dir / f"tile_{z}_{x}_{y}_{size}.png"
+        if tile_cache_path.is_file():
+            return tile_cache_path.read_bytes()
+
+        dsm = self._load_dsm_array(scene_id)
+        dsm = self._fill_invalid(dsm)
+        full_h, full_w = dsm.shape
+
+        valid = dsm[np.isfinite(dsm)]
+        if valid.size == 0:
+            raise ValueError(f"DSM for scene '{scene_id}' has no finite values.")
+        lo, hi = float(valid.min()), float(valid.max())
+
+        # Columns resolve against the raster width, rows against the height,
+        # so non-square rasters tile correctly on both axes.
+        x0, x1, _, _ = self._quadtree_window(full_w, x, y, z)
+        _, _, y0, y1 = self._quadtree_window(full_h, x, y, z)
+
+        if x0 >= full_w or y0 >= full_h or x1 <= x0 or y1 <= y0:
+            blank = np.full((size, size), 32768, dtype=np.uint16)
+            buf = io.BytesIO()
+            Image.fromarray(blank, mode="I;16").save(buf, format="PNG")
+            return buf.getvalue()
+
+        patch = dsm[y0:y1, x0:x1]
+
+        if hi - lo < 1e-6:
+            normalized = np.full_like(patch, 0.5)
+        else:
+            normalized = np.clip((patch - lo) / (hi - lo), 0.0, 1.0)
+
+        img = Image.fromarray(normalized.astype(np.float32), mode="F")
+        img = img.resize((size, size), Image.LANCZOS)
+        resized = np.asarray(img, dtype=np.float32)
+
+        encoded = (np.clip(resized, 0.0, 1.0) * 65535.0).round().astype(np.uint16)
+        tile_cache_dir.mkdir(parents=True, exist_ok=True)
+        out_img = Image.fromarray(encoded, mode="I;16")
+        out_img.save(tile_cache_path, format="PNG")
+        buf = io.BytesIO()
+        out_img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    def get_terrain_tile_texture(
+        self, scene_id: str, x: int, y: int, z: int = 0, size: int = 256
+    ) -> bytes:
+        """Render a single RGB PNG chunk of surface imagery for quadtree tile (x, y, z).
+
+        Same fractional-quadtree convention as get_terrain_tile_height: z is the
+        level (0 = whole image), x/y grid indices, tile window resolved per axis
+        so non-square imagery is supported. Row 0 = north/top of the image.
+        """
+        import io
+        from PIL import Image
+
+        if z < 0 or z > 8:
+            raise ValueError(f"LOD level z must be in [0, 8], got {z}")
+        grid = 2 ** z
+        if not (0 <= x < grid) or not (0 <= y < grid):
+            raise ValueError(f"tile indices must satisfy 0 <= x,y < 2**z = {grid}")
+
+        tile_cache_dir = self.get_output_dir(scene_id) / "tiles" / "texture"
+        tile_cache_path = tile_cache_dir / f"tile_{z}_{x}_{y}_{size}.png"
+        if tile_cache_path.is_file():
+            return tile_cache_path.read_bytes()
+
+        rgb_path = self.get_rgb_preview_path(scene_id)
+        with Image.open(rgb_path) as full_img:
+            full_w, full_h = full_img.size
+            x0, x1, _, _ = self._quadtree_window(full_w, x, y, z)
+            _, _, y0, y1 = self._quadtree_window(full_h, x, y, z)
+
+            if x0 >= full_w or y0 >= full_h or x1 <= x0 or y1 <= y0:
+                blank = Image.new("RGB", (size, size), (20, 26, 36))
+                buf = io.BytesIO()
+                blank.save(buf, format="PNG")
+                return buf.getvalue()
+
+            crop = full_img.crop((x0, y0, x1, y1))
+            tile = crop.resize((size, size), Image.LANCZOS)
+            tile_cache_dir.mkdir(parents=True, exist_ok=True)
+            tile.save(tile_cache_path, format="PNG")
+            buf = io.BytesIO()
+            tile.save(buf, format="PNG")
+            return buf.getvalue()
 
 
 terrain_service = TerrainService()

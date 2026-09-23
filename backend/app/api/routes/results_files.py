@@ -77,7 +77,11 @@ def _get_result_file(scene_id: str, result_name: str):
         if url is not None:
             return RedirectResponse(url=url, status_code=307)
 
-    return FileResponse(path=path, filename=path.name)
+    return FileResponse(
+        path=path,
+        filename=path.name,
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 @router.get("/{scene_id}/results/preview")

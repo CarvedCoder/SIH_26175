@@ -84,10 +84,17 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMe
     // footprint (g.worldWidth/worldDepth, metres) when known — the legacy
     // [-1,1] footprint otherwise. TerrainCanvas always sets both fields.
     const g = terrainRef.current?.getRef?.().current ?? {};
-    const w = typeof g.worldWidth === 'number' && g.worldWidth > 0 ? g.worldWidth : 2;
-    const d = typeof g.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2;
-    const nx = wx / w + 0.5;
-    const nz = wz / d + 0.5;
+    let nx, nz;
+    if (g.engine?.geoRef) {
+      const uv = g.engine.geoRef.localToUv(wx, wz);
+      nx = uv.u;
+      nz = uv.v;
+    } else {
+      const w = typeof g.worldWidth === 'number' && g.worldWidth > 0 ? g.worldWidth : 2;
+      const d = typeof g.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2;
+      nx = wx / w + 0.5;
+      nz = wz / d + 0.5;
+    }
 
     // Normalised terrain → normalised source image. When both the terrain
     // and the minimap image carry CRS bounds (§58), route through them so a
