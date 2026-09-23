@@ -26,7 +26,7 @@ import PartialResultBanner from '../components/common/PartialResultBanner.jsx';
 import ApiErrorAlert from '../components/common/ApiErrorAlert.jsx';
 import { useValidation } from '../hooks/useValidation.js';
 import { useApp } from '../store/appStore.jsx';
-import { getDepth, getDsm } from '../api/results.js';
+import { getDepth, getDsm, getScene } from '../api/results.js';
 import { getRouteHeatmap } from '../api/route.js';
 import { resolveAssetUrl } from '../api/client.js';
 
@@ -46,11 +46,18 @@ export default function ResultDashboard() {
   /** Mini passability heat map (jury round 2): URL + blocked/caution stats */
   const [heatmap, setHeatmap]       = useState(null);
   const [fetchState, setFetchState] = useState(/** @type {FetchState} */ ('loading'));
+  // Authoritative scene record from the backend — resumed sessions carry a
+  // reconstructed scene object whose georef/CRS/dimensions may be guesses.
+  const [sceneDetail, setSceneDetail] = useState(null);
   const [showExport, setShowExport] = useState(false);
 
-  // Capability flags from ResultsMeta
+  // Capability flags from ResultsMeta. A resumed session may carry a
+  // reconstructed results object, so prefer the backend's authoritative
+  // processing_path once the scene detail has loaded.
   const elevationMode = results?.elevation_mode ?? 'relative';
-  const isAbsolute    = elevationMode === 'absolute';
+  const isAbsolute    = sceneDetail
+    ? sceneDetail.processing_path === 'absolute'
+    : elevationMode === 'absolute';
 
   const { validation, reference, isLoading: valLoading } = useValidation(scene?.scene_id, isAbsolute);
 
@@ -61,23 +68,28 @@ export default function ResultDashboard() {
     setFetchState('loading');
 
     async function fetchLayerMeta() {
-      try {
-        const promises = [getDepth(scene.scene_id)];
-        if (isAbsolute) promises.push(getDsm(scene.scene_id));
-        else promises.push(Promise.resolve(null));
-        // Mini heat map (jury round 2): failure is non-fatal — the card
-        // simply stays hidden when the scene has no passability yet.
-        promises.push(getRouteHeatmap(scene.scene_id).catch(() => null));
-
-        const [depth, dsm, heat] = await Promise.all(promises);
-        if (cancelled) return;
-        setDepthData(depth);
-        setDsmData(dsm);
-        setHeatmap(heat);
-        setFetchState('done');
-      } catch {
-        if (!cancelled) setFetchState('error');
+      // Each layer degrades independently: a 404 on one endpoint (e.g. DSM
+      // on a relative pipeline) must not blank the others — RELIEF, the
+      // NO-GO metadata and the mini heat map stay visible.
+      const settled = await Promise.allSettled([
+        getScene(scene.scene_id),
+        getDepth(scene.scene_id),
+        isAbsolute ? getDsm(scene.scene_id) : Promise.resolve(null),
+        getRouteHeatmap(scene.scene_id),
+      ]);
+      if (cancelled) return;
+      const [fresh, depth, dsm, heat] = settled.map(
+        (r) => (r.status === 'fulfilled' ? r.value : null),
+      );
+      setSceneDetail(fresh);
+      if (depth === null && dsm === null && heat === null) {
+        setFetchState('error');
+        return;
       }
+      setDepthData(depth);
+      setDsmData(dsm);
+      setHeatmap(heat);
+      setFetchState('done');
     }
 
     fetchLayerMeta();
@@ -99,13 +111,27 @@ export default function ResultDashboard() {
 
   const isLoading = fetchState === 'loading';
 
+  // Prefer the backend's authoritative scene record; fall back to the
+  // (possibly reconstructed) state.scene for offline-resumed sessions.
+  const geo = sceneDetail?.georeference ?? null;
+  const metaScene = sceneDetail
+    ? {
+        ...scene,
+        filename: sceneDetail.filename ?? scene.filename,
+        dimensions: sceneDetail.dimensions ?? scene.dimensions,
+        format: sceneDetail.format ?? scene.format,
+        georeferenced: geo ? geo.available === true : scene.georeferenced,
+        crs: geo ? geo.crs : scene.crs,
+      }
+    : scene;
+
   // Scene metadata line items
-  const meta = scene ? [
-    { label: 'SOURCE', value: scene.filename },
-    { label: 'DIMENSIONS', value: `${scene.dimensions?.width ?? '—'} × ${scene.dimensions?.height ?? '—'} px` },
-    { label: 'FORMAT', value: scene.format },
-    { label: 'GEOREF', value: scene.georeferenced ? 'YES' : 'NO' },
-    scene.crs ? { label: 'CRS', value: scene.crs } : null,
+  const meta = metaScene ? [
+    { label: 'SOURCE', value: metaScene.filename },
+    { label: 'DIMENSIONS', value: `${metaScene.dimensions?.width ?? '—'} × ${metaScene.dimensions?.height ?? '—'} px` },
+    { label: 'FORMAT', value: metaScene.format },
+    { label: 'GEOREF', value: metaScene.georeferenced ? 'YES' : 'NO' },
+    metaScene.crs ? { label: 'CRS', value: metaScene.crs } : null,
     { label: 'PIPELINE', value: isAbsolute ? 'Absolute DSM' : 'Relative DSM' },
     depthData?.statistics ? { label: 'RELIEF', value: `${depthData.statistics.relief?.toFixed(1)} ${elevUnits}` } : null,
     heatmap ? { label: 'NO-GO AREA', value: `${heatmap.blocked_pct}% (fire truck)` } : null,
@@ -196,9 +222,9 @@ export default function ResultDashboard() {
         {/* Pipeline capability evaluation banner (§38) */}
         <section aria-label="Pipeline capability evaluation">
           <PartialResultBanner
-            format={scene?.format ?? (isAbsolute ? 'GeoTIFF' : 'PNG')}
-            georeferenced={isAbsolute}
-            elevationMode={elevationMode}
+            format={metaScene?.format ?? scene?.format ?? (isAbsolute ? 'GeoTIFF' : 'PNG')}
+            georeferenced={metaScene?.georeferenced ?? isAbsolute}
+            elevationMode={isAbsolute ? 'absolute' : 'relative'}
             hasReference={isAbsolute && results?.reference_source != null}
             compact={false}
           />

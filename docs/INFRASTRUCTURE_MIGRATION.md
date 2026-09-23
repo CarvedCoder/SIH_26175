@@ -59,8 +59,12 @@ cleanly (PostgreSQL/MinIO are left running; `docker compose stop` stops them).
 ## Database
 
 * Engine from `DATABASE_URL` (single source of truth, `backend/app/db/database.py`).
-  Default is the compose PostgreSQL; there is **no silent SQLite fallback** —
-  an unreachable database fails the process at startup.
+  **SQLite is the main database by default** (`data/depthwizard.db` — zero
+  config, works with or without Docker). **Supabase/PostgreSQL is the
+  opt-in addition**: set `DATABASE_URL` to the Supabase connection string
+  (and `DW_JOB_STORE=postgres` for SQL-backed job records) — same schema,
+  same code, nothing else changes. There is no silent fallback: whatever
+  `DATABASE_URL` points at must be reachable, or startup fails fast.
 * Schema is created with `Base.metadata.create_all` at startup. No SQLite
   data migration is needed: the previous implementation had **no database**
   (scene metadata lived in per-scene `scene.json` files). Legacy scene
