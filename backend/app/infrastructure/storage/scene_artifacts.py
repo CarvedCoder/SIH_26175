@@ -68,4 +68,9 @@ RESULT_ARTIFACT_KEYS: Dict[str, str] = {
     "dsm": "dsm.tif",
     "dsm_anchored": "dsm_anchored.tif",
     "preview": "dsm_preview.png",
+    "semantic_labels": "semantic_labels.npy",
+    "semantic_probs": "semantic_probs.npy",
+    "semantic_confidence": "semantic_confidence.npy",
+    "semantic_map": "semantic_map.png",
+    "semantic_meta": "semantic_meta.json",
 }

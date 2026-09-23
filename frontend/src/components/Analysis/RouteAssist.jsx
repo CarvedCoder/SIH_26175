@@ -256,6 +256,59 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
               </div>
             )}
 
+            {v.semantic_aware && (
+              <div
+                data-testid={`route-semantics-${v.vehicle}`}
+                style={{
+                  marginTop: 8,
+                  padding: '6px 8px',
+                  borderRadius: 6,
+                  background: 'rgba(15, 23, 42, 0.75)',
+                  border: '1px solid rgba(148, 163, 184, 0.25)',
+                }}
+              >
+                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#94a3b8', letterSpacing: 0.8, marginBottom: 5 }}>
+                  ROUTE SEMANTICS
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {v.road_fraction != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
+                      <span style={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#9B9B9B' }} /> Road
+                      </span>
+                      <span style={{ color: '#ffffff', fontWeight: 600 }}>{Math.round(v.road_fraction * 100)}%</span>
+                    </div>
+                  )}
+                  {v.ground_fraction != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
+                      <span style={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#D2B48C' }} /> Ground
+                      </span>
+                      <span style={{ color: '#ffffff', fontWeight: 600 }}>{Math.round(v.ground_fraction * 100)}%</span>
+                    </div>
+                  )}
+                  {v.vegetation_fraction != null && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
+                      <span style={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#2ECC71' }} /> Vegetation
+                      </span>
+                      <span style={{ color: '#ffffff', fontWeight: 600 }}>{Math.round(v.vegetation_fraction * 100)}%</span>
+                    </div>
+                  )}
+                  {((v.building_fraction || 0) + (v.water_fraction || 0) > 0) && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
+                      <span style={{ color: '#f87171', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#E74C3C' }} /> Obstacles
+                      </span>
+                      <span style={{ color: '#f87171', fontWeight: 600 }}>
+                        {Math.round(((v.building_fraction || 0) + (v.water_fraction || 0)) * 100)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {v.landing_zone && (
               <div
                 data-testid={`route-lz-${v.vehicle}`}

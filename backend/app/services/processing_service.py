@@ -83,7 +83,7 @@ class ProcessingService:
             checkpoint = Path(env_checkpoint)
         else:
             checkpoint = (
-                PROJECT_ROOT / "outputs" / "calib_net" / "gamus_rgb_grad" / "best.pt"
+                PROJECT_ROOT / "outputs" / "calib_net" / "postproc_flagship" / "best.pt"
             )
 
         if not checkpoint.exists():

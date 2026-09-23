@@ -39,6 +39,9 @@ import RouteAssist from '../components/Analysis/RouteAssist.jsx';
 import ToolGuard from '../components/Analysis/ToolGuard.jsx';
 import RegionSelector from '../components/Analysis/RegionSelector.jsx';
 import AnalysisPanel from '../components/common/AnalysisPanel.jsx';
+import SemanticInspector from '../components/Analysis/SemanticInspector.jsx';
+import { loadSemanticData } from '../lib/semanticSampler.js';
+import { getSemanticMeta } from '../api/semantic.js';
 import { useCameraController } from '../hooks/useCameraController.js';
 import { getMinimap, getElevation } from '../api/terrain.js';
 import { getResults, getDepth, getDsm, getReference, getScene } from '../api/results.js';
@@ -137,30 +140,51 @@ export default function TerrainWorkspace() {
   const prevLayerRef = useRef('solid');
 
   // Colormap mode per layer (matches fragment shader uniforms)
-  const COLORMAP_MODE = { rgb: 0, depth: 1, dsm: 2, reference_dem: 2, error: 3, slope: 2, buildings: 4, passability: 0 };
+  const COLORMAP_MODE = { rgb: 0, depth: 1, dsm: 2, reference_dem: 2, error: 3, slope: 2, buildings: 4, passability: 0, semantics: 0, route_risk: 0 };
 
   // ── Layer availability (Compare menu) — real backend state, not guesses ──
-  const [layerAvail, setLayerAvail] = useState({ dsm: true, reference: true, error: true });
+  const [layerAvail, setLayerAvail] = useState({ dsm: true, reference: true, error: true, semantics: true, route_risk: true });
+  const [semanticData, setSemanticData] = useState(null);
+
   useEffect(() => {
     const sceneId = state.scene?.scene_id;
     if (!sceneId || isLoading) return;
     let cancelled = false;
     // Optimistic defaults keep the menu responsive; the fetches below then
     // disable exactly the products the scene is missing.
-    setLayerAvail({ dsm: true, reference: true, error: true });
+    setLayerAvail({ dsm: true, reference: true, error: true, semantics: true, route_risk: true });
     Promise.all([
       getResults(sceneId).catch(() => null),
       getReference(sceneId).catch(() => null),
-    ]).then(([results, reference]) => {
+      getSemanticMeta(sceneId).catch(() => null),
+    ]).then(([results, reference, semMeta]) => {
       if (cancelled) return;
+      const semAvail = !!semMeta?.available;
       setLayerAvail({
         dsm: !!(results?.dsm?.available ?? results?.dsm),
         reference: !!reference?.available,
         error: !!results?.capabilities?.validation,
+        semantics: semAvail,
+        route_risk: semAvail,
       });
     });
     return () => { cancelled = true; };
   }, [state.scene?.scene_id, isLoading]);
+
+  // Load semantic segmentation arrays on scene change
+  useEffect(() => {
+    const sceneId = state.scene?.scene_id;
+    if (!sceneId) return;
+    let active = true;
+    loadSemanticData(sceneId).then((data) => {
+      if (!active) return;
+      setSemanticData(data);
+      if (data?.available && data?.labels && terrainRef.current) {
+        terrainRef.current.updateSemanticTexture?.(data.labels, data.width, data.height);
+      }
+    });
+    return () => { active = false; };
+  }, [state.scene?.scene_id]);
 
   // ── Workspace chrome state (docked TerraLens-style panels) ──
   // View-tab toggles drive shader modes; layer switches keep them honest.
@@ -251,7 +275,7 @@ export default function TerrainWorkspace() {
     const nextContours = tabId === 'contour';
     setContourEnabled(nextContours);
     terrainRef.current?.setContours?.(nextContours, contourInterval);
-    if (tabId === 'rgb' || tabId === 'depth' || tabId === 'dsm') {
+    if (tabId === 'rgb' || tabId === 'depth' || tabId === 'dsm' || tabId === 'semantics') {
       handleLayerChange(tabId);
     } else if (tabId === 'hybrid') {
       handleLayerChange('solid');
@@ -360,7 +384,7 @@ export default function TerrainWorkspace() {
     setActiveLayer(layerId);
     // Keep the view-tab highlight in sync with toolbar-driven layer swaps
     if (layerId === 'solid') setViewTab('hybrid');
-    else if (layerId === 'rgb' || layerId === 'depth' || layerId === 'dsm') setViewTab(layerId);
+    else if (layerId === 'rgb' || layerId === 'depth' || layerId === 'dsm' || layerId === 'semantics') setViewTab(layerId);
 
     const sceneId = state.scene?.scene_id;
     if (!sceneId) return;
@@ -376,7 +400,7 @@ export default function TerrainWorkspace() {
     const LAYER_LABEL = {
       rgb: 'RGB', depth: 'Depth map', dsm: 'Estimated DSM',
       reference_dem: 'Reference DEM', error: 'Error map', slope: 'Slope layer',
-      passability: 'Passability map',
+      passability: 'Passability map', semantics: 'Semantic map', route_risk: 'Route-risk map',
     };
 
     try {
@@ -402,6 +426,14 @@ export default function TerrainWorkspace() {
         // raw GeoTIFF/npy science product, which a WebGL texture can't decode.
         const dsm = await getDsm(sceneId);
         url = dsm?.url ?? null;
+      } else if (layerId === 'semantics') {
+        url = `/api/v1/scenes/${sceneId}/results/semantic`;
+        const res = await fetch(resolveAssetUrl(url));
+        if (!res.ok) throw new Error('semantic layer unavailable');
+      } else if (layerId === 'route_risk') {
+        url = `/api/v1/scenes/${sceneId}/results/route-risk?vehicle=fire_truck`;
+        const res = await fetch(resolveAssetUrl(url));
+        if (!res.ok) throw new Error('route-risk layer unavailable');
       } else if (layerId === 'error') {
         const errMap = await getErrorMap(sceneId);
         url = errMap?.url ?? null;
@@ -448,6 +480,7 @@ export default function TerrainWorkspace() {
   const structToolRef = useRef(null);
   const routeToolRef  = useRef(null);
   const routeStartRef = useRef(null);
+  const semanticInspectorRef = useRef(null);
 
   // ── Detail Mode Refinement state (Phase 13, §18, §65) ──
   const [refineBbox, setRefineBbox]               = useState(null);
@@ -469,6 +502,11 @@ export default function TerrainWorkspace() {
         terrainRef.current?.setRoutePath?.(null);
         routeToolRef.current?.resetPicks?.();
         routeStartRef.current = null;
+      }
+      // Leaving Inspect / probe mode clears semantic highlight
+      if (curr === 'probe' && next !== 'probe') {
+        terrainRef.current?.setSemanticHighlightClass?.(-1);
+        semanticInspectorRef.current?.reset?.();
       }
       return next;
     });
@@ -607,8 +645,25 @@ export default function TerrainWorkspace() {
         isStructure: !!pt.is_structure,
         confidence: pt.height_confidence ?? pt.confidence ?? null,
       });
+    } else if (activeTool === 'probe') {
+      semanticInspectorRef.current?.handleTerrainClick?.(rawPt);
     }
   };
+
+  const handleViewportMouseMove = useCallback((e) => {
+    if (activeTool === 'probe' && semanticInspectorRef.current) {
+      const pt = terrainRef.current?.getTerrainPointFromEvent?.(e);
+      if (pt) {
+        semanticInspectorRef.current.handleTerrainHover?.(pt);
+      }
+    }
+  }, [activeTool]);
+
+  const handleViewportMouseLeave = useCallback(() => {
+    if (activeTool === 'probe' && semanticInspectorRef.current) {
+      semanticInspectorRef.current.handleTerrainHover?.(null);
+    }
+  }, [activeTool]);
 
   /** Capture client-side viewport snapshot from OGL canvas (task 15.1, 15.3) */
   const handleCaptureSnapshot = () => {
@@ -641,6 +696,8 @@ export default function TerrainWorkspace() {
       <div
         ref={viewportRef}
         onClick={handleTerrainClick}
+        onMouseMove={handleViewportMouseMove}
+        onMouseLeave={handleViewportMouseLeave}
         style={{
           flex: 1,
           position: 'relative',
@@ -739,6 +796,18 @@ export default function TerrainWorkspace() {
           <ElevationProbe
             terrainRef={terrainRef}
             enabled={(activeTool === 'probe' || activeTool === 'none') && cameraMode !== 'first-person'}
+            semanticData={semanticData}
+          />
+        )}
+
+        {/* Semantic Inspector overlay — active during Inspect Mode */}
+        {!isLoading && activeTool === 'probe' && semanticData?.available && (
+          <SemanticInspector
+            ref={semanticInspectorRef}
+            terrainRef={terrainRef}
+            semanticData={semanticData}
+            active={activeTool === 'probe'}
+            onClose={() => handleSelectTool('none')}
           />
         )}
 

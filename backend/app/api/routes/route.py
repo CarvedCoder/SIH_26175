@@ -153,3 +153,42 @@ async def passability_layer(
 
             return RedirectResponse(url=url, status_code=307)
     return FileResponse(path=path, filename=path.name)
+
+
+@router.get("/{scene_id}/results/route-risk")
+async def route_risk_layer(
+    scene_id: str,
+    vehicle: str = Query("fire_truck"),
+):
+    """The route-risk heat map (geometry + 6-class semantics) as a viewer layer texture."""
+    require_scene(scene_id)
+    _require_results(scene_id)
+    if vehicle not in VEHICLE_PROFILES:
+        raise AppError(
+            status_code=400,
+            code="INVALID_VEHICLE",
+            message=f"Unknown vehicle profile: {vehicle}.",
+            recoverable=True,
+        )
+
+    try:
+        path = route_service.route_risk_heatmap_path(scene_id, vehicle)
+    except (FileNotFoundError, ValueError) as exc:
+        raise AppError(
+            status_code=404,
+            code="RESULT_NOT_FOUND",
+            message="The route-risk layer is not available for this scene.",
+            details={"scene_id": scene_id, "reason": str(exc)},
+            recoverable=True,
+        ) from exc
+
+    from backend.app.storage.service import storage_service
+
+    if storage_service.is_object_store:
+        url = storage_service.presign_artifact(scene_id, path)
+        if url is not None:
+            from fastapi.responses import RedirectResponse
+
+            return RedirectResponse(url=url, status_code=307)
+    return FileResponse(path=path, filename=path.name)
+
