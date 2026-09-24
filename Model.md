@@ -6,13 +6,14 @@ One repository, two connected halves, **one entry point each**:
 
 | Half | Entry point | What it does |
 |---|---|---|
-| Backend (Python) | `python model.py <command>` | dataset audit → splits → depth cache → baselines → training → **citable evaluation** → inference → FastAPI service |
-| Frontend (Next.js) | `webapp/` → `npm run dev` | upload → heights → interactive 3D flythrough (Three.js) |
+| Backend (Python) | `python model.py <command>` | dataset audit → splits → depth cache → baselines → training → **citable evaluation** → inference → FastAPI service (`backend.app.main:app`) |
+| Frontend (React/Vite) | `frontend/` → `npm run dev` | upload → process → 3D terrain viewer: orbit, RGB/Depth/DSM/Slope layers, first-person walkthrough |
 
-They meet at **one contract**: `depthwizard/inference.py :: build_scene_payload` —
-the CLI (`model.py infer`), the service (`model.py serve`), and the webapp all
-funnel through the same code path, so the viewer can never drift from the
-certified inference pipeline.
+They meet at **one contract**: the `/api/v1` scene/job API served by
+`backend.app.main:app` — upload, processing jobs, results, validation and
+terrain tiles all funnel through the same certified inference path
+(`depthwizard/inference.py :: run_inference`), so the viewer can never
+drift from the certified pipeline.
 
 > **Governance (frozen):** FINAL / citable numbers come ONLY from
 > `python model.py evaluate`. Everything else is exploration, demonstration,
@@ -62,18 +63,24 @@ depthwizard/               core library — frozen contracts, import never rewri
   streaming.py               memory-light pooled metric accumulators
   cli/                      one module per pipeline command (no numbered scripts)
                              + dataset_stats.py (the mixing GATE)
-service/api.py             FastAPI bridge: /health, /predict (webapp backend)
+service/api.py             LEGACY FastAPI bridge (superseded by backend/app;
+                           kept for the e2e bridge check only)
 configs/                   phase1/2 · infer · gamus.yaml · gamus_experiments
                            · exp4_sem.yaml · exp5_sem_dem.yaml
 model_tests/               depthwizard tests (frozen-path regression pins +
                            GAMUS fixtures, network-free)
 tests/                     src/ GeoTIFF pipeline tests (separate world)
+backend/                   THE canonical FastAPI backend (backend.app.main:app,
+                           /api/v1 scene/job contract — see readme.md)
+backend_tests/             backend API test suite (mocked inference)
+frontend/                  React/Vite frontend (Vite dev server :5173;
+                           its own README/design docs live inside)
 tools/make_fake_dataset.py synthetic DFC2019 mini-dataset (smoke tests)
 tools/make_fake_gamus.py   synthetic GAMUS-shaped HDF5 mini-dataset
 tools/e2e_bridge_check.py  CLI + service contract check (all-green)
-webapp/                    Next.js frontend (its own README has details)
-docker-compose.yml         backend + webapp, pre-wired
-worklog.md                 campaign ledger (append-only)
+docker-compose.yml         minio + backend + frontend, pre-wired
+docs/                      design docs + rendered frontend evidence
+                           (docs/screenshots/)
 ```
 
 ### The GAMUS integration in one paragraph
@@ -210,56 +217,55 @@ see `depthwizard/datasets/mixed.py` (it refuses without one).
 ## 3. Frontend quickstart
 
 ```bash
-cd webapp
+cd frontend
 npm install
-npm run dev               # http://localhost:3000
+npm run dev               # http://localhost:5173
 ```
 
-With no extra env, the `/api/predict` route **spawns the CLI directly**
-(`python model.py infer --json-out …` from the repo root). For the service
-transport:
+Point it at the backend with `frontend/.env`:
+`VITE_API_BASE_URL=http://localhost:8000/api/v1` (see `frontend/.env.example`).
+Supabase supplies auth when `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
+are set; without them the backend runs with auth disabled locally.
+
+The viewer (`frontend/src/components/TerrainViewer/`): GPU-shader
+heightmap with RGB texture projection and progressive LOD, orbit mode,
+layer switching (RGB / Depth / DSM / Slope), a pointer-lock first-person
+walkthrough mode, hover elevation/slope readout, minimap, and an
+honesty-first stats panel (`CRS UNKNOWN`, `ANCHORED (not learned)`).
+Rendered evidence lives in `docs/screenshots/`.
+
+## 4. Docker (all services, one command)
 
 ```bash
-# terminal 1 (repo root)
-python model.py serve --port 8000
-# terminal 2
-cd webapp && DW_API_URL=http://localhost:8000 npm run dev
-```
-
-The viewer: RGB-draped DSM mesh, orbit + auto-fly camera, hover
-elevation/slope readout, vertical exaggeration, wireframe overlay,
-screenshot, session gallery, and an honesty-first stats panel
-(`CRS UNKNOWN`, `ANCHORED (not learned)`).
-
-## 4. Docker (both halves, one command)
-
-```bash
-# expects your trained flagship at outputs/calib_net/rgb_cos/best.pt
+# expects the serving checkpoint at
+# outputs/calib_net/gamus_rgb_grad/best.pt (committed; see scripts/fetch_checkpoint.sh)
 docker compose up --build
-#   webapp  → http://localhost:3000
-#   backend → http://localhost:8000/health
+#   backend  → http://localhost:8000  (health: /api/v1/health, docs: /docs)
+#   frontend → http://localhost:5173
+#   minio    → http://localhost:9000 (console :9001)
 ```
 
 ## 5. The connection (how "everything is wired")
 
 ```
-browser ── POST /api/predict (multipart: image, anchor_dem?, ground_elev?, mode)
+browser ── /api/v1/scenes (upload GeoTIFF/PNG/JPG)
+   │       POST /api/v1/scenes/{id}/process → job
+   │       GET  /api/v1/jobs/{job_id}       → status/progress
+   │       GET  /api/v1/scenes/{id}/results → payload for the 3D viewer
+   │       GET  /api/v1/scenes/{id}/terrain, /validation, /reference
+   ▼
+backend/app/api/router.py  (FastAPI routers — the ONLY backend doorway)
    │
    ▼
-webapp/src/app/api/predict/route.ts        (the ONLY backend doorway)
-   │  lib/bridge.ts picks the transport:
-   │
-   ├── DW_API_URL set?  ──► FastAPI  service/api.py  ─┐
-   │                                                   │  both call
-   └── otherwise      ──► spawn `python model.py infer` ─┤
-                                                         ▼
-                                    depthwizard/inference.py :: run_inference
-                                    (checkpoint via tifops, Dn via cache/live DAv2,
-                                     flagship CalibrationNet, optional anchoring)
-                                                         │
-                                    build_scene_payload (grid + RGB + stats)
-                                                         ▼
-                                    Viewer3D mesh ── gallery ── stats panel
+backend/app/services/processing_service.py :: process_scene
+    → depthwizard/inference.py :: run_inference
+      (checkpoint via tifops, Dn via cache/live DAv2,
+       flagship CalibrationNet, optional anchoring)
+    → scene payload + terrain tiles + validation artifacts
+         │
+         ▼
+    TerrainViewer (Three.js heightmap shader + RGB drape, orbit /
+    walkthrough) ── stats panel ── validation panel
 ```
 
 ## 6. Migration notes (old numbered scripts → commands)
@@ -282,13 +288,14 @@ webapp/src/app/api/predict/route.ts        (the ONLY backend doorway)
 
 Frozen library modules were moved **verbatim** — `normalize.py`,
 `metrics.py`, `splits.py`, `geo.py`, `dataset.py`, `calibration_net.py` are
-byte-identical to the certified versions (the worklog ledger stays valid).
+byte-identical to the certified versions.
 
 ## 7. Verification checklist
 
 ```bash
-pytest tests/ -q                                   # 68 pass
+pytest tests/ -q                                   # src pipeline tests
+pytest backend_tests/ -q                           # backend API suite
 python model.py --help                              # instant, no torch needed
 python model.py infer --help                        # lazy per-command import
-cd webapp && npm run typecheck && npm run build    # frontend types + build
+cd frontend && npm run lint && npm run build        # frontend checks
 ```

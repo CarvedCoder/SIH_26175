@@ -16,10 +16,13 @@ Guarantees:
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 
 from backend.app.core.config import get_settings
@@ -36,6 +39,16 @@ from backend.app.infrastructure.storage.scene_artifacts import (
 )
 from backend.app.jobs.manager import job_manager
 from depthwizard.inference import run_inference
+
+# Reference-raster discovery conventions (see _find_reference_raster).
+_REFERENCE_BASENAMES = ("reference.tif", "reference_dem.tif", "ref_dem.tif")
+_REFERENCE_STEM_MARKERS = (
+    "reference",
+    "truth",
+    "groundtruth",
+    "ground_truth",
+    "_gt",
+)
 
 # Process-local GPU guard. HONEST LIMITATION (audit §3.4): this serializes
 # torch forwards within ONE process only; cross-instance concurrency policy
@@ -128,6 +141,205 @@ class ProcessingService:
             "tta": s.tta,
         }
 
+    # -- live validation (reference-grounded metrics) ------------------------
+
+    def _find_reference_raster(
+        self, scene_id: str, input_path: Path
+    ) -> Path | None:
+        """The scene's ground-truth reference raster, if one exists.
+
+        Two deterministic conventions, checked in order:
+          * exact filenames: reference.tif / reference_dem.tif / ref_dem.tif
+            next to the scene input;
+          * a single sibling raster whose stem marks it as truth/gt
+            (DFC2019/GAMUS-style *-truth tiles).
+        Several marked siblings is AMBIGUOUS — refuse rather than guess
+        (the same determinism contract as resolve_scene_input).
+        """
+        raw_dir = get_scene_raw_dir(scene_id)
+        if not raw_dir.exists():
+            return None
+        input_resolved = input_path.resolve()
+        siblings = sorted(
+            p
+            for p in raw_dir.iterdir()
+            if p.is_file()
+            and p.suffix.lower() in {".tif", ".tiff"}
+            and p.resolve() != input_resolved
+        )
+        exact = [p for p in siblings if p.name.lower() in _REFERENCE_BASENAMES]
+        if exact:
+            return exact[0]
+        marked = [
+            p
+            for p in siblings
+            if any(marker in p.stem.lower() for marker in _REFERENCE_STEM_MARKERS)
+        ]
+        if len(marked) > 1:
+            logger.warning(
+                "scene %s has %d candidate reference rasters — refusing to "
+                "pick one for validation",
+                scene_id,
+                len(marked),
+            )
+            return None
+        return marked[0] if marked else None
+
+    def _reproject_reference_to_grid(
+        self,
+        ref_path: Path,
+        crs: Any,
+        transform: Any,
+        width: int,
+        height: int,
+    ) -> np.ndarray:
+        """Bilinear-reproject the reference raster onto the prediction's
+        exact grid. Mirrors depthwizard.anchoring.resample_dem_to_tile:
+        CRS required on BOTH sides, bilinear resampling, and PARTIAL
+        COVERAGE REFUSED (a partially covered comparison would silently
+        average fabricated NaN-free errors)."""
+        import rasterio
+        from rasterio.warp import Resampling, reproject
+
+        with rasterio.open(ref_path) as ref:
+            if ref.crs is None:
+                raise ValueError(
+                    f"reference '{ref_path.name}' has no CRS — refusing to "
+                    "compare grids"
+                )
+            if crs is None:
+                raise ValueError(
+                    "prediction grid has no CRS — reference reprojection "
+                    "is undefined"
+                )
+            dst = np.full((height, width), np.nan, dtype=np.float32)
+            try:
+                reproject(
+                    source=rasterio.band(ref, 1),
+                    destination=dst,
+                    src_transform=ref.transform,
+                    src_crs=ref.crs,
+                    src_nodata=ref.nodata,
+                    dst_transform=transform,
+                    dst_crs=crs,
+                    dst_nodata=np.nan,
+                    resampling=Resampling.bilinear,
+                )
+            except Exception as exc:
+                raise ValueError(
+                    f"reference->prediction reprojection failed for "
+                    f"'{ref_path.name}': {exc}"
+                ) from exc
+
+        if np.isnan(dst).any():
+            raise ValueError(
+                f"reference '{ref_path.name}' does not fully cover the "
+                f"prediction footprint ({np.isnan(dst).mean():.1%} missing "
+                "pixels) — refusing partial-coverage validation."
+            )
+        return dst
+
+    def _write_validation_artifacts(
+        self, scene_id: str, input_path: Path, output_dir: Path
+    ) -> None:
+        """If the scene carries a ground-truth reference raster, write
+        reference.npy (ON the prediction grid), validation.json (masked-
+        difference metrics from depthwizard.metrics.height_metrics) and
+        error_map.png into the scene output dir.
+
+        A validation failure NEVER fails the job: it is logged and the
+        artifacts stay absent — get_validation then reports honestly that
+        no validation exists (no fabricated metrics anywhere).
+        """
+        ref_path = self._find_reference_raster(scene_id, input_path)
+        if ref_path is None:
+            return
+
+        import rasterio
+        from depthwizard.metrics import height_metrics
+        from depthwizard.pipeline.scene_outputs import save_preview_png
+
+        pred_path = output_dir / "dsm.npy"
+        if not pred_path.exists():
+            return
+        prediction = np.load(pred_path)
+        height, width = prediction.shape
+
+        tif_path = output_dir / "dsm.tif"
+        if tif_path.exists():
+            with rasterio.open(tif_path) as ds:
+                crs, transform = ds.crs, ds.transform
+        else:
+            crs = transform = None
+
+        try:
+            if crs is not None:
+                reference = self._reproject_reference_to_grid(
+                    ref_path, crs, transform, width, height
+                )
+                reprojected = True
+                ref_crs: str | None = str(crs)
+            else:
+                # Non-georeferenced prediction: only a pixel-registered
+                # (CRS-less) same-grid reference can be compared honestly.
+                with rasterio.open(ref_path) as ref:
+                    if ref.crs is not None:
+                        raise ValueError(
+                            "prediction has no CRS but the reference is "
+                            "georeferenced — the grids cannot be aligned"
+                        )
+                    reference = ref.read(1).astype(np.float32)
+                if reference.shape != prediction.shape:
+                    raise ValueError(
+                        f"reference shape {reference.shape} != prediction "
+                        f"shape {prediction.shape} and no grid to "
+                        "reproject onto"
+                    )
+                reprojected = False
+                ref_crs = None
+
+            metrics = height_metrics(prediction, reference)
+            if metrics["n"] == 0:
+                raise ValueError(
+                    "reference has no finite pixels overlapping the "
+                    "prediction"
+                )
+
+            np.save(output_dir / "reference.npy", reference.astype(np.float32))
+
+            validation_meta = {
+                "source_reference": ref_path.name,
+                "reference_crs": ref_crs,
+                "reference_units": "meters",
+                "reprojected_to_prediction_grid": reprojected,
+                "metrics": {
+                    "sample_count": int(metrics["n"]),
+                    "rmse": metrics["rmse"],
+                    "mae": metrics["mae"],
+                    "median_abs_error": metrics["medae"],
+                    "bias": metrics["bias"],
+                    "correlation": metrics["pearson_r"],
+                },
+            }
+            with open(output_dir / "validation.json", "w", encoding="utf-8") as f:
+                json.dump(validation_meta, f, indent=2)
+
+            error = (
+                prediction.astype(np.float64) - reference.astype(np.float64)
+            ).astype(np.float32)
+            save_preview_png(error, output_dir / "error_map.png", "DSM error (m)")
+
+            logger.info(
+                "validation artifacts written for scene %s (n=%d, mae=%.3f)",
+                scene_id,
+                metrics["n"],
+                metrics["mae"],
+            )
+        except Exception as exc:
+            logger.warning(
+                "validation skipped for scene %s: %s", scene_id, exc
+            )
+
     # -- deterministic input (delegates to the scene application service) --
 
     def find_scene_input(self, scene_id: str) -> Path | None:
@@ -208,6 +420,11 @@ class ProcessingService:
             self._discard_outputs(output_dir)
             self.jobs.update_job(job_id, status="cancelled", stage="cancelled")
             return {"cancelled": True}
+
+        # Live validation: if the scene carries a ground-truth reference
+        # raster, produce reference.npy / validation.json / error_map.png
+        # NOW — get_validation only reports what actually exists on disk.
+        self._write_validation_artifacts(scene_id, input_path, output_dir)
 
         self._publish_artifacts(scene_id, output_dir)
 
