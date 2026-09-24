@@ -1,0 +1,429 @@
+{
+ "beat": "Relative-mode scene (plain JPG) validated against a legacy survey DEM.",
+ "filename": "quarry_overview.jpg",
+ "georeferenced": false,
+ "create": {
+  "scene_id": "{sid}",
+  "filename": "quarry_overview.jpg",
+  "status": "completed",
+  "format": "JPEG",
+  "dimensions": {
+   "width": 256,
+   "height": 256,
+   "channels": 3
+  },
+  "georeference": {
+   "available": false,
+   "crs": null,
+   "min_x": null,
+   "min_y": null,
+   "max_x": null,
+   "max_y": null,
+   "pixel_width": null,
+   "pixel_height": null
+  },
+  "processing_path": "relative",
+  "capabilities": {
+   "absolute_elevation": false,
+   "relative_elevation": true,
+   "reference_comparison": true,
+   "slope": true,
+   "height_measurement": true,
+   "error_map": true,
+   "local_refinement": true
+  }
+ },
+ "results": {
+  "scene_id": "{sid}",
+  "elevation_mode": "relative",
+  "units": "m",
+  "available_layers": [
+   "rgb",
+   "depth",
+   "dsm",
+   "reference_dem",
+   "error",
+   "slope"
+  ],
+  "reference_source": "quarry_survey_2019_dem (uploaded reference)",
+  "reference_dem_available": true,
+  "min_elevation": 12.0,
+  "max_elevation": 132.0,
+  "resolution": {
+   "width": 256,
+   "height": 256
+  },
+  "depth": {
+   "available": true,
+   "preview": {
+    "name": "depth",
+    "url": "/api/v1/scenes/{sid}/results/depth",
+    "format": "png",
+    "size_bytes": null
+   },
+   "raw": {
+    "name": "depth-raw",
+    "url": "/api/v1/scenes/{sid}/export/depth",
+    "format": "npy",
+    "size_bytes": null
+   },
+   "width": 256,
+   "height": 256,
+   "statistics": {
+    "minimum": 12.0,
+    "maximum": 132.0,
+    "mean": 77.3,
+    "median": 68.69,
+    "relief": 120.0,
+    "units": "meters"
+   }
+  },
+  "dsm": {
+   "available": true,
+   "preview": {
+    "name": "dsm",
+    "url": "/api/v1/scenes/{sid}/results/dsm",
+    "format": "png",
+    "size_bytes": null
+   },
+   "raster": {
+    "name": "dsm-raster",
+    "url": "/api/v1/scenes/{sid}/export/dsm",
+    "format": "tif",
+    "size_bytes": null
+   },
+   "width": 256,
+   "height": 256,
+   "statistics": {
+    "minimum": 12.0,
+    "maximum": 132.0,
+    "mean": 77.3,
+    "median": 68.69,
+    "relief": 120.0,
+    "units": "meters"
+   },
+   "crs": null,
+   "bounds": [
+    0.0,
+    0.0,
+    768.0,
+    768.0
+   ]
+  },
+  "capabilities": {
+   "depth": true,
+   "dsm": true,
+   "terrain": true,
+   "validation": true,
+   "reference_comparison": true,
+   "export": true
+  },
+  "assets": [
+   {
+    "name": "rgb",
+    "url": "/api/v1/scenes/{sid}/results/rgb",
+    "format": "png",
+    "size_bytes": null
+   },
+   {
+    "name": "depth",
+    "url": "/api/v1/scenes/{sid}/results/depth",
+    "format": "png",
+    "size_bytes": null
+   },
+   {
+    "name": "dsm",
+    "url": "/api/v1/scenes/{sid}/results/dsm",
+    "format": "png",
+    "size_bytes": null
+   },
+   {
+    "name": "error",
+    "url": "/api/v1/scenes/{sid}/results/error-map",
+    "format": "png",
+    "size_bytes": null
+   },
+   {
+    "name": "terrain",
+    "url": "/api/v1/scenes/{sid}/terrain",
+    "format": "json",
+    "size_bytes": null
+   }
+  ],
+  "metadata": {
+   "beat": "Relative-mode scene (plain JPG) validated against a legacy survey DEM."
+  }
+ },
+ "terrain": {
+  "available": true,
+  "heightmap_url": "/api/v1/scenes/{sid}/results/heightmap",
+  "texture_url": "/api/v1/scenes/{sid}/results/dsm-texture",
+  "height_scale": 42.0,
+  "min_elevation": 12.0,
+  "max_elevation": 132.0,
+  "world_width_m": 768.0,
+  "world_depth_m": 768.0,
+  "is_georeferenced_scale": false,
+  "terrain": {
+   "scene_id": "{sid}",
+   "dimensions": {
+    "width": 256,
+    "height": 256
+   },
+   "bounds": {
+    "min_x": 0.0,
+    "min_y": 0.0,
+    "max_x": 768.0,
+    "max_y": 768.0
+   },
+   "coordinate_system": {
+    "crs": null,
+    "units": "meters"
+   },
+   "elevation_mode": "relative",
+   "units": "m",
+   "heightmap": {
+    "name": "heightmap",
+    "url": "/api/v1/scenes/{sid}/results/heightmap",
+    "format": "f32",
+    "width": 256,
+    "height": 256
+   },
+   "texture": {
+    "name": "dsm-texture",
+    "url": "/api/v1/scenes/{sid}/results/dsm-texture",
+    "format": "png",
+    "width": 256,
+    "height": 256
+   },
+   "minimap": {
+    "name": "minimap",
+    "url": "/api/v1/scenes/{sid}/results/minimap",
+    "format": "png",
+    "width": 256,
+    "height": 256
+   },
+   "reference": {
+    "available": true,
+    "name": "quarry_survey_2019_dem (uploaded reference)",
+    "url": "/api/v1/scenes/{sid}/results/reference",
+    "crs": null,
+    "units": "m",
+    "width": 256,
+    "height": 256
+   },
+   "layers": [
+    {
+     "name": "rgb",
+     "type": "image",
+     "visible": false,
+     "url": "/api/v1/scenes/{sid}/results/rgb"
+    },
+    {
+     "name": "depth",
+     "type": "image",
+     "visible": false,
+     "url": "/api/v1/scenes/{sid}/results/depth"
+    },
+    {
+     "name": "dsm",
+     "type": "image",
+     "visible": true,
+     "url": "/api/v1/scenes/{sid}/results/dsm"
+    },
+    {
+     "name": "error",
+     "type": "image",
+     "visible": false,
+     "url": "/api/v1/scenes/{sid}/results/error-map"
+    },
+    {
+     "name": "slope",
+     "type": "image",
+     "visible": false,
+     "url": "/api/v1/scenes/{sid}/results/slope"
+    },
+    {
+     "name": "passability",
+     "type": "image",
+     "visible": false,
+     "url": "/api/v1/scenes/{sid}/results/passability?vehicle=fire_truck"
+    }
+   ],
+   "capabilities": {
+    "walkthrough": true,
+    "measurements": true,
+    "layers": true,
+    "route_assist": true
+   },
+   "metadata": {}
+  }
+ },
+ "validation": {
+  "scene_id": "{sid}",
+  "available": true,
+  "metrics": {
+   "rmse": 2.04,
+   "mae": 1.58,
+   "correlation": 0.96,
+   "sample_count": 51902,
+   "units": "meters"
+  },
+  "reference": {
+   "available": true,
+   "name": "quarry_survey_2019_dem (uploaded reference)",
+   "crs": null,
+   "units": "m",
+   "width": 256,
+   "height": 256
+  },
+  "error_map": {
+   "name": "error_map",
+   "url": "/api/v1/scenes/{sid}/results/error-map",
+   "format": "png"
+  },
+  "metadata": {
+   "method": "co-registered reference DEM comparison",
+   "beat": "Relative-mode scene (plain JPG) validated against a legacy survey DEM."
+  }
+ },
+ "error_map": {
+  "scene_id": "{sid}",
+  "url": "/api/v1/scenes/{sid}/results/error-map",
+  "units": "m",
+  "min_error": 0.0,
+  "max_error": 3.6
+ },
+ "depth_meta": {
+  "scene_id": "{sid}",
+  "available": true,
+  "url": "/api/v1/scenes/{sid}/results/depth",
+  "download_url": "/api/v1/scenes/{sid}/export/depth",
+  "format": "png",
+  "width": 256,
+  "height": 256,
+  "statistics": {
+   "minimum": 12.0,
+   "maximum": 132.0,
+   "mean": 72.0,
+   "median": 72.0,
+   "relief": 120.0,
+   "units": "meters"
+  }
+ },
+ "dsm_meta": {
+  "scene_id": "{sid}",
+  "available": true,
+  "url": "/api/v1/scenes/{sid}/results/dsm",
+  "download_url": "/api/v1/scenes/{sid}/export/dsm",
+  "format": "png",
+  "width": 256,
+  "height": 256,
+  "crs": null
+ },
+ "reference_meta": {
+  "scene_id": "{sid}",
+  "available": true,
+  "name": "quarry_survey_2019_dem (uploaded reference)",
+  "download_url": "/api/v1/scenes/{sid}/export/dsm",
+  "visualization_url": "/api/v1/scenes/{sid}/results/reference",
+  "crs": "scene-local",
+  "units": "m"
+ },
+ "minimap": {
+  "scene_id": "{sid}",
+  "url": "/api/v1/scenes/{sid}/results/minimap",
+  "image_url": "/api/v1/scenes/{sid}/results/minimap",
+  "format": "png",
+  "width": 256,
+  "height": 256,
+  "extent": {
+   "min_x": 0.0,
+   "min_z": 0.0,
+   "max_x": 1.0,
+   "max_z": 1.0
+  },
+  "bounds": {
+   "min_x": 0.0,
+   "min_y": 0.0,
+   "max_x": 1.0,
+   "max_y": 1.0
+  }
+ },
+ "route_defaults": {
+  "start": {
+   "x": 46,
+   "y": 210
+  },
+  "end": {
+   "x": 208,
+   "y": 66
+  },
+  "vehicles": [
+   "fire_truck",
+   "ambulance",
+   "rescue_atv",
+   "suv_4x4",
+   "rescue_chopper"
+  ]
+ },
+ "vehicles": [
+  {
+   "key": "fire_truck",
+   "label": "Fire Truck",
+   "max_slope_deg": 15.0,
+   "caution_slope_deg": 11.0
+  },
+  {
+   "key": "ambulance",
+   "label": "Ambulance",
+   "max_slope_deg": 12.0,
+   "caution_slope_deg": 9.0
+  },
+  {
+   "key": "rescue_atv",
+   "label": "Rescue ATV",
+   "max_slope_deg": 30.0,
+   "caution_slope_deg": 22.0
+  },
+  {
+   "key": "suv_4x4",
+   "label": "SUV 4x4",
+   "max_slope_deg": 20.0,
+   "caution_slope_deg": 15.0
+  },
+  {
+   "key": "rescue_chopper",
+   "label": "Rescue Chopper",
+   "max_slope_deg": 45.0,
+   "caution_slope_deg": 35.0
+  }
+ ],
+ "heatmap": {
+  "fire_truck": {
+   "blocked_pct": 18.4,
+   "caution_pct": 24.1,
+   "free_pct": 57.5
+  },
+  "ambulance": {
+   "blocked_pct": 21.2,
+   "caution_pct": 26.8,
+   "free_pct": 52.0
+  },
+  "rescue_atv": {
+   "blocked_pct": 2.6,
+   "caution_pct": 9.3,
+   "free_pct": 88.1
+  },
+  "suv_4x4": {
+   "blocked_pct": 8.9,
+   "caution_pct": 17.5,
+   "free_pct": 73.6
+  },
+  "rescue_chopper": {
+   "blocked_pct": 0.0,
+   "caution_pct": 3.1,
+   "free_pct": 96.9
+  }
+ }
+}

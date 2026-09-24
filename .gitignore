@@ -19,6 +19,10 @@ data/output/*
 *.png
 !docs/**/*.png
 
+# Precomputed jury-demo bundles (mock backend) are checked in
+tools/demo_bundles/**
+!tools/demo_bundles/**
+
 # Python
 __pycache__/
 *.pyc
@@ -49,7 +53,17 @@ rgb_data/
 rgb_data_truth/
 worklog.md
 val_tiles.txt
-outputs/
+outputs/**
+# The serving checkpoint ships with the repo (464K, tiny) so fresh clones
+# report model_loaded: true. Un-ignore each parent dir level so the
+# negation below can reach the file (git cannot re-include inside an
+# excluded DIRECTORY, only inside excluded patterns).
+!outputs/
+!outputs/calib_net/
+outputs/calib_net/**
+!outputs/calib_net/gamus_rgb_grad/
+outputs/calib_net/gamus_rgb_grad/**
+!outputs/calib_net/gamus_rgb_grad/best.pt
 
 gamus_full
 sih.zip
