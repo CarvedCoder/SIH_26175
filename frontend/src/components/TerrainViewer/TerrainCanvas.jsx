@@ -50,8 +50,10 @@ const VERT = /* glsl */ `
   void main() {
     vUv = uv;
 
-    // Sample heightmap (red channel = normalised elevation)
-    float raw = texture2D(uHeightmap, uv).r;
+    // Sample heightmap (red channel = normalised elevation). flipY is OFF
+    // on the DataTexture, so sampling (uv.x, 1-uv.y) reads data row v —
+    // exactly the CPU sampleVisualHeight convention (see loadTerrainData).
+    float raw = texture2D(uHeightmap, vec2(uv.x, 1.0 - uv.y)).r;
     vHeight = raw;
 
     // Displace Y in world space
@@ -65,10 +67,11 @@ const VERT = /* glsl */ `
     // exaggeration slider moved). ClampToEdge wrapping makes the one-sided
     // difference at the borders automatic.
     vec2 texel = 1.0 / uHeightmapSize;
-    float hL = texture2D(uHeightmap, uv - vec2(texel.x, 0.0)).r;
-    float hR = texture2D(uHeightmap, uv + vec2(texel.x, 0.0)).r;
-    float hD = texture2D(uHeightmap, uv - vec2(0.0, texel.y)).r;
-    float hU = texture2D(uHeightmap, uv + vec2(0.0, texel.y)).r;
+    vec2 hmUV = vec2(uv.x, 1.0 - uv.y);
+    float hL = texture2D(uHeightmap, hmUV - vec2(texel.x, 0.0)).r;
+    float hR = texture2D(uHeightmap, hmUV + vec2(texel.x, 0.0)).r;
+    float hD = texture2D(uHeightmap, hmUV - vec2(0.0, texel.y)).r;
+    float hU = texture2D(uHeightmap, hmUV + vec2(0.0, texel.y)).r;
     float vScale = uHeightScale * uExaggeration * uProgress;
     float stepX = max(uWorldSize.x * texel.x, 1e-6);
     float stepZ = max(uWorldSize.y * texel.y, 1e-6);
@@ -169,12 +172,25 @@ const FRAG = /* glsl */ `
     // Blend: fallback -> mapped colour based on texture readiness
     baseColor = mix(heightColor, baseColor, uTextureReady);
 
-    // Diffuse lighting
-    float diff = max(dot(vNormal, uSunDir), 0.0);
-    vec3 lit = baseColor * (uAmbient + diff * (1.0 - uAmbient));
+    // Diffuse lighting. RGB drape (mode 0) gets the full sun/ambient model;
+    // scientific colormaps (depth greyscale, DSM/slope viridis, error
+    // diverging) are VALUE-ENCODED — sun shading double-darkens them into
+    // unreadable black (observed on the Depth layer), so they render
+    // near-unlit with only a faint slope-relief cue.
+    vec3 nrm = gl_FrontFacing ? vNormal : -vNormal;
+    float diff = max(dot(nrm, uSunDir), 0.0);
+    vec3 lit;
+    if (mode == 0) {
+      lit = baseColor * (uAmbient + diff * (1.0 - uAmbient));
+    } else {
+      lit = baseColor * (0.88 + 0.12 * diff);
+    }
 
-    // Slight tonal grading toward cool shadow
-    vec3 shadow = mix(vec3(0.04, 0.07, 0.12), lit, clamp(diff + uAmbient, 0.0, 1.0));
+    // Slight tonal grading toward cool shadow (RGB drape only — never
+    // darken a colormap's encoded values)
+    vec3 shadow = (mode == 0)
+      ? mix(vec3(0.04, 0.07, 0.12), lit, clamp(diff + uAmbient, 0.0, 1.0))
+      : lit;
 
     // Optional contour lines
     if (uContoursEnabled > 0.5 && uContourInterval > 0.001) {
@@ -607,6 +623,10 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     materialRef.current = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
+      // DoubleSide: at high vertical exaggeration the relief reaches
+      // near-vertical silhouettes, and backface culling punches visible
+      // holes through ridges (the far side "floats" in fragments).
+      side: THREE.DoubleSide,
       uniforms: {
         uHeightmap: { value: emptyHm },
         uTexture: { value: emptyRgb },
@@ -1146,6 +1166,11 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           preserveDrawingBuffer: true,
           antialias: true,
           alpha: false,
+          // The scene spans ~1 cm (walkthrough eye) to ~40 km (camera far
+          // plane at world scale) — a linear depth buffer quantizes to
+          // z-fighting "floating fragments" at distance. Logarithmic depth
+          // kills the precision cliff across that range.
+          logarithmicDepthBuffer: true,
         }}
         camera={{
           position: DEFAULT_CAMERA_POS,
@@ -1298,12 +1323,19 @@ async function loadTerrainData(g, material, scene, sceneId, actions) {
     // Upload as a single-channel FLOAT texture — the previous 8-bit RGBA
     // upload re-quantised the decoded heights to 256 levels, reintroducing
     // on the GPU the exact terracing the 16-bit PNG pipeline removes.
+    // CPU/GPU height agreement: the DataTexture is uploaded with flipY
+    // OFF (flipY is unreliable for raw typed-array uploads), and the VERT
+    // shader compensates by sampling (uv.x, 1-uv.y). uv.y = 1 - v, so the
+    // sampled data row is exactly v — the same convention
+    // sampleVisualHeight (CPU collision/spawn) uses. A mismatch here
+    // mirrors the rendered surface vs the collision field, putting the
+    // walkthrough camera UNDER the mesh (smooth underside sheets).
     const hmTex = new THREE.DataTexture(data, width, height, THREE.RedFormat, THREE.FloatType);
     hmTex.minFilter = THREE.LinearFilter;
     hmTex.magFilter = THREE.LinearFilter;
     hmTex.wrapS = THREE.ClampToEdgeWrapping;
     hmTex.wrapT = THREE.ClampToEdgeWrapping;
-    hmTex.flipY = true;
+    hmTex.flipY = false;
     hmTex.needsUpdate = true;
 
     const oldHmTex = material.uniforms.uHeightmap?.value;

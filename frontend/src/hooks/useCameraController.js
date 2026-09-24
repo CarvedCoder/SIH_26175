@@ -496,8 +496,27 @@ export function useCameraController({ canvasRef, glRef }) {
       vel.y = 0;
     }
 
+    // Terrain floor clamp: the camera must stay ABOVE the rendered surface.
+    // The floor is re-read every frame because the visual scale can change
+    // under us (the workspace raises vertical exaggeration right after
+    // entry, so a spawn height computed at the old scale can leave the
+    // camera tens/hundreds of metres UNDER the mesh — seeing its underside
+    // as giant curved sheets). Mapping: mesh x=(u-0.5)*worldWidth,
+    // z=(v-0.5)*worldDepth ⇒ u = x/worldWidth + 0.5, v likewise.
+    const gw = g.worldWidth || 2.0;
+    const gd = g.worldDepth || 2.0;
+    const groundY = sampleVisualHeight(
+      Math.min(Math.max(pos.x / gw + 0.5, 0), 1),
+      Math.min(Math.max(pos.z / gd + 0.5, 0), 1)
+    );
+    const floorY = groundY + EYE_HEIGHT_M;
+    if (pos.y < floorY) {
+      pos.y = floorY;
+      if (vel.y < 0) vel.y = 0;
+    }
+
     applyLook(cam, fp);
-  }, [glRef, applyLook]);
+  }, [glRef, applyLook, sampleVisualHeight]);
 
   return {
     mode,

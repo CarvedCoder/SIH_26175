@@ -45,7 +45,14 @@ dataset:
 model:
   use_rgb: true
   widths: [16, 32, 64]
-  clamp_min: 0.0
+  # clamp_min 0.0 is a TRAINING TRAP with absolute_affine: the L1 gradient
+  # pushes the affine bias (b0=8.86) down toward the AGL bulk, overshoots
+  # below 0, and the clamp then zeroes the gradient EVERYWHERE (a*dn+b < 0
+  # for all pixels) — the net freezes as the all-zero predictor (observed:
+  # val MAE pinned at 8.961 = mean|AGL| for 21 epochs, every LR, AMP on/off).
+  # Training with a deeply negative clamp keeps gradients alive; the
+  # non-negative height contract is enforced at inference/serving.
+  clamp_min: -100.0
 
 train:
   crop_size: 512

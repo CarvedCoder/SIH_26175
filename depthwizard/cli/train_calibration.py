@@ -49,6 +49,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -517,7 +518,10 @@ def run(args) -> int:
     )
 
     # CUDA AMP: reduce VRAM usage and improve throughput on NVIDIA GPUs.
-    amp_enabled = device == "cuda"
+    # DW_NO_AMP=1 disables it — fp16 overflow can make GradScaler skip EVERY
+    # optimizer step (net frozen at init, monitor pinned at the affine
+    # baseline); the env switch is the escape hatch and the probe for it.
+    amp_enabled = device == "cuda" and os.environ.get("DW_NO_AMP", "") != "1"
     amp_dtype = torch.float16 if amp_enabled else torch.float32
 
     scaler = torch.amp.GradScaler(
