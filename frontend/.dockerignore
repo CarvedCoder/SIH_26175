@@ -1,5 +1,6 @@
 node_modules
 dist
-.env
+# .env IS baked: Vite inlines VITE_* at build time, and its contents
+# (public Supabase URL + anon key) are public-by-design client config.
 .env.*
 *.md
