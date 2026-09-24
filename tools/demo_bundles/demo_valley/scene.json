@@ -35,6 +35,7 @@
  },
  "results": {
   "scene_id": "{sid}",
+  "preview_url": "/api/v1/scenes/{sid}/results/preview",
   "elevation_mode": "absolute",
   "units": "m",
   "available_layers": [

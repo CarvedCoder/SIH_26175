@@ -154,6 +154,8 @@ def results_payload(scene, dsm):
     }
     return {
         "scene_id": "{sid}",
+        # ResultDashboard renders the RGB card from results.preview_url
+        "preview_url": "/api/v1/scenes/{sid}/results/preview",
         "elevation_mode": "absolute" if scene["georeferenced"] else "relative",
         "units": "m",
         "available_layers": ["rgb", "depth", "dsm", "reference_dem", "error", "slope"],
