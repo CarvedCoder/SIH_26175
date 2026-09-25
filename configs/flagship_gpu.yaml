@@ -1,0 +1,69 @@
+# FLAGSHIP training run — full official GAMUS split on GPU.
+#
+# This is the declared citable-number run (replaces the 24-tile CPU budget
+# model of depthwizard_postprocessing_results/FINAL_REPORT.md, which is
+# explicitly self-labeled "a budget model ... absolute quality not claimed").
+#
+# Differences vs configs/exp_local_gamus.yaml (the prior local protocol):
+#   * FULL official GAMUS train/val splits (5004 train / 859 val tiles,
+#     no DC-only local subset, limit: 0) — vs 78 train / 48 val tiles.
+#   * Depth-Anything-V2-LARGE Dn cache (outputs/depth_cache/
+#     depth_anything_v2_large_hf/ — precomputed, 6558 tiles) selected via
+#     the CLI --cache-subdir flag; the prior run used the Base prior.
+#   * load_semantics: true so the evaluator has CLS maps for the
+#     scene-type (urban/sparse/forest/hilly/flat) stratification — the
+#     net itself still consumes Dn+RGB only (use_sem stays off).
+#   * batch_size 8 + workers 4 for the GPU; epochs 40 with cosine
+#     annealing + patience 10 (the pinned recipe's budget, now actually
+#     run to completion).
+# Recipe otherwise verbatim: masked-L1, crop 512, lr 1e-3, wd 1e-4,
+# grad-clip 5, seed 42, zero-head affine init, val_subset 48 monitor.
+#
+# Reproduce:
+#   python model.py train  --config configs/flagship_gpu.yaml --use-rgb \
+#       --w-grad 1.0 --cosine --cache-subdir depth_anything_v2_large_hf \
+#       --device auto --out-tag flagship_gpu_v1
+#   python model.py evaluate --config configs/flagship_gpu.yaml \
+#       --checkpoint outputs/calib_net/flagship_gpu_v1/best.pt \
+#       --cache-subdir depth_anything_v2_large_hf --device auto \
+#       --splits val --error-maps 4 --out-tag flagship_gpu_v1_eval
+
+paths:
+  depth_cache_dir: outputs/depth_cache
+  outputs_dir: outputs
+  affine_json: outputs/baseline/global_affine_gamus.json
+  splits_json: outputs/splits/splits.json
+
+dataset:
+  name: gamus
+  source: local
+  backend: hdf5
+  local_root: gamus_full
+  limit: 0
+  load_semantics: true
+
+model:
+  use_rgb: true
+  widths: [16, 32, 64]
+  # clamp_min 0.0 is a TRAINING TRAP with absolute_affine: the L1 gradient
+  # pushes the affine bias (b0=8.86) down toward the AGL bulk, overshoots
+  # below 0, and the clamp then zeroes the gradient EVERYWHERE (a*dn+b < 0
+  # for all pixels) — the net freezes as the all-zero predictor (observed:
+  # val MAE pinned at 8.961 = mean|AGL| for 21 epochs, every LR, AMP on/off).
+  # Training with a deeply negative clamp keeps gradients alive; the
+  # non-negative height contract is enforced at inference/serving.
+  clamp_min: -100.0
+
+train:
+  crop_size: 512
+  batch_size: 8
+  epochs: 40
+  lr: 0.001
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1
+  huber_delta: 5.0
+  workers: 4
+  val_subset: 48
+  patience: 10
+  seed: 42

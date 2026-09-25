@@ -101,11 +101,14 @@ export default function ResultDashboard() {
 
   /**
    * The backend exposes depth and DSM preview images via their `url` / `download_url`.
-   * RGB comes from the scene source — there is no dedicated RGB endpoint in this phase,
-   * so we point to the scene's upload if the backend serves it, or show a placeholder.
-   * When the terrain texture URL is available in results, prefer that.
+   * RGB comes from the scene source — `results.preview_url` when the session carries
+   * it (fresh processing), else the canonical /results/preview endpoint for resumed
+   * sessions whose reconstructed results object lacks the URL.
    */
-  const rgbUrl  = resolveAssetUrl(results?.preview_url ?? null);
+  const rgbUrl  = resolveAssetUrl(
+    results?.preview_url
+      ?? (scene?.scene_id ? `/api/v1/scenes/${scene.scene_id}/results/preview` : null)
+  );
   const depthUrl = resolveAssetUrl(depthData?.url ?? null);
   const dsmUrl   = resolveAssetUrl(dsmData?.download_url ?? null);
 

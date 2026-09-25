@@ -689,6 +689,11 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           preserveDrawingBuffer: true,
           antialias: true,
           alpha: false,
+          // Metric scene spans ~1 m (walkthrough eye) to tens of km (camera
+          // far plane) — a linear depth buffer z-fights at distance
+          // (floating terrain fragments). Log depth fixes the precision
+          // cliff across that range.
+          logarithmicDepthBuffer: true,
         }}
         camera={{
           position: [0, 600, 1100],

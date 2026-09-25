@@ -41,7 +41,7 @@
   </g>
   <!-- Center Coordinates Label -->
   <text x="400" y="520" text-anchor="middle" fill="#94a3b8" font-family="monospace" font-size="13" letter-spacing="0.15em" opacity="0.75">
-    TERRAMESH PRECISION ELEVATION
+    DEPTHWIZARD PRECISION ELEVATION
   </text>
   <text x="400" y="545" text-anchor="middle" fill="#3b82f6" font-family="monospace" font-size="11" letter-spacing="0.2em" opacity="0.9">
     34°03'N 118°15'W · DSM RECONSTRUCTION

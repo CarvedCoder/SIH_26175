@@ -303,6 +303,10 @@ const HalftoneWebGLCanvas = ({
     img.onload = () => {
       if (isCancelled) return;
       texture.image = img;
+      // ogl only re-uploads when needsUpdate is flagged — without it the
+      // sampler stays bound to the empty (black) initial texture and the
+      // visualizer renders a black circle forever.
+      texture.needsUpdate = true;
       if (uniformsRef.current) {
         uniformsRef.current.uImageSize.value = [img.naturalWidth || 1920, img.naturalHeight || 1080];
       }
@@ -316,6 +320,7 @@ const HalftoneWebGLCanvas = ({
       revImg.onload = () => {
         if (isCancelled) return;
         revealTexture.image = revImg;
+        revealTexture.needsUpdate = true;
         if (uniformsRef.current) {
           uniformsRef.current.uRevealImageSize.value = [revImg.naturalWidth || 1920, revImg.naturalHeight || 1080];
           uniformsRef.current.uHasRevealMap.value = 1;

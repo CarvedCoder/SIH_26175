@@ -26,7 +26,7 @@ export function SignupForm({
               <div className="flex flex-col items-center gap-2 text-center">
                 <h1 className="text-2xl font-bold text-slate-100">Create your account</h1>
                 <p className="text-sm text-balance text-slate-400">
-                  Enter your details below to initialize your TerraMesh workspace
+                  Enter your details below to initialize your DepthWizard workspace
                 </p>
               </div>
               <Field>

@@ -15,7 +15,7 @@ export default function TechSpecsModal({ isOpen, onClose }) {
             </div>
             <div>
               <h3 className="font-display text-lg font-bold text-white tracking-tight">
-                TerraMesh Architecture & Technical Specs
+                DepthWizard Architecture & Technical Specs
               </h3>
               <p className="text-xs font-mono text-neutral-400">
                 Single-View Monocular Optical Elevation Ingestion (SIH-26175)
