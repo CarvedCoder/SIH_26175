@@ -7,7 +7,11 @@
 
 import { getAccessToken, supabase } from '@/lib/supabase';
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
+export const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
+
+export function getBaseUrl() {
+  return BASE_URL;
+}
 
 /**
  * Attach the Supabase access token (JWT) to every API request. The

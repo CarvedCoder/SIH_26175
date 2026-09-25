@@ -48,6 +48,16 @@ class VehicleAssessment(BaseModel):
     landing_zone: dict[str, Any] | None = None
     path_geojson: dict[str, Any] | None = None
 
+    # Semantic attribution on the path
+    road_fraction: float | None = None
+    building_fraction: float | None = None
+    water_fraction: float | None = None
+    vegetation_fraction: float | None = None
+    ground_fraction: float | None = None
+    other_fraction: float | None = None
+    semantic_risk_fraction: float | None = None
+    semantic_aware: bool = False
+
 
 class RouteAssessResponse(BaseModel):
     scene_id: str
@@ -56,6 +66,7 @@ class RouteAssessResponse(BaseModel):
     units: str
     georeferenced: bool
     disclaimer: str
+    semantic_available: bool = False
     path_crs: str | None = None
     vehicles: list[VehicleAssessment]
 

@@ -273,6 +273,7 @@ from .pipeline.scene_outputs import (  # noqa: F401 — re-export
     rgb_png_data_url,
     save_preview_png,
     write_outputs,
+    write_semantic_outputs,
 )
 
 # ---------------------------------------------------------------------------
@@ -648,56 +649,68 @@ def run_inference(
     pp_active = postprocess not in (None, "", "none")
     pp_report_dict: dict | None = None
     agl_raw: np.ndarray | None = None
+    sem_probs: np.ndarray | None = None
 
-    if pp_active:
-        from .postprocess import config_from_preset, refine_agl
+    # Always attempt predict_with_semantics so semantic artifacts are
+    # generated for every scene when the checkpoint supports it,
+    # regardless of the postprocess setting.
+    has_sem_head = bool(getattr(predictor.model, 'sem_aux_head', False))
 
-        pcfg = config_from_preset(postprocess, postprocess_params or {})
-        pcfg = pcfg.with_updates(tta=tta or pcfg.tta)
+    if pp_active or has_sem_head:
         out = predictor.predict_with_semantics(
             rgb_u8, resolution.raw, mode=mode
         )
-        agl_raw = out["pred"]
-        sem_probs = out.get("sem_probs")
-        if sem_probs is None and pcfg.method in ("semantic_wls", "planar"):
-            print(
-                "[i] checkpoint has no semantic auxiliary head — semantic "
-                "gating unavailable, refining RGB-only (no semantics "
-                "fabricated)"
+        if pp_active:
+            from .postprocess import config_from_preset, refine_agl
+
+            pcfg = config_from_preset(postprocess, postprocess_params or {})
+            pcfg = pcfg.with_updates(tta=tta or pcfg.tta)
+            agl_raw = out["pred"]
+            sem_probs = out.get("sem_probs")
+            if sem_probs is None and pcfg.method in ("semantic_wls", "planar"):
+                print(
+                    "[i] checkpoint has no semantic auxiliary head — semantic "
+                    "gating unavailable, refining RGB-only (no semantics "
+                    "fabricated)"
+                )
+            tta_fn = None
+            if pcfg.tta:
+                tta_fn = predictor.make_tta_predict_fn()
+
+            confidence = None
+            if pcfg.method == "semantic_wls" and pcfg.confidence_weight > 0:
+                from .postprocess.confidence import estimate_confidence
+
+                confidence = estimate_confidence(agl_raw, rgb_u8)
+
+            dsm, pp_report = refine_agl(
+                agl_raw,
+                rgb_u8,
+                pcfg,
+                sem_probs=sem_probs,
+                confidence=confidence,
+                tta_predict_fn=tta_fn,
             )
-        tta_fn = None
-        if pcfg.tta:
-            tta_fn = predictor.make_tta_predict_fn()
-
-        confidence = None
-        if pcfg.method == "semantic_wls" and pcfg.confidence_weight > 0:
-            from .postprocess.confidence import estimate_confidence
-
-            confidence = estimate_confidence(agl_raw, rgb_u8)
-
-        dsm, pp_report = refine_agl(
-            agl_raw,
-            rgb_u8,
-            pcfg,
-            sem_probs=sem_probs,
-            confidence=confidence,
-            tta_predict_fn=tta_fn,
-        )
-        pp_report_dict = pp_report.to_dict()
-        print(
-            f"[postprocess] method={pp_report.method}  "
-            f"changed={pp_report.n_changed}/{pp_report.n_valid}  "
-            f"{pp_report.elapsed_sec:.2f}s"
-        )
-        if pp_report.calibration:
-            c = pp_report.calibration
+            pp_report_dict = pp_report.to_dict()
             print(
-                f"[postprocess] calibration: mean {c['raw_mean']:.3f}->"
-                f"{c['refined_mean']:.3f} (shift {c['mean_shift']:+.4f} m), "
-                f"std ratio {c['std_ratio']:.4f}"
+                f"[postprocess] method={pp_report.method}  "
+                f"changed={pp_report.n_changed}/{pp_report.n_valid}  "
+                f"{pp_report.elapsed_sec:.2f}s"
             )
-        for note in pp_report.notes:
-            print(f"[postprocess] {note}")
+            if pp_report.calibration:
+                c = pp_report.calibration
+                print(
+                    f"[postprocess] calibration: mean {c['raw_mean']:.3f}->"
+                    f"{c['refined_mean']:.3f} (shift {c['mean_shift']:+.4f} m), "
+                    f"std ratio {c['std_ratio']:.4f}"
+                )
+            for note in pp_report.notes:
+                print(f"[postprocess] {note}")
+        else:
+            # No postprocess, but we ran predict_with_semantics for the
+            # semantic head — use the bare AGL prediction.
+            dsm = out["pred"]
+            sem_probs = out.get("sem_probs")
     else:
         dsm = predictor.predict(rgb_u8, resolution.raw, mode=mode)
 
@@ -750,6 +763,32 @@ def run_inference(
             if v:
                 print(f"[out] {v}")
 
+        # ---- Semantic artifact generation --------------------------------
+        if sem_probs is not None:
+            ckpt_name = Path(str(getattr(predictor.model, 'checkpoint', 'unknown'))).parent.name
+            sem_outputs = write_semantic_outputs(
+                Path(out_dir),
+                sem_probs,
+                checkpoint_name=ckpt_name,
+                model_name=predictor.model_tag,
+            )
+            outputs.update(sem_outputs)
+            from .semantic_segmenter import prediction_from_probs
+            sem_pred = prediction_from_probs(sem_probs)
+            print(
+                f"[semantic] {sem_pred.num_classes} classes  "
+                f"mean_conf={sem_pred.mean_confidence():.3f}  "
+                f"low_conf(<0.7)={sem_pred.low_confidence_fraction(0.7):.1%}"
+            )
+            for k2, v2 in sem_outputs.items():
+                if v2:
+                    print(f"[out] {v2}")
+        elif has_sem_head:
+            print(
+                "[semantic] checkpoint has sem_aux_head but predict_with_semantics "
+                "returned None — semantic artifacts NOT generated"
+            )
+
     payload = build_scene_payload(
         dsm,
         rgb_u8,
@@ -770,4 +809,12 @@ def run_inference(
             "calibration": pp_report_dict["calibration"],
             "notes": pp_report_dict["notes"],
         }
+    # Semantic availability indicator for the frontend
+    payload["semantic"] = {
+        "available": sem_probs is not None,
+        "reason": (
+            None if sem_probs is not None
+            else "Checkpoint has no semantic auxiliary head"
+        ),
+    }
     return payload

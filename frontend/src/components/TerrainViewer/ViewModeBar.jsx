@@ -18,6 +18,7 @@ export const VIEW_TABS = [
   { id: 'rgb', label: 'RGB' },
   { id: 'depth', label: 'Depth' },
   { id: 'dsm', label: 'Metric DSM' },
+  { id: 'semantics', label: 'Semantics' },
   { id: 'hybrid', label: 'Hybrid' },
   { id: 'wireframe', label: 'Wireframe' },
   { id: 'contour', label: 'Contour' },

@@ -27,12 +27,13 @@ from __future__ import annotations
 
 import heapq
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from backend.app.core.config import settings
 from backend.app.core.logging import logger
 from backend.app.core.paths import get_scene_output_dir
 
@@ -64,6 +65,29 @@ VEHICLE_PROFILES: dict[str, VehicleProfile] = {
     "rescue_chopper": VehicleProfile(
         "rescue_chopper", "Rescue Chopper", 6.0, 0.30, 0.35, 140.0, is_aerial=True
     ),
+}
+
+# ── semantic configuration & vehicle weights ──────────────────────────────
+@dataclass(frozen=True)
+class SemanticConfig:
+    enabled: bool = True
+    confidence_threshold: float = 0.70
+    hard_block_threshold: float = 0.90
+    weights: dict[str, float] = field(default_factory=lambda: {
+        "building": 1000.0,  # effectively blocked
+        "water": 1000.0,     # effectively blocked
+        "road": 0.65,        # preference multiplier
+        "vegetation": 4.0,   # baseline penalty
+        "ground": 1.0,       # baseline
+        "other": 1.5,        # uncertainty penalty
+    })
+
+
+VEGETATION_PENALTIES: dict[str, float] = {
+    "fire_truck": 8.0,
+    "ambulance": 8.0,
+    "rescue_atv": 2.5,
+    "suv_4x4": 5.0,
 }
 
 CLASS_GRID_CAP = 1024          # classification grid long-side cap
@@ -228,19 +252,85 @@ def _soft_cost(grid: PassabilityGrid) -> np.ndarray:
     return np.where(grid.classes >= 2, 1e9, base)
 
 
+def _block_downsample_probs(probs: np.ndarray, factor: int) -> np.ndarray:
+    """Downsample [6, H, W] probabilities by block-averaging (NOT class IDs)."""
+    if factor <= 1:
+        return probs.astype(np.float32, copy=False)
+    k, h_orig, w_orig = probs.shape
+    h = (h_orig // factor) * factor
+    w = (w_orig // factor) * factor
+    trimmed = probs[:, :h, :w]
+    return trimmed.reshape(k, h // factor, factor, w // factor, factor).mean(axis=(2, 4))
+
+
+def _semantic_cost(
+    sem_probs: np.ndarray,  # [6, H, W]
+    sem_labels: np.ndarray, # [H, W]
+    sem_conf: np.ndarray,   # [H, W]
+    vehicle: VehicleProfile,
+    config: SemanticConfig,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Returns (semantic_cost_multiplier [H,W], semantic_blocked [H,W] bool)."""
+    veg_weight = VEGETATION_PENALTIES.get(
+        vehicle.key, config.weights.get("vegetation", 4.0)
+    )
+    weights = np.array(
+        [
+            config.weights.get("building", 1000.0),
+            veg_weight,
+            config.weights.get("road", 0.65),
+            config.weights.get("water", 1000.0),
+            config.weights.get("ground", 1.0),
+            config.weights.get("other", 1.5),
+        ],
+        dtype=np.float32,
+    )
+    raw_sem_cost = np.tensordot(weights, sem_probs, axes=(0, 0))
+    other_cost = config.weights.get("other", 1.5)
+    sem_cost = sem_conf * raw_sem_cost + (1.0 - sem_conf) * other_cost
+
+    bldg_prob = sem_probs[0]
+    water_prob = sem_probs[3]
+    hard_blocked = (bldg_prob >= config.hard_block_threshold) | (
+        water_prob >= config.hard_block_threshold
+    )
+    return sem_cost, hard_blocked
+
+
+def _combined_cost(
+    grid: PassabilityGrid,
+    sem_probs: np.ndarray | None = None,
+    sem_labels: np.ndarray | None = None,
+    sem_conf: np.ndarray | None = None,
+    sem_config: SemanticConfig | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Combines geometric passability cost with semantic cost and blocking."""
+    geo_cost = _soft_cost(grid)
+    if sem_probs is None or sem_config is None or not sem_config.enabled:
+        return geo_cost, ~grid.passable
+
+    sem_cost, sem_blocked = _semantic_cost(
+        sem_probs, sem_labels, sem_conf, grid.vehicle, sem_config
+    )
+    total_cost = geo_cost * sem_cost
+    total_blocked = (~grid.passable) | sem_blocked
+    return total_cost, total_blocked
+
+
 def find_path(
     grid: PassabilityGrid,
     start: tuple[int, int],
     goal: tuple[int, int],
+    sem_probs: np.ndarray | None = None,
+    sem_labels: np.ndarray | None = None,
+    sem_conf: np.ndarray | None = None,
+    sem_config: SemanticConfig | None = None,
 ) -> list[tuple[int, int]] | None:
     """Hierarchical A*: coarse global corridor, then fine corridor search.
 
-    Level 1 downsample (≤ COARSE_GRID_CAP) finds the global shape of the
-    route; level 2 runs on the FULL classification grid restricted to a
-    dilated corridor around it — the fine search explores only a ribbon,
-    never the whole map (this is what keeps 1024² grids fast)."""
-    cost = _soft_cost(grid)
-    blocked = ~grid.passable
+    When semantic data is provided, incorporates semantic edge weights and
+    hard blocking (buildings, water bodies) in both hierarchical levels."""
+    cost, blocked = _combined_cost(grid, sem_probs, sem_labels, sem_conf, sem_config)
     h, w = cost.shape
 
     # Level 2 first attempt: direct fine search only on small maps.
@@ -254,13 +344,9 @@ def find_path(
     cg = (goal[0] // f2, goal[1] // f2)
     coarse_path = _astar(coarse_cost, coarse_blocked, cs, cg)
     if coarse_path is None:
-        # The coarse abstraction can disconnect regions the fine grid
-        # traverses (block-mean thresholding is lossy) — fall back to the
-        # full fine search so reachability verdicts stay consistent.
+        # Fall back to fine search if coarse disconnected
         return _astar(cost, blocked, start, goal)
 
-    # Corridor mask around the coarse path (matplotlib-free dilation via
-    # scipy's binary dilation on the path cells).
     from scipy.ndimage import binary_dilation
 
     mask = np.zeros_like(blocked, dtype=bool)
@@ -270,25 +356,26 @@ def find_path(
         mask[x0:x1, y0:y1] = True
     mask = binary_dilation(mask, iterations=CORRIDOR_MARGIN_CELLS)
 
-    # Corridor-restricted fine search: everything outside is "blocked".
     fine_blocked = blocked | ~mask
     fine_path = _astar(cost, fine_blocked, start, goal)
     if fine_path is not None:
         return fine_path
-    # Ribbon too tight for the actual fine topology — unrestricted retry.
     return _astar(cost, blocked, start, goal)
 
 
 # ── reachability (island detection) ───────────────────────────────────────
 
 def reachability(
-    grid: PassabilityGrid, start: tuple[int, int]
+    grid: PassabilityGrid,
+    start: tuple[int, int],
+    passable_mask: np.ndarray | None = None,
 ) -> tuple[np.ndarray | None, int]:
     """Connected-component label of the passable mask (0 = unreachable
     background). Returns (labels, label id of the start component)."""
     from scipy.ndimage import label
 
-    labels, _n = label(grid.passable)
+    mask = passable_mask if passable_mask is not None else grid.passable
+    labels, _n = label(mask)
     return labels, int(labels[start])
 
 
@@ -305,7 +392,10 @@ def nearest_reachable(
 
 
 def nearest_standable(
-    grid: PassabilityGrid, target: tuple[int, int], radius: int
+    grid: PassabilityGrid,
+    target: tuple[int, int],
+    radius: int,
+    blocked_mask: np.ndarray | None = None,
 ) -> tuple[int, int] | None:
     """Closest non-blocked cell to ``target`` within ``radius`` (Chebyshev
     ring search on the classification grid). None when everything nearby
@@ -323,7 +413,11 @@ def nearest_standable(
                 # ring-only after the first pass keeps it cheap
                 if r > 1 and max(abs(y - ty), abs(x - tx)) != r:
                     continue
-                if grid.classes[y, x] == 2:
+                is_blocked = (
+                    blocked_mask[y, x] if blocked_mask is not None
+                    else (grid.classes[y, x] == 2)
+                )
+                if is_blocked:
                     continue
                 d2 = (y - ty) ** 2 + (x - tx) ** 2
                 if best_d2 is None or d2 < best_d2:
@@ -346,6 +440,38 @@ class RouteService:
         if depth is None:
             raise FileNotFoundError(f"DSM result not found for scene '{scene_id}'.")
         return np.load(depth, mmap_mode="r")
+
+    def load_semantics(
+        self, scene_id: str
+    ) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+        """Load semantic artifacts (probs, labels, confidence) if available.
+        Returns (probs [6,H,W], labels [H,W], conf [H,W]) or (None, None, None).
+        """
+        from backend.app.services.result_service import result_service
+
+        files = result_service.get_result_files(scene_id)
+        probs_file = files.get("semantic_probs")
+        labels_file = files.get("semantic_labels")
+        conf_file = files.get("semantic_confidence")
+
+        if probs_file is None or not probs_file.exists():
+            return None, None, None
+        try:
+            probs = np.load(probs_file, mmap_mode="r")
+            labels = (
+                np.load(labels_file, mmap_mode="r")
+                if labels_file and labels_file.exists()
+                else np.argmax(probs, axis=0).astype(np.uint8)
+            )
+            conf = (
+                np.load(conf_file, mmap_mode="r")
+                if conf_file and conf_file.exists()
+                else np.max(probs, axis=0).astype(np.float32)
+            )
+            return probs, labels, conf
+        except Exception as e:
+            logger.warning("Failed to load semantics for scene %s: %s", scene_id, e)
+            return None, None, None
 
     def gsd_for(self, scene_id: str) -> float | None:
         """Metric GSD from the DSM GeoTIFF; None for pixel-space scenes."""
@@ -374,6 +500,14 @@ class RouteService:
         h, w = int(dsm.shape[0]), int(dsm.shape[1])
         gsd = self.gsd_for(scene_id)
 
+        sem_config = SemanticConfig(
+            enabled=settings.semantic_enabled and settings.route_semantic_enabled,
+            confidence_threshold=settings.semantic_confidence_threshold,
+            hard_block_threshold=settings.semantic_hard_block_threshold,
+        )
+        sem_probs_full, sem_labels_full, sem_conf_full = self.load_semantics(scene_id)
+        has_semantics = sem_probs_full is not None and sem_config.enabled
+
         def clamp(px: int, py: int) -> tuple[int, int]:
             return (
                 min(max(int(round(py)), 0), h - 1),
@@ -383,17 +517,26 @@ class RouteService:
         start = clamp(*start_xy)
         goal = clamp(*goal_xy)
 
+        disclaimer = (
+            "Geometry and semantic passability estimate from the predicted DSM "
+            "(slope, step height, roughness, and 6-class semantics). Roads are "
+            "preferred; buildings and water bodies are avoided."
+            if has_semantics
+            else (
+                "Geometry-based passability estimate from the predicted DSM "
+                "(slope, step height, roughness). Fences, wires, water and "
+                "traffic are NOT visible to this analysis."
+            )
+        )
+
         response: dict[str, Any] = {
             "scene_id": scene_id,
             "start_pixel": {"x": start[1], "y": start[0]},
             "end_pixel": {"x": goal[1], "y": goal[0]},
             "units": "meters" if gsd is not None else "pixels",
             "georeferenced": gsd is not None,
-            "disclaimer": (
-                "Geometry-based passability estimate from the predicted DSM "
-                "(slope, step height, roughness). Fences, wires, water and "
-                "traffic are NOT visible to this analysis."
-            ),
+            "semantic_available": has_semantics,
+            "disclaimer": disclaimer,
             "vehicles": [],
         }
 
@@ -406,19 +549,71 @@ class RouteService:
             if profile is None:
                 continue
             response["vehicles"].append(
-                self._assess_vehicle(scene_id, dsm, gsd, profile, start, goal, geo)
+                self._assess_vehicle(
+                    scene_id,
+                    dsm,
+                    gsd,
+                    profile,
+                    start,
+                    goal,
+                    geo,
+                    sem_probs_full=sem_probs_full,
+                    sem_labels_full=sem_labels_full,
+                    sem_conf_full=sem_conf_full,
+                    sem_config=sem_config,
+                )
             )
         return response
 
     def _assess_vehicle(
-        self, scene_id, dsm, gsd, profile, start, goal, geo
+        self,
+        scene_id,
+        dsm,
+        gsd,
+        profile,
+        start,
+        goal,
+        geo,
+        sem_probs_full: np.ndarray | None = None,
+        sem_labels_full: np.ndarray | None = None,
+        sem_conf_full: np.ndarray | None = None,
+        sem_config: SemanticConfig | None = None,
     ) -> dict[str, Any]:
         if profile.is_aerial:
-            return self._assess_chopper(dsm, gsd, profile, start, goal, geo)
+            return self._assess_chopper(
+                dsm,
+                gsd,
+                profile,
+                start,
+                goal,
+                geo,
+                sem_probs_full=sem_probs_full,
+                sem_labels_full=sem_labels_full,
+                sem_conf_full=sem_conf_full,
+                sem_config=sem_config,
+            )
         grid = classify_grid(dsm, gsd, profile)
         f = grid.factor
         gstart = (start[0] // f, start[1] // f)
         ggoal = (goal[0] // f, goal[1] // f)
+
+        # Downsample semantics to match grid resolution
+        sem_probs = None
+        sem_labels = None
+        sem_conf = None
+        sem_blocked = None
+        if sem_probs_full is not None and sem_config is not None and sem_config.enabled:
+            sem_probs = _block_downsample_probs(sem_probs_full, f)
+            sem_labels = np.argmax(sem_probs, axis=0).astype(np.uint8)
+            sem_conf = np.max(sem_probs, axis=0).astype(np.float32)
+            _, sem_blocked = _semantic_cost(
+                sem_probs, sem_labels, sem_conf, profile, sem_config
+            )
+
+        total_blocked = ~grid.passable
+        if sem_blocked is not None:
+            total_blocked = total_blocked | sem_blocked
+        total_passable = ~total_blocked
 
         result: dict[str, Any] = {
             "vehicle": profile.key,
@@ -432,53 +627,63 @@ class RouteService:
 
         # Picks that land on blocked or disconnected ground are snapped to
         # the nearest standable / reachable cell (within a bounded radius)
-        # instead of refusing outright — a clicked pixel is an intent, and
-        # the job of the router is to make it work where physically possible.
+        # instead of refusing outright.
         snap_radius_cells = 64  # ~1/8 of the typical grid per axis
         snapped: dict[str, bool] = {}
 
-        if grid.classes[gstart] == 2:
-            alt = nearest_standable(grid, gstart, snap_radius_cells)
+        if total_blocked[gstart]:
+            alt = nearest_standable(grid, gstart, snap_radius_cells, blocked_mask=total_blocked)
             if alt is None:
                 result.update(
                     verdict="CANNOT_GO",
-                    reasons=["No standable ground for this vehicle anywhere "
-                             "near the start point."],
+                    reasons=[
+                        "No standable ground for this vehicle anywhere near the start point."
+                    ],
                     path=None,
                 )
                 return result
             gstart = alt
             snapped["start"] = True
 
-        labels, component = reachability(grid, gstart)
+        labels, component = reachability(grid, gstart, passable_mask=total_passable)
         if labels[ggoal] != component:
             detour = nearest_reachable(labels, component, ggoal)
             if detour is None:
                 result.update(
                     verdict="CANNOT_GO",
-                    reasons=["No passable ground reachable from the start "
-                             "for this vehicle."],
+                    reasons=[
+                        "No passable ground reachable from the start for this vehicle."
+                    ],
                     path=None,
                 )
                 return result
             dy = math.hypot(detour[0] - ggoal[0], detour[1] - ggoal[1])
             if dy > snap_radius_cells:
                 result["detour_pixel"] = {
-                    "x": detour[1] * f, "y": detour[0] * f,
+                    "x": detour[1] * f,
+                    "y": detour[0] * f,
                 }
                 result.update(
                     verdict="CANNOT_GO",
-                    reasons=["The destination is too far from any ground "
-                             "reachable by this vehicle to route to.",
-                             "Nearest reachable point to the destination "
-                             "suggested as a detour target."],
+                    reasons=[
+                        "The destination is too far from any ground reachable by this vehicle to route to.",
+                        "Nearest reachable point to the destination suggested as a detour target.",
+                    ],
                     path=None,
                 )
                 return result
             ggoal = detour
             snapped["end"] = True
 
-        grid_path = find_path(grid, gstart, ggoal)
+        grid_path = find_path(
+            grid,
+            gstart,
+            ggoal,
+            sem_probs=sem_probs,
+            sem_labels=sem_labels,
+            sem_conf=sem_conf,
+            sem_config=sem_config,
+        )
         if grid_path is None:
             result.update(
                 verdict="CANNOT_GO",
@@ -498,11 +703,20 @@ class RouteService:
         seg = np.hypot(np.diff(path_arr[:, 0]), np.diff(path_arr[:, 1]))
         length_m = float(seg.sum() * cell_m)
 
-        # Travel time: speed degrades with slope; integrate along the path.
+        # Travel time: speed degrades with slope and surface
         vmax_ms = profile.vmax_kmh / 3.6
-        speed = vmax_ms * np.maximum(
-            0.15, 1.0 - slope_on / max(profile.max_slope_deg, 1e-6)
-        )
+        speed_factor = 1.0 - slope_on / max(profile.max_slope_deg, 1e-6)
+        if sem_labels is not None:
+            path_labels = sem_labels[path_arr[:, 0], path_arr[:, 1]]
+            # Roads permit slightly higher smooth travel; brush slows down
+            surface_mult = np.ones_like(speed_factor)
+            surface_mult[path_labels == 2] = 1.1   # Road
+            surface_mult[path_labels == 1] = 0.6   # Vegetation
+            surface_mult[path_labels == 4] = 0.9   # Ground
+            speed = vmax_ms * np.maximum(0.15, speed_factor * surface_mult)
+        else:
+            speed = vmax_ms * np.maximum(0.15, speed_factor)
+
         with np.errstate(divide="ignore"):
             time_s = float((seg / np.maximum(speed[:-1], 0.1)).sum())
 
@@ -510,25 +724,59 @@ class RouteService:
         reasons: list[str] = []
         if snapped.get("start"):
             reasons.append(
-                "Start point snapped to the nearest standable ground for "
-                "this vehicle."
+                "Start point snapped to the nearest standable ground for this vehicle."
             )
         if snapped.get("end"):
             reasons.append(
-                "Destination snapped to the nearest reachable ground for "
-                "this vehicle."
+                "Destination snapped to the nearest reachable ground for this vehicle."
             )
+
+        # Semantic stats on path
+        road_frac = None
+        bldg_frac = None
+        water_frac = None
+        veg_frac = None
+        ground_frac = None
+        other_frac = None
+        sem_risk_frac = None
+
+        if sem_labels is not None:
+            path_labels = sem_labels[path_arr[:, 0], path_arr[:, 1]]
+            total_pts = max(len(path_labels), 1)
+            road_frac = float((path_labels == 2).sum()) / total_pts
+            veg_frac = float((path_labels == 1).sum()) / total_pts
+            bldg_frac = float((path_labels == 0).sum()) / total_pts
+            water_frac = float((path_labels == 3).sum()) / total_pts
+            ground_frac = float((path_labels == 4).sum()) / total_pts
+            other_frac = float((path_labels == 5).sum()) / total_pts
+            sem_risk_frac = float(((path_labels == 0) | (path_labels == 3)).sum()) / total_pts
+
+            if road_frac > 0.60:
+                reasons.append(
+                    f"Preferred road corridor selected ({road_frac * 100:.0f}% road coverage)."
+                )
+            elif road_frac > 0.20:
+                reasons.append(
+                    f"Route utilizes available road sections ({road_frac * 100:.0f}%)."
+                )
+            if veg_frac > 0.30:
+                reasons.append(
+                    f"Route traverses vegetated terrain ({veg_frac * 100:.0f}% canopy/brush)."
+                )
+            if bldg_frac > 0 or water_frac > 0:
+                reasons.append(
+                    "Route skirts or touches building/water boundaries."
+                )
+
         if caution_frac > 0.30:
             verdict = "CAUTION"
             reasons.append(
-                f"{caution_frac * 100:.0f}% of the route crosses near-limit "
-                "terrain (caution cells)."
+                f"{caution_frac * 100:.0f}% of the route crosses near-limit terrain (caution cells)."
             )
         if slope_on.max() > 0.9 * profile.max_slope_deg:
             verdict = "CAUTION" if verdict == "CAN_GO" else verdict
             reasons.append(
-                f"Maximum slope on route ({slope_on.max():.1f}°) is within "
-                "10% of this vehicle's limit."
+                f"Maximum slope on route ({slope_on.max():.1f}°) is within 10% of this vehicle's limit."
             )
 
         if snapped:
@@ -548,6 +796,14 @@ class RouteService:
             ),
             caution_fraction=round(caution_frac, 3),
             estimated_travel_seconds=round(time_s, 1) if gsd is not None else None,
+            road_fraction=round(road_frac, 3) if road_frac is not None else None,
+            building_fraction=round(bldg_frac, 3) if bldg_frac is not None else None,
+            water_fraction=round(water_frac, 3) if water_frac is not None else None,
+            vegetation_fraction=round(veg_frac, 3) if veg_frac is not None else None,
+            ground_fraction=round(ground_frac, 3) if ground_frac is not None else None,
+            other_fraction=round(other_frac, 3) if other_frac is not None else None,
+            semantic_risk_fraction=round(sem_risk_frac, 3) if sem_risk_frac is not None else None,
+            semantic_aware=(sem_labels is not None),
         )
         if geo is not None:
             result["path_geojson"] = {
@@ -582,7 +838,17 @@ class RouteService:
         ]
 
     def _assess_chopper(
-        self, dsm, gsd, profile, start, goal, geo
+        self,
+        dsm,
+        gsd,
+        profile,
+        start,
+        goal,
+        geo,
+        sem_probs_full: np.ndarray | None = None,
+        sem_labels_full: np.ndarray | None = None,
+        sem_conf_full: np.ndarray | None = None,
+        sem_config: SemanticConfig | None = None,
     ) -> dict[str, Any]:
         """Aerial verdict: fly start→destination directly, but only if a
         viable LANDING ZONE exists near the destination. No LZ ⇒ denial."""
@@ -604,10 +870,15 @@ class RouteService:
         radius_cells = max(1, int(self.LZ_RADIUS_M / max(cell_m, 1e-6)))
 
         # Landing patch = free cell whose (LZ_MIN_PATCH_CELLS)² neighbourhood
-        # is entirely free — guarantees a pad of at least ~3×3 cells.
+        # is entirely free and not building/water.
         from scipy.ndimage import uniform_filter
 
-        free = (grid.classes == 0).astype(np.float32)
+        free_mask = grid.classes == 0
+        if sem_probs_full is not None and sem_config is not None and sem_config.enabled:
+            sem_probs = _block_downsample_probs(sem_probs_full, f)
+            free_mask = free_mask & (sem_probs[0] < 0.5) & (sem_probs[3] < 0.5)
+
+        free = free_mask.astype(np.float32)
         patch = uniform_filter(free, size=self.LZ_MIN_PATCH_CELLS) >= 0.999
 
         h, w = patch.shape
@@ -623,8 +894,8 @@ class RouteService:
                 reasons=[
                     "No viable landing zone within "
                     f"{self.LZ_RADIUS_M:.0f}{'m' if gsd is not None else 'px'} "
-                    "of the destination — terrain is too steep, stepped or "
-                    "rough for a rotorcraft touchdown. Chopper request denied."
+                    "of the destination — terrain is too steep, stepped, rough, or "
+                    "obstructed by buildings/water. Chopper request denied."
                 ],
                 path=None,
                 landing_zone=None,
@@ -702,6 +973,7 @@ class RouteService:
                 if gsd is not None
                 else None
             ),
+            semantic_aware=(sem_probs_full is not None),
         )
         if geo is not None:
             result["path_geojson"] = {
@@ -793,6 +1065,77 @@ class RouteService:
             "free_pct": round((total - blocked - caution) / total * 100, 1),
             "georeferenced": grid.gsd_m is not None,
         }
+
+    def route_risk_heatmap_path(self, scene_id: str, vehicle_key: str) -> Path:
+        """Generate (idempotently, cached) a combined geometry + semantics
+        route-risk heat map PNG."""
+        profile = VEHICLE_PROFILES.get(vehicle_key)
+        if profile is None:
+            raise ValueError(f"Unknown vehicle profile: {vehicle_key}")
+
+        out = get_scene_output_dir(scene_id) / f"route_risk_{vehicle_key}.png"
+        dsm = self.load_dsm(scene_id)
+        gsd = self.gsd_for(scene_id)
+        grid = classify_grid(dsm, gsd, profile)
+        f = grid.factor
+
+        sem_probs_full, sem_labels_full, sem_conf_full = self.load_semantics(scene_id)
+
+        rgba = np.zeros((*grid.classes.shape, 4), dtype=np.uint8)
+
+        geo_blocked = grid.classes == 2
+        geo_caution = grid.classes == 1
+        geo_free = grid.classes == 0
+
+        if sem_probs_full is not None:
+            sem_probs = _block_downsample_probs(sem_probs_full, f)
+            sem_labels = np.argmax(sem_probs, axis=0).astype(np.uint8)
+            bldg_or_water = (sem_probs[0] >= 0.70) | (sem_probs[3] >= 0.70)
+
+            # 1. Blocked: geometric blocked OR building OR water (Red)
+            is_blocked = geo_blocked | bldg_or_water
+            rgba[is_blocked] = (231, 76, 60, 255)
+
+            # 2. Road on passable geometry -> Optimal corridor (Emerald)
+            is_road = (sem_labels == 2) & ~is_blocked
+            rgba[is_road] = (39, 174, 96, 255)
+
+            # 3. Ground on free geometry -> Passable (Green)
+            is_ground = (sem_labels == 4) & geo_free & ~is_blocked & ~is_road
+            rgba[is_ground] = (46, 204, 113, 255)
+
+            # 4. Vegetation -> Orange
+            is_veg = (sem_labels == 1) & ~is_blocked & ~is_road
+            rgba[is_veg] = (230, 126, 34, 255)
+
+            # 5. Geometry caution (remaining) -> Yellow
+            is_caution = geo_caution & ~is_blocked & ~is_road & ~is_veg
+            rgba[is_caution] = (241, 196, 15, 255)
+
+            # 6. Unassigned free -> Muted grey/tan
+            unassigned = rgba[:, :, 3] == 0
+            rgba[unassigned] = (149, 165, 166, 255)
+        else:
+            palette = {
+                0: (46, 204, 113, 255),
+                1: (241, 196, 15, 255),
+                2: (231, 76, 60, 255),
+            }
+            for cls, color in palette.items():
+                rgba[grid.classes == cls] = color
+
+        from PIL import Image
+
+        image = Image.fromarray(rgba, mode="RGBA")
+        if max(image.size) > HEATMAP_PNG_CAP:
+            scale = HEATMAP_PNG_CAP / max(image.size)
+            image = image.resize(
+                (int(image.width * scale), int(image.height * scale)),
+                Image.NEAREST,
+            )
+        out.parent.mkdir(parents=True, exist_ok=True)
+        image.save(out, format="PNG")
+        return out
 
 
 route_service = RouteService()

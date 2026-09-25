@@ -150,5 +150,27 @@ class Settings:
             os.environ.get("DW_WORKER_POLL_SECONDS", "1.0")
         )
 
+        # --- Semantic segmentation -----------------------------------------
+        # DW_SEMANTIC=false disables semantic prediction entirely (no
+        # sem artifacts generated, Route Assist uses geometry only).
+        self.semantic_enabled: bool = (
+            os.environ.get("DW_SEMANTIC", "true").strip().lower()
+            in {"1", "true", "yes"}
+        )
+        self.semantic_confidence_threshold: float = float(
+            os.environ.get("DW_SEM_CONFIDENCE", "0.70")
+        )
+        self.semantic_hard_block_threshold: float = float(
+            os.environ.get("DW_SEM_HARD_BLOCK", "0.90")
+        )
+
+        # --- Route semantic integration ------------------------------------
+        # DW_ROUTE_SEMANTIC=false makes Route Assist ignore semantics even
+        # when the artifacts exist (geometry-only mode, like pre-upgrade).
+        self.route_semantic_enabled: bool = (
+            os.environ.get("DW_ROUTE_SEMANTIC", "true").strip().lower()
+            in {"1", "true", "yes"}
+        )
+
 
 settings = get_settings()

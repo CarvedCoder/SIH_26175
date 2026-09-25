@@ -25,6 +25,7 @@ import { useApp } from '../../store/appStore.jsx';
 /** Human-readable names + colourmap description for each layer ID */
 const LAYER_META = {
   buildings:     { label: 'Buildings',      sub: 'Solid-colour block model',     colormap: 'blocks' },
+  semantics:     { label: 'Semantics',      sub: 'Learned semantic classification', colormap: 'categorical' },
   solid:         { label: 'Solid',          sub: 'Shaded surface + mesh',        colormap: 'solid' },
   rgb:           { label: 'RGB',            sub: 'Source photograph',           colormap: 'rgb' },
   depth:         { label: 'Depth',          sub: 'Monocular depth estimate',    colormap: 'greyscale' },
@@ -32,6 +33,7 @@ const LAYER_META = {
   reference_dem: { label: 'Reference DEM',  sub: 'Ground-truth elevation',      colormap: 'viridis' },
   error:         { label: 'Error Map',       sub: 'Estimated − Reference',       colormap: 'diverging' },
   slope:         { label: 'Slope',          sub: 'Terrain gradient (°)',         colormap: 'viridis' },
+  route_risk:    { label: 'Route Risk',     sub: 'Combined geometry & semantics risk', colormap: 'categorical' },
 };
 
 /**
@@ -44,8 +46,8 @@ export default function LayerControl({ activeLayer, onLayerChange }) {
   const { state } = useApp();
   const isAbsolute = state.results?.elevation_mode === 'absolute' || state.scene?.is_georeferenced;
   const defaultAvailable = isAbsolute
-    ? ['solid', 'rgb', 'depth', 'dsm', 'reference_dem', 'error', 'slope']
-    : ['solid', 'rgb', 'depth', 'dsm', 'slope'];
+    ? ['solid', 'rgb', 'depth', 'dsm', 'reference_dem', 'error', 'slope', 'semantics', 'route_risk']
+    : ['solid', 'rgb', 'depth', 'dsm', 'slope', 'semantics', 'route_risk'];
   const availableLayers = state.results?.available_layers ?? defaultAvailable;
 
   return (
@@ -97,6 +99,8 @@ function LayerItem({ id, label, sub, isActive, isAvailable, colormap, onSelect }
     id === 'dsm'           ? 'Requires georeferenced GeoTIFF input' :
     id === 'reference_dem' ? 'No reference DEM provided' :
     id === 'error'         ? 'Reference DEM required for error map' :
+    id === 'semantics'     ? 'Semantic segmentation is unavailable for this scene' :
+    id === 'route_risk'    ? 'Route-risk layer unavailable for this scene' :
     'Not available for this input';
 
   return (
@@ -169,10 +173,11 @@ function ColormapBadge({ type, visible }) {
   if (!visible) return null;
 
   const gradients = {
-    rgb:        'linear-gradient(to right, #e53e3e, #38a169, #3b82f6)',
-    greyscale:  'linear-gradient(to right, #0d1117, #dde4ef)',
-    viridis:    'linear-gradient(to right, #440154, #31688e, #35b779, #fde725)',
-    diverging:  'linear-gradient(to right, #2563eb, #dde4ef, #ef4444)',
+    rgb:         'linear-gradient(to right, #e53e3e, #38a169, #3b82f6)',
+    greyscale:   'linear-gradient(to right, #0d1117, #dde4ef)',
+    viridis:     'linear-gradient(to right, #440154, #31688e, #35b779, #fde725)',
+    diverging:   'linear-gradient(to right, #2563eb, #dde4ef, #ef4444)',
+    categorical: 'linear-gradient(to right, #e74c3c, #2ecc71, #9b9b9b, #3498db, #d2b48c)',
   };
 
   return (

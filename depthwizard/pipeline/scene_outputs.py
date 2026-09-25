@@ -252,3 +252,70 @@ def build_scene_payload(
         "outputs": outputs,
     }
     return payload
+
+
+def write_semantic_outputs(
+    out_dir: Path,
+    sem_probs: np.ndarray,
+    checkpoint_name: str = "unknown",
+    model_name: str = "CalibrationNet_aux",
+) -> dict[str, str | None]:
+    """Persist semantic segmentation artifacts (once per scene).
+
+    Writes:
+        semantic_labels.npy     uint8  [H,W]   — argmax class IDs (0–5)
+        semantic_probs.npy      float16 [6,H,W] — compact probability tensor
+        semantic_confidence.npy float16 [H,W]   — max probability per pixel
+        semantic_map.png        RGBA            — class-colored visualization
+        semantic_meta.json      JSON            — model, confidence stats, legend
+
+    The float16 format halves storage vs float32 while keeping >3 decimal
+    digits of precision — more than enough for classification and routing.
+    The canonical machine-readable data is the .npy files; the PNG is
+    for human consumption only.
+
+    Returns dict of artifact output paths for the payload.
+    """
+    import json
+
+    from PIL import Image
+
+    from ..semantic_segmenter import (
+        prediction_from_probs,
+        render_semantic_map,
+        semantic_metadata,
+    )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    outputs: dict[str, str | None] = {}
+
+    prediction = prediction_from_probs(sem_probs)
+
+    # Machine-readable artifacts (the authority for Route Assist and Inspect)
+    labels_path = out_dir / "semantic_labels.npy"
+    np.save(labels_path, prediction.labels)
+    outputs["semantic_labels"] = str(labels_path)
+
+    probs_path = out_dir / "semantic_probs.npy"
+    np.save(probs_path, prediction.probs.astype(np.float16))
+    outputs["semantic_probs"] = str(probs_path)
+
+    conf_path = out_dir / "semantic_confidence.npy"
+    np.save(conf_path, prediction.confidence.astype(np.float16))
+    outputs["semantic_confidence"] = str(conf_path)
+
+    # Visualization artifact (class-colored RGBA PNG)
+    map_rgba = render_semantic_map(prediction)
+    map_path = out_dir / "semantic_map.png"
+    Image.fromarray(map_rgba, mode="RGBA").save(map_path, format="PNG")
+    outputs["semantic_map"] = str(map_path)
+
+    # Metadata (model provenance, confidence stats, legend)
+    meta = semantic_metadata(prediction, checkpoint_name, model_name)
+    meta_path = out_dir / "semantic_meta.json"
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+    outputs["semantic_meta"] = str(meta_path)
+
+    return outputs
+

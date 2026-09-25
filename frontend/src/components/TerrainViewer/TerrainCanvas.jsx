@@ -118,10 +118,27 @@ const FRAG = /* glsl */ `
   uniform float uFogFar;         // fog full distance (world units, scene-scaled)
   uniform vec3 uFogColor;        // matches background [0.028, 0.035, 0.055]
 
+  // Semantic overlay and class isolation
+  uniform sampler2D uSemanticTex;       // semantic class-ID texture (R channel: 0..5)
+  uniform float uSemanticEnabled;        // 0 = off, 1 = on
+  uniform float uSemanticOpacity;        // blend factor (default ~0.65)
+  uniform float uSemanticHighlightClass; // -1 = none, 0-5 = highlight specific class
+
   varying vec2 vUv;
   varying vec3 vNormal;
   varying float vHeight;
   varying float vViewDist;
+
+  // Canonical 6 semantic class colors (matching DepthWizard project legend)
+  vec3 getSemanticClassColor(float classId) {
+    int c = int(classId + 0.5);
+    if (c == 0) return vec3(0.906, 0.298, 0.235); // building (#E74C3C)
+    if (c == 1) return vec3(0.180, 0.800, 0.443); // vegetation (#2ECC71)
+    if (c == 2) return vec3(0.608, 0.608, 0.608); // road (#9B9B9B)
+    if (c == 3) return vec3(0.204, 0.596, 0.859); // water (#3498DB)
+    if (c == 4) return vec3(0.824, 0.706, 0.549); // ground (#D2B48C)
+    return vec3(0.584, 0.510, 0.659);             // other (#9582A8)
+  }
 
   // Viridis colormap polynomial approximation
   vec3 viridis(float t) {
@@ -171,6 +188,26 @@ const FRAG = /* glsl */ `
 
     // Blend: fallback -> mapped colour based on texture readiness
     baseColor = mix(heightColor, baseColor, uTextureReady);
+
+    // Optional semantic overlay / class isolation
+    if (uSemanticEnabled > 0.5) {
+      vec4 semSample = texture2D(uSemanticTex, vUv);
+      float rawClass = floor(semSample.r * 255.0 + 0.5);
+      vec3 semColor = getSemanticClassColor(rawClass);
+
+      if (uSemanticHighlightClass >= -0.5) {
+        float targetClass = floor(uSemanticHighlightClass + 0.5);
+        if (abs(rawClass - targetClass) < 0.2) {
+          // Highlighted class: luminous, solid class color
+          baseColor = mix(baseColor, semColor, 0.88);
+        } else {
+          // Dim non-matching classes
+          baseColor = mix(baseColor, semColor, 0.15) * 0.38;
+        }
+      } else {
+        baseColor = mix(baseColor, semColor, uSemanticOpacity);
+      }
+    }
 
     // Diffuse lighting. RGB drape (mode 0) gets the full sun/ambient model;
     // scientific colormaps (depth greyscale, DSM/slope viridis, error
@@ -648,6 +685,10 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         uFogNear: { value: 1.7 },
         uFogFar: { value: 8.5 },
         uFogColor: { value: new THREE.Color(0.028, 0.035, 0.055) },
+        uSemanticTex: { value: emptyRgb },
+        uSemanticEnabled: { value: 0.0 },
+        uSemanticOpacity: { value: 0.65 },
+        uSemanticHighlightClass: { value: -1.0 },
       },
       wireframe: false,
       transparent: false,
@@ -659,6 +700,53 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
 
   /* ── Expose imperative handle to parent ── */
   useImperativeHandle(ref, () => ({
+    setSemanticEnabled(enabled) {
+      const mat = materialRef.current;
+      if (mat?.uniforms?.uSemanticEnabled) {
+        mat.uniforms.uSemanticEnabled.value = enabled ? 1.0 : 0.0;
+        mat.needsUpdate = true;
+      }
+    },
+    setSemanticOpacity(val) {
+      const mat = materialRef.current;
+      if (mat?.uniforms?.uSemanticOpacity) {
+        mat.uniforms.uSemanticOpacity.value = Math.max(0, Math.min(1, val));
+      }
+    },
+    setSemanticHighlightClass(classId) {
+      const mat = materialRef.current;
+      if (mat?.uniforms?.uSemanticHighlightClass) {
+        mat.uniforms.uSemanticHighlightClass.value = typeof classId === 'number' ? classId : -1.0;
+      }
+    },
+    updateSemanticTexture(labelsArray, width, height) {
+      const g = glRef.current;
+      const mat = materialRef.current;
+      if (!g || !mat || !labelsArray || !width || !height) return;
+
+      const tex = new THREE.DataTexture(
+        labelsArray,
+        width,
+        height,
+        THREE.RedFormat,
+        THREE.UnsignedByteType
+      );
+      tex.minFilter = THREE.NearestFilter;
+      tex.magFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+
+      if (g.semanticTexture) {
+        g.activeTextures.delete(g.semanticTexture);
+        g.semanticTexture.dispose();
+      }
+
+      g.semanticTexture = tex;
+      g.activeTextures.add(tex);
+      mat.uniforms.uSemanticTex.value = tex;
+      mat.uniforms.uSemanticEnabled.value = 1.0;
+      mat.needsUpdate = true;
+    },
     setExaggeration(v) {
       const g = glRef.current;
       g.exaggeration = v;

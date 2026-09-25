@@ -24,15 +24,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useApp } from '../../store/appStore.jsx';
 import { getElevation } from '../../api/terrain.js';
 import { Crosshair } from 'lucide-react';
+import { sampleSemanticAtUV } from '../../lib/semanticSampler.js';
 
 /**
  * @param {{
  *   terrainRef: React.RefObject,
  *   enabled?: boolean,
  *   onProbe?: (point: { x: number, z: number, elevation: number } | null) => void,
+ *   semanticData?: object | null,
  * }} props
  */
-export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) {
+export default function ElevationProbe({ terrainRef, enabled = true, onProbe, semanticData = null }) {
   const { state } = useApp();
   const [probeData, setProbeData] = useState(null);
   const [mousePos, setMousePos] = useState({ x: -100, y: -100, visible: false });
@@ -122,6 +124,7 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
       pendingMouse.current = null;
       setMousePos(p => ({ ...p, visible: false }));
       setProbeData(null);
+      terrainRef.current?.setSemanticHighlightClass?.(-1);
       onProbe?.(null);
     }
 
@@ -130,6 +133,7 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
       if (!pendingMouse.current) {
         setMousePos(p => ({ ...p, visible: false }));
         setProbeData(null);
+        terrainRef.current?.setSemanticHighlightClass?.(-1);
         return;
       }
 
@@ -149,21 +153,13 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
       // In perspective/orbit: compute hit on the ground plane Y=0 or camera look direction
       const cam = g.camera;
       if (cam) {
-        // Simple perspective ground raycast:
-        // Ray from cam.position along unprojected ray
-        const rayDirX = ndcX;
-        const rayDirY = ndcY;
-        // World position approximation from camera target
         const orb = g.orbit;
         if (orb?.target) {
           const targetX = orb.target.x ?? 0;
           const targetZ = orb.target.z ?? 0;
-          // Offset by NDC relative to orbit target
           const dist = cam.position.distance ? cam.position.distance(orb.target) : 2.5;
           const wx = targetX + ndcX * dist * 0.45;
           const wz = targetZ - ndcY * dist * 0.45;
-          // world → normalised via the plane's physical footprint (metres
-          // when known; legacy [-1,1] fallback)
           const w = typeof g.worldWidth === 'number' && g.worldWidth > 0 ? g.worldWidth : 2;
           const d = typeof g.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2;
           nx = Math.max(0, Math.min(1, wx / w + 0.5));
@@ -173,12 +169,21 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
 
       const elev = sampleElevationAt(nx, nz);
 
+      let semInfo = null;
+      if (semanticData?.available) {
+        semInfo = sampleSemanticAtUV(semanticData, nx, nz);
+        if (semInfo) {
+          terrainRef.current?.setSemanticHighlightClass?.(semInfo.classId);
+        }
+      }
+
       if (elev !== null) {
         const data = {
           x: (nx * 2 - 1).toFixed(3),
           z: (nz * 2 - 1).toFixed(3),
           elevation: elev,
           metered: false,
+          semantic: semInfo,
         };
         setProbeData(data);
         onProbe?.({ x: nx * 2 - 1, z: nz * 2 - 1, elevation: elev });
@@ -194,10 +199,11 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
     return () => {
       canvas.removeEventListener('mousemove', onMouseMove);
       canvas.removeEventListener('mouseleave', onMouseLeave);
+      terrainRef.current?.setSemanticHighlightClass?.(-1);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (exactTimer.current) clearTimeout(exactTimer.current);
     };
-  }, [enabled, terrainRef, sampleElevationAt, onProbe, fetchExactElevation]);
+  }, [enabled, terrainRef, sampleElevationAt, onProbe, fetchExactElevation, semanticData]);
 
   if (!enabled || !mousePos.visible || !probeData) return null;
 
@@ -258,6 +264,40 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe }) 
           {unitLabel}
         </span>
       </div>
+
+      {probeData.semantic && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          marginTop: 2,
+          paddingTop: 4,
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+        }}>
+          <span style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: probeData.semantic.colorHex,
+          }} />
+          <span style={{
+            fontFamily: 'var(--dw-font-ui)',
+            fontSize: 11.5,
+            fontWeight: 600,
+            color: '#f8fafc',
+            textTransform: 'capitalize',
+          }}>
+            {probeData.semantic.className}
+          </span>
+          <span style={{
+            fontFamily: 'var(--dw-font-data)',
+            fontSize: 10.5,
+            color: 'var(--dw-fg-ghost)',
+          }}>
+            ({Math.round(probeData.semantic.confidence * 100)}%)
+          </span>
+        </div>
+      )}
 
       {probeData.metered && probeData.confidence && (
         <div style={{
