@@ -26,7 +26,7 @@ export function LoginForm({
               <div className="flex flex-col items-center gap-2 text-center">
                 <h1 className="text-2xl font-bold text-slate-100">Welcome back</h1>
                 <p className="text-balance text-slate-400 text-sm">
-                  Login to your TerraMesh account
+                  Login to your DepthWizard account
                 </p>
               </div>
               <Field>

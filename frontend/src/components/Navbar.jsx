@@ -27,7 +27,7 @@ export default function Navbar({
           className="text-left group cursor-pointer focus:outline-none"
         >
           <span className="font-display font-medium text-lg tracking-tight text-slate-100 group-hover:text-white transition-colors duration-300">
-            TerraMesh
+            DepthWizard
           </span>
         </button>
 

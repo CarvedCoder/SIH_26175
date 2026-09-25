@@ -51,6 +51,12 @@ services:
       # Browser talks to the backend from the host at :5173.
       DW_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       DW_DEVICE: auto
+      # Supabase's direct db.* host is IPv6-only; Docker's default bridge
+      # network has no IPv6, so the container cannot resolve/connect to it
+      # (backend crash-looped on startup → uploads 5xx). Containers run on
+      # the bound-mounted SQLite DB instead; host-side runs keep the
+      # Supabase DATABASE_URL from .env.
+      DATABASE_URL: sqlite:////app/data/depthwizard.db
 
     ports:
       - "127.0.0.1:8000:8000"

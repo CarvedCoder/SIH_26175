@@ -134,7 +134,7 @@ export function AuthProvider({ children }) {
  * consistent across reloads of the same browser profile.
  */
 function localProfile(email) {
-  const clean = (email ?? '').trim().toLowerCase() || 'guest@terramesh.io';
+  const clean = (email ?? '').trim().toLowerCase() || 'guest@depthwizard.io';
   let hash = 0;
   for (let i = 0; i < clean.length; i += 1) {
     hash = (hash * 31 + clean.charCodeAt(i)) >>> 0;
