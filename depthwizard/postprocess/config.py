@@ -92,14 +92,18 @@ class PostProcessConfig:
     # ---- conservative spike removal ----------------------------------------
     spike_removal: bool = True  # median/MAD isolated-outlier stage BEFORE
     #   refinement (never touches edge-supported structures)
-    spike_radius: int = 3  # local median window radius in px
-    spike_tau: float = 6.0  # robust z threshold: |x - median| > tau * MAD
-    spike_min_isolation: float = 0.25  # a spike must have FEWER than this
-    #   fraction of window pixels deviating with the same sign — this is
-    #   what distinguishes an isolated spike from a genuine roof edge
-    #   (whose deviating pixels form a contiguous, non-isolated band).
+    spike_radius: int = 1  # local median window radius in px (3x3 default)
+    spike_tau: float = 3.8  # robust z threshold: |x - median| > tau * MAD
+    spike_min_isolation: float = 0.65  # fraction of boundary ring pixels that
+    #   must disagree in elevation (for an isolated needle peak, surrounding
+    #   boundary is lower; for a pit, surrounding boundary is higher).
     spike_max_rgb_grad: float = 0.15  # RGB L1-gradient (in [0,1] units)
-    #   above which a pixel is considered edge-supported and protected
+    spike_min_height: float = 0.6  # minimum elevation delta (metres) for spikes
+    spike_max_component_size: int = 6  # max connected-component pixel area
+    #   (components larger than this are protected as genuine roofs/structures)
+    spike_post_refine: bool = True  # also run spike removal on refined output
+    #   to catch filter-induced edge-decoupling spikes
+    spike_max_local_slope: Optional[float] = 85.0  # max plausible local slope (deg)
 
     # ---- test-time augmentation -------------------------------------------
     tta: bool = False  # hflip+vflip+180° ensemble (runtime ~3-4x — measure

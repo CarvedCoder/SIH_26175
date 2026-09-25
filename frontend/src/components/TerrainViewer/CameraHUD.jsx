@@ -81,7 +81,7 @@ function HUDContent({ terrainRef, elevationMode, rightOffset = 16 }) {
       const hd = (typeof g.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2) / 2;
       const nx = Math.max(0, Math.min(1, pos.x / (2 * hw) + 0.5));
       const nz = Math.max(0, Math.min(1, pos.z / (2 * hd) + 0.5));
-      const slope = computeSlope(g, nx, nz);
+      const slope = computeSlope(g, pos.x, pos.z, nx, nz);
 
       setReadouts({ altitude, heading, slope, posX: pos.x, posZ: pos.z });
     }
@@ -190,28 +190,34 @@ function computeHeading(cam) {
 }
 
 /**
- * Compute local terrain slope at normalised position (nx, nz) using finite differences
- * on the heightmap. Returns slope in degrees.
- * @param {Object} g - glRef.current
- * @param {number} nx - normalised X [0,1]
- * @param {number} nz - normalised Z [0,1]
- * @returns {number} slope in degrees
+ * Compute local terrain slope at world position using metric gradients.
+ * Returns slope in degrees.
  */
-function computeSlope(g, nx, nz) {
+function computeSlope(g, posX, posZ, nx, nz) {
+  if (g.engine?.spatial) {
+    return g.engine.spatial.sampleSlope(posX, posZ);
+  }
   if (!g.heightData || !g.hmWidth || !g.hmHeight) return 0;
 
-  const { heightData: hd, hmWidth: w, hmHeight: h, heightScale: hs, exaggeration: ex } = g;
-  const scale = hs * ex;
+  const w = g.hmWidth;
+  const h = g.hmHeight;
+  const worldW = (typeof g.worldWidth === 'number' && g.worldWidth > 0 ? g.worldWidth : 2);
+  const worldD = (typeof g.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2);
 
-  function sampleH(u, v) {
+  const texelU = 1 / Math.max(w, 1);
+  const texelV = 1 / Math.max(h, 1);
+
+  const sampleH = (u, v) => {
     const px = Math.min(Math.max(Math.round(u * (w - 1)), 0), w - 1);
     const pz = Math.min(Math.max(Math.round(v * (h - 1)), 0), h - 1);
-    return hd[pz * w + px] * scale;
-  }
+    const raw = g.heightData[pz * w + px];
+    return (g.minElevation || 0) + raw * (g.elevationSpan || 100);
+  };
 
-  const step = 1 / Math.max(w, h);
-  const dX = (sampleH(nx + step, nz) - sampleH(nx - step, nz)) / (2 * step * 2); // world X span = 2
-  const dZ = (sampleH(nx, nz + step) - sampleH(nx, nz - step)) / (2 * step * 2); // world Z span = 2
+  const stepX_m = Math.max(2 * texelU * worldW, 1e-4);
+  const stepZ_m = Math.max(2 * texelV * worldD, 1e-4);
+  const dX = (sampleH(nx + texelU, nz) - sampleH(nx - texelU, nz)) / stepX_m;
+  const dZ = (sampleH(nx, nz + texelV) - sampleH(nx, nz - texelV)) / stepZ_m;
   const grad = Math.hypot(dX, dZ);
   return Math.atan(grad) * (180 / Math.PI);
 }

@@ -683,6 +683,13 @@ def run_inference(
 
                 confidence = estimate_confidence(agl_raw, rgb_u8)
 
+            # Physical pixel size from the input raster's georeference — the
+            # spike slope gate must use real metres/pixel, never assume 1 px
+            # = 1 m (falls back to (1, 1) for non-georeferenced input).
+            from .geo import pixel_size_metres
+
+            gsd = pixel_size_metres(crs, tf) if georef else None
+
             dsm, pp_report = refine_agl(
                 agl_raw,
                 rgb_u8,
@@ -690,6 +697,7 @@ def run_inference(
                 sem_probs=sem_probs,
                 confidence=confidence,
                 tta_predict_fn=tta_fn,
+                gsd=gsd,
             )
             pp_report_dict = pp_report.to_dict()
             print(

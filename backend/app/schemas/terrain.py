@@ -165,3 +165,41 @@ class TerrainResponse(BaseModel):
         "CRS+transform GSD; False means the 1 m/pixel fallback was applied "
         "(never invented GPS coordinates).",
     )
+
+    # -- geospatial metadata & chunk streaming ---------------------------
+    crs: str | None = Field(
+        default=None,
+        description="Original Coordinate Reference System (e.g. 'EPSG:32617').",
+    )
+    projected_crs: str | None = Field(
+        default=None,
+        description="Projected metric CRS for real-world distance calculation.",
+    )
+    affine_transform: list[float] | None = Field(
+        default=None,
+        description="6-element affine transform [a, b, c, d, e, f] mapping pixel coords to CRS.",
+    )
+    gsd_x: float | None = Field(
+        default=None,
+        description="Ground sample distance in meters per pixel (easting/X).",
+    )
+    gsd_y: float | None = Field(
+        default=None,
+        description="Ground sample distance in meters per pixel (northing/Y).",
+    )
+    raster_width: int | None = Field(
+        default=None,
+        description="Original raster width in pixels.",
+    )
+    raster_height: int | None = Field(
+        default=None,
+        description="Original raster height in pixels.",
+    )
+    local_origin: list[float] | None = Field(
+        default=None,
+        description="[x, y, z] origin in projected coordinates for origin rebasing.",
+    )
+    tile_config: dict[str, Any] | None = Field(
+        default=None,
+        description="Configuration for chunk tiling and dynamic LOD streaming.",
+    )

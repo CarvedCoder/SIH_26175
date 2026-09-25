@@ -17,7 +17,7 @@ const CELL = {
 
 const VALUE = { color: 'var(--dw-fg)' };
 
-export default function StatusStrip({ selectedPoint, fps, terrainMeta, exaggeration }) {
+export default function StatusStrip({ selectedPoint, fps, terrainMeta, exaggeration, onToggleDebugHud }) {
   const dims = terrainMeta?.dimensions ?? terrainMeta?.terrain?.dimensions ?? {};
   const width = terrainMeta?.mesh_width ?? dims.width ?? terrainMeta?.width ?? null;
   const height = terrainMeta?.mesh_height ?? dims.height ?? terrainMeta?.height ?? null;
@@ -64,6 +64,31 @@ export default function StatusStrip({ selectedPoint, fps, terrainMeta, exaggerat
       <span style={CELL}>
         GPU <span style={VALUE}>WebGL</span>
       </span>
+      {onToggleDebugHud && (
+        <button
+          type="button"
+          onClick={onToggleDebugHud}
+          title="Toggle Metric Geospatial Telemetry HUD (Hotkeys: H or ~)"
+          style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            border: '1px solid var(--dw-rim)',
+            borderRadius: 4,
+            color: 'var(--dw-fg-muted)',
+            padding: '2px 8px',
+            fontSize: 11,
+            fontFamily: 'var(--dw-font-data)',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            transition: 'all 0.15s ease',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--dw-accent)'; e.currentTarget.style.borderColor = 'var(--dw-accent)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--dw-fg-muted)'; e.currentTarget.style.borderColor = 'var(--dw-rim)'; }}
+        >
+          <span>🛰️ METRIC HUD [H]</span>
+        </button>
+      )}
     </div>
   );
 }

@@ -7,7 +7,8 @@
     "dev": "vite --host",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/engine/tests/*.test.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

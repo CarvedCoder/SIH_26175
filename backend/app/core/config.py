@@ -132,9 +132,9 @@ class Settings:
         # Post-processing (run_inference postprocess= preset + params).
         # Presets: none|median|guided|bilateral|wls|conf|semantic|full
         self.postprocess: str = os.environ.get("DW_POSTPROCESS", "wls")
-        self.wls_lambda: float = float(os.environ.get("DW_WLS_LAMBDA", "50.0"))
+        self.wls_lambda: float = float(os.environ.get("DW_WLS_LAMBDA", "2.0"))
         self.wls_sigma_rgb: float = float(
-            os.environ.get("DW_WLS_SIGMA_RGB", "0.04")
+            os.environ.get("DW_WLS_SIGMA_RGB", "0.08")
         )
         self.wls_max_iter: int = _int_env("DW_WLS_MAX_ITER", 300)
         # Flip/rotate ensemble inside the refinement (runtime ~3-4x).

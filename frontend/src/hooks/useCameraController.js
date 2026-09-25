@@ -246,7 +246,11 @@ export function useCameraController({ canvasRef, glRef }) {
       // Enter Walkthrough: a human's eye height above the terrain surface,
       // slightly south of centre so the relief reads immediately.
       const d = sceneScale(g);
-      const startH = sampleVisualHeight(0.5, 0.5) + EYE_HEIGHT_M;
+      const startZ = d * 0.05;
+      const groundH = g.engine?.collision
+        ? g.engine.collision.getTerrainHeight(0, startZ)
+        : sampleVisualHeight(0.5, 0.5);
+      const startH = groundH + EYE_HEIGHT_M;
       const fp = fpState.current;
       fp.yaw = 0;
       fp.pitch = WALKTHROUGH_START_PITCH;
@@ -259,7 +263,7 @@ export function useCameraController({ canvasRef, glRef }) {
       fp.vel.x = 0;
       fp.vel.y = 0;
       fp.vel.z = 0;
-      g.camera.position.set(0, startH, d * 0.05);
+      g.camera.position.set(0, startH, startZ);
       // Wide human FOV — the terrain fills the view at real-world scale
       g.camera.fov = WALKTHROUGH_FOV;
       g.camera.updateProjectionMatrix();
@@ -491,7 +495,15 @@ export function useCameraController({ canvasRef, glRef }) {
     if (pos.x >  bound) { pos.x =  bound; vel.x = 0; }
     if (pos.z < -bound) { pos.z = -bound; vel.z = 0; }
     if (pos.z >  bound) { pos.z =  bound; vel.z = 0; }
-    if (pos.y < WALKTHROUGH_MIN_ALTITUDE_M) {
+
+    // Terrain Collision & Ground Clamping in real meters
+    if (g.engine?.collision) {
+      g.engine.collision.clampPosition(pos, {
+        mode: g.walkMode ? 'walk' : 'fly',
+        exaggeration: g.engine.exaggeration || 1.0,
+      });
+      if (g.walkMode) vel.y = 0;
+    } else if (pos.y < WALKTHROUGH_MIN_ALTITUDE_M) {
       pos.y = WALKTHROUGH_MIN_ALTITUDE_M;
       vel.y = 0;
     }

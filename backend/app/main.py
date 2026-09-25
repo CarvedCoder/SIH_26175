@@ -4,7 +4,7 @@ Serves the frontend's scene/job-oriented ``/api/v1`` contract. The legacy
 ``service/api.py`` stateless predictor is NOT this app (kept only as a
 manual smoke-test door); Docker deploys THIS application.
 
-    uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+    uvicorn backend.app.main:app --host 0.0.0.0 --port 8010
 """
 
 from contextlib import asynccontextmanager

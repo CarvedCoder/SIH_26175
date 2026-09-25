@@ -36,8 +36,18 @@ FRONTEND = ROOT / "frontend"
 VENV = ROOT / ".venv"
 PID_FILE = ROOT / "data" / ".dw-dev.pids"
 
-BACKEND_PORT = int(os.environ.get("DW_PORT", "8000"))
-FRONTEND_PORT = int(os.environ.get("VITE_PORT", "5173"))
+# Ports are resolved lazily via backend_port()/frontend_port() AFTER
+# load_env_file() runs, so DW_PORT/VITE_PORT set in .env are honored.
+DEFAULT_BACKEND_PORT = int(os.environ.get("DW_PORT", "8010"))
+DEFAULT_FRONTEND_PORT = int(os.environ.get("VITE_PORT", "5173"))
+
+
+def backend_port() -> int:
+    return int(os.environ.get("DW_PORT", str(DEFAULT_BACKEND_PORT)))
+
+
+def frontend_port() -> int:
+    return int(os.environ.get("VITE_PORT", str(DEFAULT_FRONTEND_PORT)))
 
 processes: list[subprocess.Popen] = []
 infrastructure_started = False
@@ -517,8 +527,8 @@ def start_infra() -> None:
 
 
 def start_backend() -> None:
-    if port_open(BACKEND_PORT):
-        fail(f"port {BACKEND_PORT} is already in use — stop the old backend first")
+    if port_open(backend_port()):
+        fail(f"port {backend_port()} is already in use — stop the old backend first")
 
     uv = shutil.which("uv")
 
@@ -533,10 +543,10 @@ def start_backend() -> None:
     "--host",
     "0.0.0.0",
     "--port",
-    str(BACKEND_PORT),
+    str(backend_port()),
     ]   
 
-    log(f"starting backend on :{BACKEND_PORT}…")
+    log(f"starting backend on :{backend_port()}…")
 
     proc = subprocess.Popen(
         cmd,
@@ -546,13 +556,13 @@ def start_backend() -> None:
     processes.append(proc)
 
     # Give Uvicorn a moment to start.
-    if not wait_for_port("127.0.0.1", BACKEND_PORT, timeout=30):
+    if not wait_for_port("127.0.0.1", backend_port(), timeout=30):
         if proc.poll() is not None:
             fail("backend exited during startup. Check the backend output above.")
 
-        fail(f"backend did not become reachable on 127.0.0.1:{BACKEND_PORT}")
+        fail(f"backend did not become reachable on 127.0.0.1:{backend_port()}")
 
-    log(f"backend ready on http://localhost:{BACKEND_PORT}")
+    log(f"backend ready on http://localhost:{backend_port()}")
 
 
 # ---------------------------------------------------------------------------
@@ -561,11 +571,11 @@ def start_backend() -> None:
 
 
 def start_frontend() -> None:
-    if port_open(FRONTEND_PORT):
-        if frontend_healthy(FRONTEND_PORT):
-            log(f"frontend already running on :{FRONTEND_PORT} — reusing it")
+    if port_open(frontend_port()):
+        if frontend_healthy(frontend_port()):
+            log(f"frontend already running on :{frontend_port()} — reusing it")
             return
-        log(f"port {FRONTEND_PORT} already in use by another program — frontend not started")
+        log(f"port {frontend_port()} already in use by another program — frontend not started")
         return
 
     npm = shutil.which("npm")
@@ -574,12 +584,20 @@ def start_frontend() -> None:
         log("npm not found — frontend not started")
         return
 
-    log(f"starting frontend dev server on :{FRONTEND_PORT}…")
+    log(f"starting frontend dev server on :{frontend_port()}…")
+
+    # Pin the API base to the port THIS script started the backend on, so a
+    # stale VITE_API_BASE_URL in the environment can never point the browser
+    # at a dead port.
+    env = dict(os.environ)
+    env["VITE_API_BASE_URL"] = f"http://localhost:{backend_port()}/api/v1"
+    env["VITE_PORT"] = str(frontend_port())
 
     processes.append(
         subprocess.Popen(
             [npm, "run", "dev", "--", "--host", "0.0.0.0"],
             cwd=FRONTEND,
+            env=env,
         )
     )
     record_children()
@@ -653,8 +671,8 @@ def main() -> None:
     print(
         "\n"
         "[start] DepthWizard is up:\n"
-        f"          frontend  http://localhost:{FRONTEND_PORT}\n"
-        f"          backend   http://localhost:{BACKEND_PORT} "
+        f"          frontend  http://localhost:{frontend_port()}\n"
+        f"          backend   http://localhost:{backend_port()} "
         f"(docs: /docs)\n"
         f"          postgres  {db_host}:{db_port}\n"
         f"          storage   {storage_backend}\n"

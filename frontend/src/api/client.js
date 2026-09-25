@@ -7,7 +7,10 @@
 
 import { getAccessToken, supabase } from '@/lib/supabase';
 
-export const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
+// Relative by default: the vite dev server proxies /api to the backend
+// (see vite.config.js), so a stale VITE_API_BASE_URL can never point the
+// browser at a dead port. Absolute overrides still win when explicitly set.
+export const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
 
 export function getBaseUrl() {
   return BASE_URL;
@@ -18,7 +21,7 @@ export function getBaseUrl() {
  * backend verifies the token and derives the user id from its `sub`
  * claim; we never send a user id in payloads.
  */
-async function authHeaders() {
+export async function authHeaders() {
   const token = await getAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
@@ -136,7 +139,11 @@ export function resolveAssetUrl(url) {
   // Asset paths are API-rooted (they already include /api/v1), so they
   // resolve against the API ORIGIN only — never against BASE_URL's path.
   const path = url.startsWith('/') ? url : `/${url}`;
-  return `${new URL(BASE_URL).origin}/${path.replace(/^\//, '')}`;
+  if (/^https?:\/\//i.test(BASE_URL)) {
+    return `${new URL(BASE_URL).origin}/${path.replace(/^\//, '')}`;
+  }
+  // Relative API base (vite dev proxy): same-origin, path already API-rooted.
+  return path;
 }
 
 /**

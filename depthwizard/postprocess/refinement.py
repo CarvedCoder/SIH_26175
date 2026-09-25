@@ -108,6 +108,7 @@ def refine_agl(
     sem_probs: Optional[np.ndarray] = None,
     confidence: Optional[np.ndarray] = None,
     tta_predict_fn: Optional[Callable] = None,
+    gsd: Optional[tuple] = None,
 ) -> tuple[np.ndarray, PostProcessReport]:
     """Refine a calibrated AGL tile. See module docstring for the stages.
 
@@ -120,6 +121,10 @@ def refine_agl(
                    confidence-aware method is selected but none supplied)
     tta_predict_fn callable(rgb_u8_variant) -> AGL [H,W]; enables the TTA
                    stage when config.tta is True.
+    gsd            (dx, dy) ground sample distance in metres/pixel from the
+                   input raster's georeference. Drives the physical slope gate
+                   in spike detection (never assumes 1 px = 1 m). Falls back
+                   to (1, 1) for non-georeferenced input, which is reported.
     """
     t0 = time.perf_counter()
     agl = np.asarray(agl, dtype=np.float32)
@@ -144,6 +149,14 @@ def refine_agl(
         return agl.copy(), report
 
     valid = np.isfinite(agl) & np.isfinite(rgb[..., :3]).all(axis=2)
+
+    # Effective ground sample distance for physical slope gating. Never
+    # silently pretend 1 px = 1 m: the fallback is explicit and reported.
+    if gsd is not None and len(gsd) == 2 and gsd[0] > 0 and gsd[1] > 0:
+        gsd_eff = (float(gsd[0]), float(gsd[1]))
+    else:
+        gsd_eff = (1.0, 1.0)
+
     raw = agl.copy()
     signal = agl.astype(np.float64)
     notes: list[str] = []
@@ -163,7 +176,11 @@ def refine_agl(
             tau=config.spike_tau,
             min_isolation=config.spike_min_isolation,
             max_rgb_grad=config.spike_max_rgb_grad,
+            min_spike_height=config.spike_min_height,
+            max_component_size=config.spike_max_component_size,
+            max_local_slope=config.spike_max_local_slope,
             valid=valid,
+            gsd=gsd_eff,
         )
         signal = signal32.astype(np.float64)
         notes.append(f"spike_removal: {int(spike_mask.sum())} pixels replaced")
@@ -345,6 +362,29 @@ def refine_agl(
     else:  # pragma: no cover — config validates the method name
         raise ValueError(f"unhandled method '{method}'")
 
+    # ---- stage 4.5: post-refinement spike cleanup --------------------------
+    if config.spike_removal and config.spike_post_refine and spatial_wanted:
+        from .spike_removal import remove_spikes
+
+        out_cleaned, post_spike_mask = remove_spikes(
+            out.astype(np.float32),
+            rgb,
+            radius=config.spike_radius,
+            tau=config.spike_tau,
+            min_isolation=config.spike_min_isolation,
+            max_rgb_grad=config.spike_max_rgb_grad,
+            min_spike_height=config.spike_min_height,
+            max_component_size=config.spike_max_component_size,
+            max_local_slope=config.spike_max_local_slope,
+            valid=valid,
+            gsd=gsd_eff,
+        )
+        n_post = int(post_spike_mask.sum())
+        if n_post > 0:
+            out = np.where(valid, out_cleaned, np.nan).astype(np.float64)
+            spike_mask |= post_spike_mask
+            notes.append(f"post_spike_cleanup: {n_post} residual spikes repaired")
+
     # ---- stage 5: calibration guard ----------------------------------------
     refined = np.where(valid, out, np.nan).astype(np.float32)
     calib = calibration_report(raw, refined, valid)
@@ -376,6 +416,11 @@ def refine_agl(
         wls_iterations=wls_iters,
         wls_converged=wls_conv,
         tta_augmentations=tta_augs,
-        notes=notes,
+        notes=notes
+        + (
+            [f"gsd: {gsd_eff[0]:.3g} x {gsd_eff[1]:.3g} m/px (georeferenced)"]
+            if (gsd is not None and len(gsd) == 2 and gsd[0] > 0 and gsd[1] > 0)
+            else ["gsd: not georeferenced — slope gate used 1 px = 1 m fallback"]
+        ),
     )
     return refined, report

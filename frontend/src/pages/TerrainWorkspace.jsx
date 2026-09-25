@@ -118,26 +118,25 @@ export default function TerrainWorkspace() {
     setSelectedStructure(null);
     setRefineBbox(null);
     setActiveTool('none');
-    setActiveLayer('solid');
-    setViewTab('hybrid');
+    setActiveLayer('rgb');
+    setViewTab('rgb');
     setWireframeState(false);
     setContourEnabled(false);
     layerCache.current = {};
-    prevLayerRef.current = 'solid';
+    prevLayerRef.current = 'rgb';
     elevCache.current.clear();
     terrainRef.current?.setMeasurePoints?.(null);
   }, [state.scene?.scene_id]);
 
   // ── Layer system (Phase 8) ──
-  // DEFAULT: solid shaded relief — the "Hybrid" view. Structures render as
-  // flat-coloured volumes via the shader; RGB stays one tab click away.
-  const [activeLayer, setActiveLayer] = useState('solid');
-  const [viewTab, setViewTab] = useState('hybrid');
+  // DEFAULT: Photorealistic satellite/aerial imagery draped over metric 3D elevation
+  const [activeLayer, setActiveLayer] = useState('rgb');
+  const [viewTab, setViewTab] = useState('rgb');
   // Cache of layer URL → { url, colormapMode } to avoid re-fetching
   const layerCache = useRef({});
   // Last layer that was successfully displayed — reverted to when a new
   // layer fails to load so the viewport never silently keeps a stale state.
-  const prevLayerRef = useRef('solid');
+  const prevLayerRef = useRef('rgb');
 
   // Colormap mode per layer (matches fragment shader uniforms)
   const COLORMAP_MODE = { rgb: 0, depth: 1, dsm: 2, reference_dem: 2, error: 3, slope: 2, buildings: 4, passability: 0, semantics: 0, route_risk: 0 };
@@ -187,8 +186,8 @@ export default function TerrainWorkspace() {
   }, [state.scene?.scene_id]);
 
   // ── Workspace chrome state (docked TerraLens-style panels) ──
-  // View-tab toggles drive shader modes; layer switches keep them honest.
-  const [exaggeration, setExaggerationState] = useState(2.5);
+  // Default to 1.0x true metric scale (1 Three.js world unit = 1 real meter)
+  const [exaggeration, setExaggerationState] = useState(1.0);
   const [contourEnabled, setContourEnabled] = useState(false);
   const [contourInterval, setContourInterval] = useState(5);
   const [fog, setFogState] = useState(false);
@@ -301,21 +300,9 @@ export default function TerrainWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraMode, isLoading]);
 
-  // In walkthrough the camera stands at eye height, where a metric relief
-  // reads pancake-flat — raise exaggeration to full for the ground-level
-  // view, restore the user's setting on the way back to orbit/top.
+  // Walkthrough mode respects user-configured scale
   useEffect(() => {
     if (isLoading) return;
-    if (cameraMode === 'first-person') {
-      if (preWalkExagRef.current == null && exaggeration < 5) {
-        preWalkExagRef.current = exaggeration;
-        handleExaggeration(5);
-      }
-    } else if (preWalkExagRef.current != null) {
-      handleExaggeration(preWalkExagRef.current);
-      preWalkExagRef.current = null;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraMode, isLoading]);
 
   const handleContour = (interval, enabled) => {
@@ -994,12 +981,13 @@ export default function TerrainWorkspace() {
         onCaptureSnapshot={handleCaptureSnapshot}
       />
 
-      {/* 28px telemetry strip — picked point, FPS, mesh stats */}
+      {/* 28px telemetry strip — picked point, FPS, mesh stats, geospatial HUD toggle */}
       <StatusStrip
         selectedPoint={selectedPoint}
         fps={fps}
         terrainMeta={state.terrain}
         exaggeration={exaggeration}
+        onToggleDebugHud={() => terrainRef.current?.toggleDebugHUD?.()}
       />
     </div>
   );

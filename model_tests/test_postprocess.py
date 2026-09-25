@@ -520,15 +520,31 @@ def test_contiguous_roof_band_survives():
     np.testing.assert_array_equal(cleaned, agl)
 
 
-def test_strong_rgb_edge_protects_even_isolated_values():
+def test_coherent_structural_edge_survives():
+    """A coherent structural step edge (building wall or cliff) along an RGB edge
+    is spatially continuous and must survive postprocessing completely."""
     from depthwizard.postprocess.spike_removal import remove_spikes
 
     rgb, agl = _spike_scene()
     agl = agl.copy()
-    agl[24, 24] += 40.0
-    rgb[:, 24:] = 200  # a genuine RGB step edge through the spike pixel
-    _, mask = remove_spikes(agl, rgb)
-    assert not mask[24, 24]  # edge-supported geometry is never a 'spike'
+    agl[:, 24:] += 25.0  # a genuine physical step edge across column 24
+    rgb[:, 24:] = 200    # coincident RGB edge
+    cleaned, mask = remove_spikes(agl, rgb)
+    assert not mask.any(), f"Structural edge incorrectly modified: {np.sum(mask)} px"
+    np.testing.assert_array_equal(cleaned, agl)
+
+
+def test_multipixel_spike_cluster_removed():
+    """A 2-4 pixel isolated needle artifact must be detected and repaired,
+    not protected by false contiguity checks."""
+    from depthwizard.postprocess.spike_removal import remove_spikes
+
+    rgb, agl = _spike_scene()
+    agl = agl.copy()
+    agl[24, 24:27] += 35.0  # 3-pixel isolated needle cluster
+    cleaned, mask = remove_spikes(agl, rgb)
+    assert np.all(mask[24, 24:27]), "3-pixel needle cluster was not detected"
+    assert np.all(cleaned[24, 24:27] < 10.0), "3-pixel needle was not repaired"
 
 
 def test_spike_tau_configurable():
@@ -541,6 +557,50 @@ def test_spike_tau_configurable():
     _, mask_huge_tau = remove_spikes(agl, rgb, tau=1000.0)
     assert mask_small_tau[24, 24]
     assert not mask_huge_tau[24, 24]  # huge tau: nothing is an outlier
+
+
+def test_slope_gate_uses_real_gsd():
+    """The slope gate must be evaluated with PHYSICAL pixel spacing, not raw
+    pixel steps: the same 5 m jump is implausible at 0.1 m/px (>85 deg slope)
+    but plausible at 10 m/px (26.6 deg). Detection must differ accordingly."""
+    from depthwizard.postprocess.spike_removal import remove_spikes
+
+    rgb, agl = _spike_scene()
+    agl = agl.copy()
+    agl[24, 24] += 5.0
+
+    # Fine GSD: the 5 m single-pixel jump is a physically implausible slope.
+    _, mask_fine = remove_spikes(
+        agl, rgb, tau=1e9, max_local_slope=85.0, min_spike_height=0.6,
+        gsd=(0.1, 0.1),
+    )
+    assert mask_fine[24, 24], "slope gate ignored real GSD (0.1 m/px case)"
+
+    # Coarse GSD: the same jump is a 26.6 deg slope — the slope gate alone
+    # must NOT flag it (tau=1e9 disables the z-score path).
+    _, mask_coarse = remove_spikes(
+        agl, rgb, tau=1e9, max_local_slope=85.0, min_spike_height=0.6,
+        gsd=(10.0, 10.0),
+    )
+    assert not mask_coarse[24, 24], "slope gate fired on a physically plausible slope"
+
+
+def test_refine_agl_reports_gsd():
+    """refine_agl must record the effective GSD (or the explicit fallback) in
+    the report so 1 px = 1 m is never assumed silently."""
+    rgb, agl = _spike_scene()
+    _, rep = refine_agl(
+        agl, rgb, PostProcessConfig(enabled=True, method="guided",
+                                     spike_removal=True),
+        gsd=(0.5, 0.5),
+    )
+    assert any("0.5" in n and "m/px" in n for n in rep.notes), rep.notes
+
+    _, rep_fb = refine_agl(
+        agl, rgb, PostProcessConfig(enabled=True, method="guided",
+                                     spike_removal=True),
+    )
+    assert any("not georeferenced" in n for n in rep_fb.notes), rep_fb.notes
 
 
 def test_refinement_report_counts_spikes():
