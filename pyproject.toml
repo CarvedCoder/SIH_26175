@@ -29,6 +29,7 @@ dependencies = [
     "pyjwt[crypto]>=2.8",
     # S3/MinIO object storage
     "boto3>=1.34",
+    "psycopg2>=2.9.13",
 ]
 
 [project.optional-dependencies]
