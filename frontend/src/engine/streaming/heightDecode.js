@@ -11,17 +11,24 @@
  * streaming path share one implementation.
  */
 
+import { assetFetch } from '../../api/client.js';
+
 /**
  * Decode a heightmap/height-tile resource into { data, width, height } with
  * normalized [0, 1] elevation values.
  *
+ * This is a storage-asset fetch, not an authenticated API call: resolvedUrl
+ * may resolve to a presigned MinIO URL or the legacy same-origin backend
+ * route, and assetFetch() is what tells those apart safely. There is
+ * deliberately no way to pass arbitrary auth headers into this function —
+ * that was the leak: a caller could (and did) hand it the Supabase JWT
+ * provider, which then rode along to MinIO and got rejected.
+ *
  * @param {string} resolvedUrl - Already-resolved absolute/relative URL
  * @returns {Promise<{data: Float32Array, width: number, height: number}>}
  */
-export async function decodeHeightmap(resolvedUrl, fetchHeaders) {
-  const res = await fetch(resolvedUrl, {
-    headers: typeof fetchHeaders === 'function' ? await fetchHeaders() : (fetchHeaders || {}),
-  });
+export async function decodeHeightmap(resolvedUrl) {
+  const res = await assetFetch(resolvedUrl);
   if (!res.ok) throw new Error(`heightmap fetch failed: ${res.status}`);
 
   const buf = await res.arrayBuffer();
