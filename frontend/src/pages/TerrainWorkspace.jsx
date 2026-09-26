@@ -179,7 +179,9 @@ export default function TerrainWorkspace() {
       if (!active) return;
       setSemanticData(data);
       if (data?.available && data?.labels && terrainRef.current) {
-        terrainRef.current.updateSemanticTexture?.(data.labels, data.width, data.height);
+        terrainRef.current.updateSemanticTexture?.(
+          data.labels, data.width, data.height, data.confidence,
+        );
       }
     });
     return () => { active = false; };
@@ -198,6 +200,17 @@ export default function TerrainWorkspace() {
   const [validation, setValidation] = useState(null);
   const [validationLoading, setValidationLoading] = useState(false);
   const fps = useFpsMeter(!isLoading);
+  // Live renderer telemetry (tiles, triangles, draw calls) for the status
+  // strip — sampled from the engine, never inferred from raster dimensions.
+  const [telemetry, setTelemetry] = useState(null);
+  useEffect(() => {
+    if (isLoading) return;
+    const id = setInterval(() => {
+      const t = terrainRef.current?.getTelemetry?.();
+      if (t) setTelemetry(t);
+    }, 500);
+    return () => clearInterval(id);
+  }, [isLoading]);
   // Walkthrough immersion: the exaggeration in force before Fly mode —
   // restored when returning to orbit/top so the overview never changes.
   const preWalkExagRef = useRef(null);
@@ -277,7 +290,9 @@ export default function TerrainWorkspace() {
     if (tabId === 'rgb' || tabId === 'depth' || tabId === 'dsm' || tabId === 'semantics') {
       handleLayerChange(tabId);
     } else if (tabId === 'hybrid') {
-      handleLayerChange('solid');
+      // A REAL hybrid: RGB imagery draped over the terrain with enhanced
+      // relief shading — never an untextured solid mesh.
+      handleLayerChange('hybrid');
     }
   };
 
@@ -313,7 +328,8 @@ export default function TerrainWorkspace() {
       setViewTab('contour');
     } else if (viewTab === 'contour') {
       setViewTab('hybrid');
-      handleLayerChange('solid');
+      // Return to the hybrid view (RGB + relief), not an untextured solid.
+      handleLayerChange('hybrid');
     }
   };
 
@@ -329,7 +345,11 @@ export default function TerrainWorkspace() {
       if (v) return 'wireframe';
       return curr === 'wireframe' ? 'hybrid' : curr;
     });
-    if (!v && viewTab === 'wireframe') terrainRef.current?.setContours?.(contourEnabled, contourInterval);
+    if (!v && viewTab === 'wireframe') {
+      terrainRef.current?.setContours?.(contourEnabled, contourInterval);
+      // Leaving the wireframe tab returns to the hybrid view (RGB + relief).
+      handleLayerChange('hybrid');
+    }
   };
 
   const handleSlopeOverlay = (v) => {
@@ -370,11 +390,17 @@ export default function TerrainWorkspace() {
     if (layerId === activeLayer) return;
     setActiveLayer(layerId);
     // Keep the view-tab highlight in sync with toolbar-driven layer swaps
-    if (layerId === 'solid') setViewTab('hybrid');
+    if (layerId === 'solid' || layerId === 'hybrid') setViewTab('hybrid');
     else if (layerId === 'rgb' || layerId === 'depth' || layerId === 'dsm' || layerId === 'semantics') setViewTab(layerId);
 
     const sceneId = state.scene?.scene_id;
     if (!sceneId) return;
+
+    // Leaving the Semantics layer must turn the GPU class-mask overlay off
+    // (probe highlighting keeps working independently of the layer).
+    if (layerId !== 'semantics' && prevLayerRef.current === 'semantics') {
+      terrainRef.current?.setSemanticLayerActive?.(false);
+    }
 
     // Check cache first
     if (layerCache.current[layerId]) {
@@ -401,6 +427,16 @@ export default function TerrainWorkspace() {
         return;
       }
 
+      if (layerId === 'hybrid') {
+        // Hybrid = RGB source imagery + enhanced relief shading. No new
+        // texture is needed — the engine keeps the RGB drape and boosts
+        // the relief terms (TerrainCanvas.setHybridView reloads the RGB
+        // texture only when none is resident).
+        terrainRef.current?.setHybridView?.();
+        prevLayerRef.current = 'hybrid';
+        return;
+      }
+
       if (layerId === 'rgb') {
         // RGB uses the terrain texture (already loaded)
         const meta = state.terrain;
@@ -414,9 +450,22 @@ export default function TerrainWorkspace() {
         const dsm = await getDsm(sceneId);
         url = dsm?.url ?? null;
       } else if (layerId === 'semantics') {
-        url = `/api/v1/scenes/${sceneId}/results/semantic`;
-        const res = await fetch(resolveAssetUrl(url));
-        if (!res.ok) throw new Error('semantic layer unavailable');
+        // Semantics render from the GPU class-ID mask (semantic_labels.npy
+        // → DataTexture → shader palette), NOT from the semantic_map.png
+        // visualization. The mask is loaded on scene change; selecting the
+        // layer just enables the shader overlay.
+        if (!semanticData?.available) {
+          // Honest reason, not a generic failure: scenes processed with a
+          // checkpoint trained without the auxiliary semantic head can
+          // never produce semantic artifacts.
+          throw new Error(
+            semanticData?.reason ||
+              'Semantic segmentation is unavailable for this scene — it was processed with a checkpoint trained without the auxiliary semantic head.',
+          );
+        }
+        terrainRef.current?.setSemanticLayerActive?.(true);
+        prevLayerRef.current = 'semantics';
+        return;
       } else if (layerId === 'route_risk') {
         url = `/api/v1/scenes/${sceneId}/results/route-risk?vehicle=fire_truck`;
         const res = await fetch(resolveAssetUrl(url));
@@ -453,9 +502,14 @@ export default function TerrainWorkspace() {
         setActiveLayer(prevLayerRef.current);
         showToast(`${LAYER_LABEL[layerId] ?? 'That layer'} is not available for this scene yet.`);
       }
-    } catch {
+    } catch (err) {
       setActiveLayer(prevLayerRef.current);
-      showToast(`${LAYER_LABEL[layerId] ?? 'That layer'} could not be loaded for this scene.`);
+      const reason = err instanceof Error && err.message ? err.message : null;
+      showToast(
+        reason && reason.length < 160
+          ? reason
+          : `${LAYER_LABEL[layerId] ?? 'That layer'} could not be loaded for this scene.`,
+      );
     }
   }
 
@@ -987,6 +1041,7 @@ export default function TerrainWorkspace() {
         fps={fps}
         terrainMeta={state.terrain}
         exaggeration={exaggeration}
+        telemetry={telemetry}
         onToggleDebugHud={() => terrainRef.current?.toggleDebugHUD?.()}
       />
     </div>

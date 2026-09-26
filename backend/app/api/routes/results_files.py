@@ -192,6 +192,19 @@ async def get_dsm_texture_file(scene_id: str):
     )
 
 
+@router.get("/{scene_id}/results/depth-texture")
+async def get_depth_texture_file(scene_id: str):
+    """Return the greyscale DEPTH texture for the viewer's Depth layer.
+
+    A clean Pillow-generated PNG of the predicted depth array — never the
+    Matplotlib diagnostic preview (which carries axes/colourbar chrome and
+    must never reach a WebGL texture)."""
+    _require_scene(scene_id)
+    return _layer_texture_response(
+        scene_id, lambda svc, sid: svc.get_depth_layer_path(sid)
+    )
+
+
 @router.get("/{scene_id}/results/slope")
 async def get_slope_texture_file(scene_id: str):
     """Return the greyscale slope texture for the viewer's Slope layer."""

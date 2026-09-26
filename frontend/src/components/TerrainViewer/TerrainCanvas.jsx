@@ -21,7 +21,8 @@ import { getTerrain } from '../../api/terrain.js';
 import { resolveAssetUrl, authHeaders, assetFetch } from '../../api/client.js';
 import { TerrainEngine } from '../../engine/TerrainEngine.js';
 import TerrainDebugHUD from '../../engine/debug/TerrainDebugHUD.jsx';
-import { decodeHeightmap, decodeHeightPng16 } from '../../engine/streaming/heightDecode.js';
+import { decodeHeightPng16 } from '../../engine/streaming/heightDecode.js';
+import { decodeHeightmap } from '../../engine/streaming/heightFetch.js';
 import { overviewToHeightfield } from '../../engine/streaming/PatchHeightfield.js';
 
 /* ─── Streaming thresholds ─────────────────────────────────────────────────
@@ -71,13 +72,19 @@ async function fetchOverviewHeightfield(urlFn, rasterWidth, rasterHeight) {
  * cannot send headers anyway). `url` is a storage-asset URL — it may
  * resolve to a presigned MinIO URL or the legacy backend file route — so
  * this goes through assetFetch(), which decides per-request whether the
- * JWT belongs on it, rather than always attaching it. */
-async function loadAuthTexture(url) {
+ * JWT belongs on it, rather than always attaching it.
+ *
+ * `colormapMode` 0 = photographic RGB drape (sRGB-encoded: GPU decodes to
+ * linear, the shader re-encodes after lighting). Any other mode = a RAW
+ * DATA layer (greyscale depth/DSM/slope/error): the shader colormaps the
+ * exact stored value, so the texture must carry NoColorSpace — an sRGB
+ * decode here would silently skew every value layer's normalization. */
+async function loadAuthTexture(url, { rawData = false } = {}) {
   const res = await assetFetch(url);
   if (!res.ok) throw new Error(`texture fetch failed: ${res.status}`);
   const bitmap = await createImageBitmap(await res.blob());
   const tex = new THREE.CanvasTexture(bitmap);
-  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.colorSpace = rawData ? THREE.NoColorSpace : THREE.SRGBColorSpace;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.wrapS = THREE.ClampToEdgeWrapping;
@@ -254,7 +261,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     setSemanticHighlightClass(classId) {
       glRef.current.engine?.setSemanticOverlay({ highlightClass: classId });
     },
-    updateSemanticTexture(labelsArray, width, height) {
+    updateSemanticTexture(labelsArray, width, height, confidenceArray = null) {
       const g = glRef.current;
       if (!g?.engine || !labelsArray || !width || !height) return;
 
@@ -268,9 +275,51 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       tex.minFilter = THREE.NearestFilter;
       tex.magFilter = THREE.NearestFilter;
       tex.generateMipmaps = false;
+      // The shader samples the mask with the GLOBAL raster UV convention
+      // (vUv.y = 1 - rasterRow). Regular textures flip on upload; a
+      // DataTexture does NOT flip by default, so without this the mask
+      // renders upside-down relative to the terrain.
+      tex.flipY = true;
       tex.needsUpdate = true;
 
-      g.engine.setSemanticOverlay({ texture: tex, enabled: true });
+      let confTex = null;
+      if (confidenceArray) {
+        confTex = new THREE.DataTexture(
+          confidenceArray instanceof Float32Array
+            ? confidenceArray
+            : Float32Array.from(confidenceArray),
+          width,
+          height,
+          THREE.RedFormat,
+          THREE.FloatType
+        );
+        confTex.minFilter = THREE.LinearFilter;
+        confTex.magFilter = THREE.LinearFilter;
+        confTex.generateMipmaps = false;
+        confTex.flipY = true;
+        confTex.needsUpdate = true;
+      }
+
+      g.engine.setSemanticOverlay({
+        texture: tex,
+        confidenceTexture: confTex,
+        confidenceEnabled: !!confTex,
+        // The overlay is loaded ready but stays hidden until the Semantics
+        // layer is selected (setSemanticOverlay({enabled}) from the layer
+        // switch) — highlight probing still works via uSemanticHighlightClass.
+        enabled: g.semanticLayerActive === true,
+      });
+
+      // Free the previous masks' GPU memory.
+      if (g.semanticTextures) {
+        for (const t of g.semanticTextures) t.dispose();
+      }
+      g.semanticTextures = confTex ? [tex, confTex] : [tex];
+    },
+    setSemanticLayerActive(active) {
+      const g = glRef.current;
+      g.semanticLayerActive = !!active;
+      g.engine?.setSemanticOverlay({ enabled: !!active });
     },
     setExaggeration(v) {
       const g = glRef.current;
@@ -285,6 +334,42 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     setSolidView() {
       const g = glRef.current;
       g.engine?.setSolidView(g.wireframe);
+      g.hybridView = false;
+    },
+    /** Hybrid view: RGB imagery + enhanced relief (never a solid mesh). */
+    setHybridView() {
+      const g = glRef.current;
+      if (!g.engine) return;
+      // Hybrid always drapes the RGB SOURCE IMAGERY — never the previous
+      // override layer (a stale greyscale depth/DSM texture here is what
+      // made hybrid look like a washed-out depth map). Reuse the resident
+      // RGB texture when we have one; otherwise load it once and keep it.
+      const applyRelief = () => {
+        if (g.disposed) return;
+        g.engine.setHybridView(g.wireframe);
+        g.hybridView = true;
+      };
+      if (g.rgbTexture) {
+        g.engine.setTexture(g.rgbTexture, { override: false });
+        g.overrideTexture = null;
+        applyRelief();
+      } else if (g.rgbTextureUrl) {
+        loadAuthTexture(resolveAssetUrl(g.rgbTextureUrl))
+          .then((tex) => {
+            if (g.disposed) { tex.dispose(); return; }
+            const maxAniso = g.renderer?.capabilities?.getMaxAnisotropy?.() || 8;
+            tex.anisotropy = Math.min(16, maxAniso);
+            g.rgbTexture = tex;
+            g.engine.setTexture(tex, { override: false });
+            applyRelief();
+          })
+          .catch(() => {
+            // No imagery available: hybrid degrades to solid relief, not white
+            g.engine.setSolidView(g.wireframe);
+          });
+      } else {
+        g.engine.setSolidView(g.wireframe);
+      }
     },
     setFog(v) {
       const g = glRef.current;
@@ -333,6 +418,20 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     getCanvas() {
       return canvasRef;
     },
+    /** Live renderer + engine telemetry for the status strip / HUD. */
+    getTelemetry() {
+      const g = glRef.current;
+      const base = g.engine?.getTelemetry?.() ?? {};
+      const info = g.renderer?.info;
+      return {
+        ...base,
+        drawCalls: info?.render?.calls ?? 0,
+        textureCount: info?.memory?.textures ?? 0,
+        geometries: info?.memory?.geometries ?? 0,
+        programs: info?.programs?.length ?? 0,
+        fps: g.lastFps ?? null,
+      };
+    },
     captureSnapshot() {
       const canvas = canvasRef.current;
       if (!canvas) return null;
@@ -352,8 +451,10 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       if (!g.engine) return;
 
       g.engine.setColormapMode(colormapMode);
+      g.engine.setSemanticOverlay({ enabled: false });
+      g.hybridView = false;
 
-      loadAuthTexture(resolveAssetUrl(url))
+      loadAuthTexture(resolveAssetUrl(url), { rawData: colormapMode !== 0 })
         .then((tex) => {
           if (g.disposed) {
             tex.dispose();
@@ -361,9 +462,24 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           }
           const maxAniso = g.renderer?.capabilities?.getMaxAnisotropy?.() || 8;
           tex.anisotropy = Math.min(16, maxAniso);
+          // Selecting the RGB layer itself should refresh the resident RGB
+          // drape used by hybrid view (and dispose the stale one).
+          const isRgbLayer =
+            g.rgbTextureUrl && resolveAssetUrl(url) === resolveAssetUrl(g.rgbTextureUrl);
+          if (isRgbLayer) {
+            if (g.rgbTexture && g.rgbTexture !== tex) g.rgbTexture.dispose();
+            g.rgbTexture = tex;
+          }
           // A user-selected layer overrides base imagery: disable per-tile
           // streamed textures so the layer samples global UVs correctly.
           g.engine.setTexture(tex, { override: true });
+          // The previous override texture is no longer referenced by any
+          // material — free its GPU memory (never dispose the base RGB
+          // drape or engine-managed streamed textures).
+          if (g.overrideTexture && g.overrideTexture !== tex) {
+            g.overrideTexture.dispose();
+          }
+          g.overrideTexture = tex;
           g.engine.setWireframe(g.wireframe);
         })
         .catch((err) => console.warn('[terrain] layer texture load failed:', err));
@@ -693,15 +809,21 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Canvas
         gl={{
-          preserveDrawingBuffer: true,
+          // preserveDrawingBuffer stays OFF: it forces the browser to keep
+          // every frame's buffer alive and measurably hurts throughput.
+          // captureSnapshot() renders synchronously and reads the canvas
+          // within the same task, which does not need the flag.
+          preserveDrawingBuffer: false,
           antialias: true,
           alpha: false,
+          powerPreference: 'high-performance',
           // Metric scene spans ~1 m (walkthrough eye) to tens of km (camera
           // far plane) — a linear depth buffer z-fights at distance
           // (floating terrain fragments). Log depth fixes the precision
           // cliff across that range.
           logarithmicDepthBuffer: true,
         }}
+        dpr={[1, 2]}
         camera={{
           position: [0, 600, 1100],
           fov: 45,
@@ -822,6 +944,27 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
     g.heightData = data;
     g.hmWidth = width;
     g.hmHeight = height;
+    // Metres of world-Y per unit of the normalized [0,1] heightfield — the
+    // visual scale the mesh actually renders (see useCameraController's
+    // fallback ground sampling). Kept in sync with the elevation span so
+    // walkthrough collision can never use a stale/fallback constant.
+    g.visualHeightScale = Math.max(0.001, g.maxElevation - g.minElevation);
+
+    // Dispose scene-scoped GPU resources from the previous scene.
+    if (g.overrideTexture) {
+      g.overrideTexture.dispose();
+      g.overrideTexture = null;
+    }
+    if (g.rgbTexture) {
+      g.rgbTexture.dispose();
+      g.rgbTexture = null;
+    }
+    if (g.semanticTextures) {
+      for (const t of g.semanticTextures) t.dispose();
+      g.semanticTextures = null;
+    }
+    g.semanticLayerActive = false;
+    g.hybridView = false;
 
     // Dispose old engine instance if switching scenes
     if (g.engine) {
@@ -856,6 +999,8 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
     });
     g.engine = engine;
     g.material = engine.material;
+    // Debug hook for live inspection (telemetry HUD / automated checks).
+    if (typeof window !== 'undefined') window.__dwEngine = engine;
 
     // Set camera frustum & standoff based on real metric footprint
     const sceneD = Math.max(g.worldWidth, g.worldDepth);
@@ -884,6 +1029,7 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
     // Load diffuse texture if available (authenticated fetch — TextureLoader
     // cannot send the Authorization header and result files are auth-gated)
     if (texture_url) {
+      g.rgbTextureUrl = texture_url;
       loadAuthTexture(resolveAssetUrl(texture_url))
         .then((tex) => {
           if (g.disposed) {
@@ -892,6 +1038,7 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
           }
           const maxAniso = g.renderer?.capabilities?.getMaxAnisotropy?.() || 8;
           tex.anisotropy = Math.min(16, maxAniso);
+          g.rgbTexture = tex;
           engine.setTexture(tex);
           engine.setWireframe(g.wireframe);
         })

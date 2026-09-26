@@ -20,6 +20,7 @@ from backend.app.schemas.terrain import (
     TerrainReference,
     TerrainScene,
 )
+from backend.app.services import native_accel
 
 def get_validation_rmse(scene_id: str):
     """Validation RMSE for the scene, or None when unavailable."""
@@ -197,48 +198,34 @@ class TerrainService:
     # Browser artifacts: heightmap + RGB texture (idempotent generation)
     # ------------------------------------------------------------------
 
+    def _filled_dsm(self, scene_id: str) -> np.ndarray:
+        """The predicted DSM with NaN/Inf holes filled.
+
+        Hot path: every height-tile request, layer PNG and minimap needs
+        the filled raster. The fill is idempotent per dsm.npy revision, so
+        it is cached as a sidecar .npy beside the products — recomputed
+        only when the scene is reprocessed (mtime guard), never per tile.
+        """
+        depth_path = self.get_output_dir(scene_id) / "dsm.npy"
+        sidecar = self.get_output_dir(scene_id) / "dsm_filled.npy"
+        if (
+            sidecar.is_file()
+            and depth_path.is_file()
+            and sidecar.stat().st_mtime >= depth_path.stat().st_mtime
+        ):
+            return np.load(sidecar)
+        filled = native_accel.fill_invalid(
+            np.load(depth_path).astype(np.float32, copy=False)
+        )
+        sidecar.parent.mkdir(parents=True, exist_ok=True)
+        np.save(sidecar, filled)
+        return filled
+
     @staticmethod
     def _fill_invalid(arr: np.ndarray) -> np.ndarray:
-        """Replace NaN/inf samples with the mean of their finite 8-neighbours,
-        iterating until filled (crater-free hole filling without scipy).
-
-        Depth-model DSMs occasionally contain small invalid patches; writing
-        them to the scene minimum punched visible pits into the terrain.
-        """
-        mask = ~np.isfinite(arr)
-        if not mask.any():
-            return arr
-        arr = arr.astype(np.float32, copy=True)
-        arr[~np.isfinite(arr)] = np.nan
-        remaining = mask
-        # Each pass fills every hole adjacent to a finite pixel; hole depth
-        # shrinks from both sides, so the cap is never hit in practice.
-        for _ in range(64):
-            if not remaining.any():
-                break
-            filled_sum = np.zeros_like(arr)
-            filled_count = np.zeros_like(arr, dtype=np.int32)
-            for dy in (-1, 0, 1):
-                for dx in (-1, 0, 1):
-                    if dx == 0 and dy == 0:
-                        continue
-                    shifted = np.full_like(arr, np.nan)
-                    ys = slice(max(0, -dy), arr.shape[0] - max(0, dy))
-                    xs = slice(max(0, -dx), arr.shape[1] - max(0, dx))
-                    ys_src = slice(max(0, dy), arr.shape[0] - max(0, -dy))
-                    xs_src = slice(max(0, dx), arr.shape[1] - max(0, -dx))
-                    shifted[ys, xs] = arr[ys_src, xs_src]
-                    finite = np.isfinite(shifted)
-                    filled_sum[finite] += np.nan_to_num(shifted[finite])
-                    filled_count += finite.astype(np.int32)
-            fillable = remaining & (filled_count > 0)
-            arr[fillable] = filled_sum[fillable] / filled_count[fillable]
-            remaining = ~np.isfinite(arr)
-        # Any survivor (an all-invalid raster edge region) gets the global mean
-        if remaining.any():
-            valid = arr[np.isfinite(arr)]
-            arr[remaining] = valid.mean() if valid.size else 0.0
-        return arr
+        """Deprecated direct entry — delegates to native_accel (identical
+        numerics, C++ SIMD when available, pure-Python otherwise)."""
+        return native_accel.fill_invalid(arr)
 
     def get_heightmap_path(self, scene_id: str) -> Path:
         """16-bit grayscale PNG of the predicted heights, normalised to
@@ -276,8 +263,7 @@ class TerrainService:
         ):
             return out_path
 
-        dsm = np.load(depth_path).astype(np.float32, copy=False)
-        dsm = self._fill_invalid(dsm)
+        dsm = self._filled_dsm(scene_id)
         if not np.isfinite(dsm).all() and dsm.size:
             valid = dsm[np.isfinite(dsm)]
             if valid.size == 0:
@@ -316,6 +302,11 @@ class TerrainService:
 
         Generated from the scene's stored input raster — works for JPG,
         PNG and GeoTIFF inputs alike. Idempotent.
+
+        Bit-depth handling matters: remote-sensing rasters (e.g. 16-bit
+        Cartosat/Sentinel tiles) must be STRETCHED to [0, 255], never cast.
+        A uint16→uint8 cast truncates the high byte (value mod 256) and
+        renders genuine imagery as uniform coloured static.
         """
         from PIL import Image
 
@@ -330,24 +321,58 @@ class TerrainService:
         input_path = processing_service.resolve_scene_input(scene_id)
         with rasterio.open(input_path) as ds:
             bands = [1, 2, 3] if ds.count >= 3 else [1]
-            raw = ds.read(bands)
+            raw = ds.read(bands).astype(np.float32)
             if ds.count < 3:
                 raw = np.stack([raw[0]] * 3)
-            rgb = np.ascontiguousarray(
-                raw.transpose(1, 2, 0), dtype=np.uint8
-            )[:, :, :3]
+            nodata = ds.nodata
+            rgb_f = np.ascontiguousarray(raw.transpose(1, 2, 0))[:, :, :3]
 
-        height, width = rgb.shape[:2]
+        rgb_u8 = self._stretch_to_uint8(rgb_f)
+
+        # Nodata mask: declared nodata value, else every band exactly 0
+        # (the conventional black frame of remote-sensing tiles). Nodata
+        # becomes ALPHA=0 so the WebGL drape falls back to relief shading
+        # instead of painting literal black plates over the terrain.
+        if nodata is not None:
+            nodata_mask = np.all(raw == float(nodata), axis=0)
+        else:
+            nodata_mask = np.all(rgb_u8 == 0, axis=2)
+        alpha = np.where(nodata_mask, 0, 255).astype(np.uint8)
+        rgba = np.dstack([rgb_u8, alpha])
+
+        height, width = rgba.shape[:2]
         stride = max(1, int(np.ceil(max(height, width) / 2048)))
         if stride > 1:
-            rgb = rgb[::stride, ::stride]
+            rgba = rgba[::stride, ::stride]
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(rgb, mode="RGB").save(out_path, format="PNG")
+        Image.fromarray(rgba, mode="RGBA").save(out_path, format="PNG")
         logger.info(
-            "terrain artifact generated: %s (%dx%d)", out_path.name, width, height
+            "terrain artifact generated: %s (%dx%d, nodata %.1f%%)",
+            out_path.name, width, height, 100.0 * float(nodata_mask.mean()),
         )
         return out_path
+
+    @staticmethod
+    def _stretch_to_uint8(arr: np.ndarray) -> np.ndarray:
+        """Map an arbitrary-range float array to displayable uint8.
+
+        8-bit data passes through unchanged (values already 0–255). Wider
+        ranges (uint16, float reflectance) get a 2–98 percentile stretch so
+        the preview keeps real contrast instead of wrapping/truncating.
+        """
+        valid = arr[np.isfinite(arr)]
+        if valid.size == 0:
+            return np.zeros(arr.shape, dtype=np.uint8)
+        lo = float(np.percentile(valid, 2.0))
+        hi = float(np.percentile(valid, 98.0))
+        # Already displayable 8-bit content: keep it verbatim.
+        if lo >= 0.0 and hi <= 255.0 and float(valid.max()) <= 255.0:
+            return np.clip(arr, 0, 255).astype(np.uint8)
+        if hi - lo < 1e-9:
+            return np.full(arr.shape, 128, dtype=np.uint8)
+        stretched = np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+        return (stretched * 255.0).round().astype(np.uint8)
 
     # ------------------------------------------------------------------
     # Browser texture layers for the terrain viewer's Layers/Compare menus.
@@ -362,14 +387,16 @@ class TerrainService:
     @staticmethod
     def _normalise_grey(arr: np.ndarray) -> np.ndarray:
         """Fill invalid cells and squeeze the value range into [0, 1]."""
-        arr = TerrainService._fill_invalid(arr.astype(np.float32, copy=False))
-        valid = arr[np.isfinite(arr)]
+        filled = native_accel.fill_invalid(
+            arr.astype(np.float32, copy=False)
+        )
+        valid = filled[np.isfinite(filled)]
         if valid.size == 0:
-            return np.full_like(arr, 0.5)
+            return np.full_like(filled, 0.5)
         lo, hi = np.percentile(valid, 2.0), np.percentile(valid, 98.0)
         if hi - lo < 1e-9:
-            return np.full_like(arr, 0.5)
-        return np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+            return np.full_like(filled, 0.5)
+        return native_accel.stretch_to_01(filled, float(lo), float(hi))
 
     @classmethod
     def _save_grey_png(cls, normalized: np.ndarray, out_path: Path) -> Path:
@@ -379,7 +406,7 @@ class TerrainService:
         stride = max(1, int(np.ceil(max(height, width) / cls._LAYER_PNG_CAP)))
         if stride > 1:
             normalized = normalized[::stride, ::stride]
-        encoded = (np.clip(normalized, 0.0, 1.0) * 255.0).round().astype(np.uint8)
+        encoded = native_accel.quantize_u8(normalized)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(encoded, mode="L").save(out_path, format="PNG")
         logger.info(
@@ -389,10 +416,15 @@ class TerrainService:
         return out_path
 
     def get_dsm_layer_path(self, scene_id: str) -> Path:
-        """Greyscale DSM texture for the viewer's 'Estimated DSM' layer."""
+        """Greyscale DSM texture for the viewer's 'Estimated DSM' layer.
+
+        Prefers the georeferenced dsm.tif; non-georeferenced scenes (JPG/
+        PNG uploads, dsm.npy only) fall back to the same predicted surface
+        array instead of 404ing."""
         from backend.app.services.result_service import result_service
 
-        dsm_path = result_service.get_result_files(scene_id).get("dsm")
+        files = result_service.get_result_files(scene_id)
+        dsm_path = files.get("dsm") or files.get("depth")
         if dsm_path is None:
             raise FileNotFoundError(
                 f"No DSM results available for scene '{scene_id}'."
@@ -407,6 +439,36 @@ class TerrainService:
                 dsm = ds.read(1)
         return self._save_grey_png(self._normalise_grey(np.asarray(dsm)), out_path)
 
+    def get_depth_layer_path(self, scene_id: str) -> Path:
+        """Browser-renderable DEPTH texture for the viewer's Depth layer.
+
+        A pure Pillow product from the predicted depth/DSM array
+        (dsm.npy): single-channel greyscale, normalised to [0, 255], no
+        axes, no colourbar, no border — ONLY pixel data suitable for a
+        WebGL texture. The Matplotlib ``dsm_preview.png`` remains an
+        offline diagnostic/download artifact and is never served as an
+        interactive layer texture.
+
+        Idempotent like the other layer PNGs; invalidated when dsm.npy is
+        regenerated (mtime guard).
+        """
+        from backend.app.services.result_service import result_service
+
+        depth_path = result_service.get_result_files(scene_id).get("depth")
+        if depth_path is None:
+            raise FileNotFoundError(
+                f"No depth results available for scene '{scene_id}'."
+            )
+        out_path = self.get_output_dir(scene_id) / "depth_layer.png"
+        if (
+            out_path.is_file()
+            and depth_path.is_file()
+            and out_path.stat().st_mtime >= depth_path.stat().st_mtime
+        ):
+            return out_path
+        depth = np.load(depth_path, mmap_mode="r").astype(np.float32, copy=False)
+        return self._save_grey_png(self._normalise_grey(depth), out_path)
+
     def get_slope_layer_path(self, scene_id: str) -> Path:
         """Greyscale slope texture (per-pixel gradient, in degrees)."""
         from backend.app.services.result_service import result_service
@@ -419,9 +481,7 @@ class TerrainService:
         out_path = self.get_output_dir(scene_id) / "slope_layer.png"
         if out_path.is_file():
             return out_path
-        dsm = self._fill_invalid(
-            np.load(dsm_path, mmap_mode="r").astype(np.float32, copy=False)
-        )
+        dsm = self._filled_dsm(scene_id)
         # Unit pixel spacing — the layer is a relative-gradient visual, and
         # the shader renders it through the same viridis ramp as the DSM.
         gy, gx = np.gradient(dsm)
@@ -749,9 +809,11 @@ class TerrainService:
                         "y": ty,
                         "width": t_width,
                         "height": t_height,
+                        # The drape texture for a tile is SOURCE IMAGERY —
+                        # never the Matplotlib DSM diagnostic preview.
                         "url": self._artifact_url(
-                            scene_id, "dsm_preview.png",
-                            f"/api/v1/scenes/{scene_id}/results/preview",
+                            scene_id, "rgb_preview.png",
+                            f"/api/v1/scenes/{scene_id}/results/rgb",
                         ),
                     }
                 )
@@ -770,7 +832,7 @@ class TerrainService:
         brightness), NOT new model output.
         """
 
-        dsm = self._load_dsm_array(scene_id)
+        dsm = self._filled_dsm(scene_id)
         out_path = self.get_output_dir(scene_id) / "minimap.png"
 
         if out_path.is_file():
@@ -943,8 +1005,7 @@ class TerrainService:
         if tile_cache_path.is_file():
             return tile_cache_path.read_bytes()
 
-        dsm = self._load_dsm_array(scene_id)
-        dsm = self._fill_invalid(dsm)
+        dsm = self._filled_dsm(scene_id)
         full_h, full_w = dsm.shape
 
         valid = dsm[np.isfinite(dsm)]
@@ -1012,12 +1073,13 @@ class TerrainService:
             _, _, y0, y1 = self._quadtree_window(full_h, x, y, z)
 
             if x0 >= full_w or y0 >= full_h or x1 <= x0 or y1 <= y0:
-                blank = Image.new("RGB", (size, size), (20, 26, 36))
+                blank = Image.new("RGBA", (size, size), (20, 26, 36, 0))
                 buf = io.BytesIO()
                 blank.save(buf, format="PNG")
                 return buf.getvalue()
 
-            crop = full_img.crop((x0, y0, x1, y1))
+            # RGBA crops carry the nodata alpha mask to the GPU drape.
+            crop = full_img.crop((x0, y0, x1, y1)).convert("RGBA")
             tile = crop.resize((size, size), Image.LANCZOS)
             tile_cache_dir.mkdir(parents=True, exist_ok=True)
             tile.save(tile_cache_path, format="PNG")

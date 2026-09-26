@@ -77,7 +77,10 @@ export class TerrainEngine {
       geoRef: this.geoRef,
     });
 
-    // 3. Create Terrain Material (base/template — every tile gets a clone)
+    // 3. Create Terrain Material (base/template — every tile gets a clone).
+    //    uMeshDensity is seeded with the tile segment count so the wireframe
+    //    grid overlay traces each chunk's real quad grid.
+    this.segments = 32;
     this.material = createTerrainMaterial({
       texture: options.diffuseTexture,
       minElevation: this.geoRef.minElevation,
@@ -85,6 +88,7 @@ export class TerrainEngine {
       exaggeration: 1.0,
       colormapMode: 0.0,
       meshEnabled: false,
+      segments: this.segments,
     });
 
     // 4. Group for holding chunk meshes in scene
@@ -98,13 +102,23 @@ export class TerrainEngine {
     this.heightStreamer = this._createHeightStreamer(options.heightTiles);
     this.textureStreamer = this._createTextureStreamer(options.textureTiles);
 
-    // 6. Initialize Quadtree LOD Manager
+    // 6. Initialize Quadtree LOD Manager. maxLod follows the raster: the
+    //    finest quadtree level tiles the raster into ~256-px cells, so a
+    //    2540-px raster refines 4 levels deep (level-4 tiles are ~10 m
+    //    across at GSD 1 m with 32 segments ≈ 0.3 m mesh resolution).
+    const maxLod = Math.min(
+      4,
+      Math.max(
+        2,
+        Math.ceil(Math.log2(Math.max(this.geoRef.rasterWidth, this.geoRef.rasterHeight) / 256)),
+      ),
+    );
     this.lodManager = new LODManager({
       geoRef: this.geoRef,
       dataset: this.dataset,
       material: this.material,
       scene: this.terrainGroup,
-      maxLod: 3,
+      maxLod,
       splitThreshold: 0.85,
       segments: 32,
       heightTiles: this.heightStreamer
@@ -136,6 +150,8 @@ export class TerrainEngine {
     });
 
     this.exaggeration = 1.0;
+    // True once an RGB/layer texture has been applied (drives hybrid view)
+    this.textureReady = false;
     // Per-tile streamed imagery applies only while no user-selected layer
     // (colormap) overrides the base RGB texture.
     this.perTileTexturesEnabled = true;
@@ -226,13 +242,14 @@ export class TerrainEngine {
 
   /**
    * Toggle wireframe display.
+   *
+   * SINGLE wireframe system: the shader's per-tile mesh-grid overlay
+   * (uMeshEnabled). Brute-force material.wireframe is never used — it
+   * draws every LOD triangle including skirt walls as giant stretched
+   * lines, which is exactly the visual failure this replaces.
    */
   setWireframe(enabled) {
     const on = !!enabled;
-    this.material.wireframe = on;
-    for (const [, m] of this.lodManager.tileMaterials.entries()) {
-      m.wireframe = on;
-    }
     this._applyToMaterials((u) => {
       if (u.uMeshEnabled) u.uMeshEnabled.value = on ? 1.0 : 0.0;
     });
@@ -247,6 +264,24 @@ export class TerrainEngine {
     this._applyToMaterials((u) => {
       u.uTextureReady.value = 0.0;
       u.uColormapMode.value = 0.0;
+      u.uReliefStrength.value = 0.0;
+      u.uMeshEnabled.value = wireframe ? 1.0 : 0.0;
+      u.uPerTileTexture.value = 0.0;
+    });
+  }
+
+  /**
+   * Hybrid view: photographic RGB imagery + enhanced terrain relief.
+   * Requires an RGB texture to be set (uTextureReady = 1); combines the
+   * source imagery with stronger sun shading, slope shadowing and a
+   * gentle elevation modulation so relief reads without destroying the
+   * imagery's colors.
+   */
+  setHybridView(wireframe = false) {
+    this._applyToMaterials((u) => {
+      u.uTextureReady.value = this.textureReady ? 1.0 : u.uTextureReady.value;
+      u.uColormapMode.value = 0.0;
+      u.uReliefStrength.value = 1.0;
       u.uMeshEnabled.value = wireframe ? 1.0 : 0.0;
       u.uPerTileTexture.value = 0.0;
     });
@@ -265,6 +300,7 @@ export class TerrainEngine {
     if (opts.override) {
       this.perTileTexturesEnabled = false;
     }
+    this.textureReady = true;
     this._applyToMaterials((u) => {
       u.uTexture.value = texture;
       u.uTextureReady.value = 1.0;
@@ -329,12 +365,31 @@ export class TerrainEngine {
 
   /**
    * Update semantic mask texture and styling.
+   *
+   * @param {Object} options
+   * @param {THREE.DataTexture} [options.texture] - RedFormat uint8 class-ID mask
+   * @param {boolean} [options.enabled]
+   * @param {number} [options.opacity]
+   * @param {number} [options.highlightClass] - -1 disables class isolation
+   * @param {THREE.DataTexture} [options.confidenceTexture] - RedFormat [0,1]
+   *   confidence mask; when enabled, low-confidence pixels attenuate the
+   *   overlay back toward the base layer.
+   * @param {boolean} [options.confidenceEnabled]
    */
   setSemanticOverlay(options = {}) {
-    const { texture, enabled, opacity, highlightClass } = options;
+    const {
+      texture, enabled, opacity, highlightClass,
+      confidenceTexture, confidenceEnabled,
+    } = options;
     this._applyToMaterials((u) => {
       if (texture) {
         u.uSemanticTex.value = texture;
+      }
+      if (confidenceTexture) {
+        u.uSemanticConfTex.value = confidenceTexture;
+      }
+      if (typeof confidenceEnabled === 'boolean') {
+        u.uSemanticConfEnabled.value = confidenceEnabled ? 1.0 : 0.0;
       }
       if (typeof enabled === 'boolean') {
         u.uSemanticEnabled.value = enabled ? 1.0 : 0.0;

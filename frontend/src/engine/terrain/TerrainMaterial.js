@@ -6,8 +6,23 @@
  *   - Texture tiling support with per-chunk UV offset/scale
  *   - Real-world metric elevation contours (e.g. 5m minor, 25m major intervals)
  *   - Colormap blending (RGB, Greyscale, Viridis, Diverging)
+ *   - Hybrid mode: photographic RGB drape + enhanced relief shading
  *   - Dynamic atmospheric fog scaled to scene diagonal
- *   - Independent semantic class overlays without rebuilding geometry
+ *   - Independent semantic class overlays with optional confidence
+ *     attenuation, without rebuilding geometry
+ *   - Wireframe = per-tile mesh-grid overlay drawn on tile-local UVs, so
+ *     it exactly matches each chunk's real triangulation grid at every
+ *     LOD and never renders skirt walls as giant stretched triangles
+ *
+ * COLOR-SPACE CONTRACT (single convention, do not scatter):
+ *   - RGB drape textures (mode 0) are sRGB-encoded: the GPU decodes them
+ *     to linear on sample, lighting happens in linear, and the fragment
+ *     converts back to sRGB before output.
+ *   - Value-encoded layer textures (greyscale depth/DSM/slope/error, the
+ *     semantic label texture) are RAW DATA: they must be loaded with
+ *     NoColorSpace so texSample.r is the exact stored value. Colormap
+ *     palettes (viridis/diverging/grey) output display-space colors and
+ *     skip the linear->sRGB conversion.
  */
 
 import * as THREE from 'three';
@@ -19,7 +34,7 @@ const TERRAIN_VERT = /* glsl */ `
   uniform vec2 uUvScale;
 
   varying vec2 vUv;       // GLOBAL raster UV [0, 1] — semantic masks, colormaps, mesh overlay
-  varying vec2 vTileUv;   // Tile-LOCAL UV [0, 1] — streamed per-tile textures
+  varying vec2 vTileUv;   // Tile-LOCAL UV [0, 1] — streamed per-tile textures + mesh grid
   varying vec3 vNormal;
   varying float vElevation;
   varying float vViewDist;
@@ -53,6 +68,7 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform vec3 uSunDir;
   uniform vec3 uSunColor;
   uniform float uAmbient;
+  uniform float uReliefStrength; // 0 = photographic drape, 1 = hybrid relief emphasis
   uniform float uColormapMode;   // 0=rgb/solid, 1=greyscale, 2=viridis, 3=diverging
   uniform float uMinElevation;
   uniform float uMaxElevation;
@@ -62,7 +78,7 @@ const TERRAIN_FRAG = /* glsl */ `
 
   uniform float uMeshEnabled;
   uniform vec3 uMeshColor;
-  uniform float uMeshDensity;
+  uniform float uMeshDensity;    // per-tile grid density = the tile's segment count
 
   uniform float uFogEnabled;
   uniform float uFogNear;
@@ -74,6 +90,8 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uSemanticEnabled;
   uniform float uSemanticOpacity;
   uniform float uSemanticHighlightClass;
+  uniform sampler2D uSemanticConfTex;
+  uniform float uSemanticConfEnabled;
 
   varying vec2 vUv;
   varying vec2 vTileUv;
@@ -119,6 +137,11 @@ const TERRAIN_FRAG = /* glsl */ `
     }
   }
 
+  // linear -> sRGB (legacy GLSL 1.0: no built-in, use the standard power curve)
+  vec3 linearToSrgb(vec3 c) {
+    return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2));
+  }
+
   void main() {
     // Default warm architectural/geospatial relief tone
     vec3 baseColor = vec3(0.68, 0.65, 0.58);
@@ -126,7 +149,9 @@ const TERRAIN_FRAG = /* glsl */ `
     int mode = int(uColormapMode + 0.5);
 
     if (mode > 0) {
-      // Analytical colormap mode (1=greyscale, 2=viridis, 3=diverging)
+      // Analytical colormap mode (1=greyscale, 2=viridis, 3=diverging).
+      // Layer textures are RAW DATA (NoColorSpace): texSample.r is the
+      // exact normalized value — no hidden sRGB decode must touch it.
       float t = 0.5;
       if (uTextureReady > 0.5) {
         vec4 texSample = texture2D(uTexture, textureUv());
@@ -147,7 +172,10 @@ const TERRAIN_FRAG = /* glsl */ `
       // RGB Satellite/Aerial or Solid relief mode
       if (uTextureReady > 0.5) {
         vec4 texSample = texture2D(uTexture, textureUv());
-        baseColor = texSample.rgb;
+        // Nodata pixels (alpha=0 — source-raster nodata frame) fall back
+        // to a dim neutral relief tone instead of literal black plates.
+        vec3 noDataTone = vec3(0.16, 0.18, 0.21);
+        baseColor = mix(noDataTone, texSample.rgb, texSample.a);
       }
     }
 
@@ -157,6 +185,15 @@ const TERRAIN_FRAG = /* glsl */ `
       float rawClass = floor(semSample.r * 255.0 + 0.5);
       vec3 semColor = getSemanticColor(rawClass);
 
+      // Confidence-aware attenuation: uSemanticConfTex carries the
+      // per-pixel segmentation confidence (raw [0,1] data). Low-confidence
+      // pixels fade back to the base layer instead of pretending every
+      // mask pixel is equally reliable.
+      float opacity = uSemanticOpacity;
+      if (uSemanticConfEnabled > 0.5) {
+        opacity *= clamp(texture2D(uSemanticConfTex, vUv).r, 0.0, 1.0);
+      }
+
       if (uSemanticHighlightClass >= -0.5) {
         float targetClass = floor(uSemanticHighlightClass + 0.5);
         if (abs(rawClass - targetClass) < 0.2) {
@@ -165,25 +202,16 @@ const TERRAIN_FRAG = /* glsl */ `
           baseColor = mix(baseColor, semColor, 0.15) * 0.38;
         }
       } else {
-        baseColor = mix(baseColor, semColor, uSemanticOpacity);
+        baseColor = mix(baseColor, semColor, opacity);
       }
     }
 
-    // Wireframe Mesh overlay (ONLY rendered when wireframe mesh is explicitly checked)
-    if (uMeshEnabled > 0.5) {
-      vec2 f = fract(vUv * uMeshDensity);
-      vec2 d = min(f, 1.0 - f);
-      float line = 1.0 - smoothstep(0.008, 0.035, min(d.x, d.y));
-      baseColor = mix(baseColor, uMeshColor, line * 0.42);
-    }
-
     // Outdoor Geospatial Illumination: Hemispheric Sky/Ground Ambient + Direct Sun
-    // Ported fix: value-encoded colormaps (depth greyscale, DSM/slope
-    // viridis, error diverging) are VALUE-ENCODED — full sun shading
-    // double-darkens them into unreadable black (observed on the Depth
-    // layer). Only the RGB drape (mode 0) gets the full model; colormaps
-    // render near-unlit with a faint slope-relief cue. Backfaces flip the
-    // normal (terrain material is DoubleSide).
+    // Value-encoded colormaps (depth greyscale, DSM/slope viridis, error
+    // diverging) are VALUE-ENCODED — full sun shading double-darkens them
+    // into unreadable black, so they render near-unlit with a faint
+    // slope-relief cue. Backfaces flip the normal (terrain material is
+    // DoubleSide).
     vec3 nrm = gl_FrontFacing ? vNormal : -vNormal;
     float hemi = clamp(nrm.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 skyAmbient = vec3(0.55, 0.63, 0.74) * uAmbient;
@@ -191,15 +219,29 @@ const TERRAIN_FRAG = /* glsl */ `
     vec3 ambientLight = mix(groundAmbient, skyAmbient, hemi);
 
     float diff = max(dot(nrm, uSunDir), 0.0);
-    vec3 sunLight = uSunColor * (diff * 0.85);
 
-    vec3 lit;
+    float elevSpan = max(0.001, uMaxElevation - uMinElevation);
+    float elevT = clamp((vElevation - uMinElevation) / elevSpan, 0.0, 1.0);
+
+    vec3 shaded;
     if (mode == 0) {
-      lit = baseColor * (ambientLight + sunLight);
+      // Lighting math in LINEAR (the sRGB drape texture was decoded by
+      // the GPU on sample).
+      float sunBoost = 1.0 + uReliefStrength * 0.85;   // hybrid: stronger relief
+      float shadeAo = 1.0 - uReliefStrength * 0.22 * (1.0 - diff); // hybrid: shadowed slopes deepen
+      vec3 sunLight = uSunColor * (diff * 0.85 * sunBoost);
+      // Hybrid elevation modulation: a gentle cool->warm high-light lift
+      // keeps the imagery recognizable while tying brightness to altitude.
+      vec3 elevMod = mix(vec3(1.0), vec3(0.97, 1.0, 1.05), (elevT - 0.5) * uReliefStrength);
+      vec3 lit = baseColor * (ambientLight + sunLight) * shadeAo * elevMod;
+      // The drape texture is sRGB-encoded: convert the linear lit result
+      // back to display space. This is the ONLY colorspace conversion —
+      // colormap modes below output display-space colors directly.
+      shaded = linearToSrgb(lit);
     } else {
-      lit = baseColor * (0.88 + 0.12 * diff);
+      // Colormaps are display-space values: near-unlit, faint relief cue.
+      shaded = baseColor * (0.88 + 0.12 * diff);
     }
-    vec3 shaded = lit;
 
     // Metric contour lines (meters)
     #ifdef GL_OES_standard_derivatives
@@ -217,6 +259,21 @@ const TERRAIN_FRAG = /* glsl */ `
       shaded = mix(shaded, contourColor, clamp(contour * 0.45 + majorContour * 0.35, 0.0, 0.85));
     }
     #endif
+
+    // Wireframe: per-tile MESH-GRID overlay on tile-local UVs. This is the
+    // single wireframe system (brute-force material.wireframe is never
+    // used): the grid density equals the chunk's segment count, so the
+    // drawn lines ARE the chunk's real quad grid — aligned at every LOD,
+    // no giant stretched triangles, no z-fighting (same-surface mix), and
+    // skirt walls show only their vertical columns.
+    if (uMeshEnabled > 0.5) {
+      vec2 g = vTileUv * uMeshDensity;
+      vec2 f = fract(g);
+      vec2 d = min(f, 1.0 - f);
+      vec2 fw2 = fwidth(g) * 1.1;
+      float line = 1.0 - min(smoothstep(0.0, fw2.x, d.x), smoothstep(0.0, fw2.y, d.y));
+      shaded = mix(shaded, uMeshColor, line * 0.55);
+    }
 
     // Atmospheric depth fog
     if (uFogEnabled > 0.5) {
@@ -243,6 +300,7 @@ export function createTerrainMaterial(options = {}) {
     uSunDir: { value: new THREE.Vector3(sunDir[0], sunDir[1], sunDir[2]) },
     uSunColor: { value: new THREE.Color(1.0, 0.96, 0.88) },
     uAmbient: { value: 0.42 },
+    uReliefStrength: { value: 0.0 },
     uExaggeration: { value: options.exaggeration || 1.0 },
     uMinElevation: { value: options.minElevation || 0.0 },
     uMaxElevation: { value: options.maxElevation || 100.0 },
@@ -253,7 +311,9 @@ export function createTerrainMaterial(options = {}) {
     uContourInterval: { value: 5.0 },
     uMeshEnabled: { value: options.meshEnabled ? 1.0 : 0.0 },
     uMeshColor: { value: new THREE.Color(0.12, 0.16, 0.20) },
-    uMeshDensity: { value: 48.0 },
+    // Per-tile grid density — matches the chunk segment count so wireframe
+    // lines trace the real geometry grid (set per clone by LODManager).
+    uMeshDensity: { value: options.segments || 32.0 },
     uFogEnabled: { value: 0.0 },
     uFogNear: { value: 200.0 },
     uFogFar: { value: 8000.0 },
@@ -262,6 +322,8 @@ export function createTerrainMaterial(options = {}) {
     uSemanticEnabled: { value: 0.0 },
     uSemanticOpacity: { value: 0.65 },
     uSemanticHighlightClass: { value: -1.0 },
+    uSemanticConfTex: { value: emptyTex },
+    uSemanticConfEnabled: { value: 0.0 },
   };
 
   const material = new THREE.ShaderMaterial({
@@ -271,7 +333,9 @@ export function createTerrainMaterial(options = {}) {
     extensions: {
       derivatives: true,
     },
-    wireframe: options.wireframe ?? false,
+    // NOTE: brute-force material.wireframe is deliberately never enabled —
+    // the wireframe view is the uMeshEnabled per-tile grid overlay above.
+    wireframe: false,
     side: THREE.DoubleSide,
     transparent: false,
     depthTest: true,
@@ -287,4 +351,3 @@ function createEmptyDataTexture() {
   tex.needsUpdate = true;
   return tex;
 }
-

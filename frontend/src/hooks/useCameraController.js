@@ -161,18 +161,19 @@ export function useCameraController({ canvasRef, glRef }) {
     return null;
   }, [canvasRef]);
 
-  /** Sample *visual* terrain height (rendered world Y) at normalised [0,1] coords */
+  /** Sample *visual* terrain height (rendered world Y) at normalised [0,1] coords.
+   *  Mirrors the mesh displacement exactly: Y = minE + raw·span·exaggeration
+   *  (the old raw·0.22 fallback produced a ground plane far below the real
+   *  mesh, so the collision floor never matched the visible terrain). */
   const sampleVisualHeight = useCallback((nx, nz) => {
     const g = glRef.current;
     if (!g.heightData || !g.hmWidth || !g.hmHeight) return 0;
     const px = Math.min(Math.max(Math.round(nx * (g.hmWidth - 1)), 0), g.hmWidth - 1);
     const pz = Math.min(Math.max(Math.round(nz * (g.hmHeight - 1)), 0), g.hmHeight - 1);
-    // Visual scale is the mesh's actual Y-units per heightmap step — the
-    // real elevation span (metres) on the physical-scale path, the legacy
-    // 0.22 constant on the fallback footprint. Either way this returns
-    // rendered world Y at the given normalised coords.
-    const visualScale = (g.visualHeightScale ?? 0.22) * (g.exaggeration ?? 1);
-    return g.heightData[pz * g.hmWidth + px] * visualScale;
+    const raw = g.heightData[pz * g.hmWidth + px];
+    const minE = g.minElevation ?? 0;
+    const span = g.visualHeightScale ?? ((g.maxElevation ?? 100) - minE);
+    return minE + raw * span * (g.exaggeration ?? 1);
   }, [glRef]);
 
   /** Aim the walkthrough camera along its current yaw/pitch */
@@ -496,39 +497,27 @@ export function useCameraController({ canvasRef, glRef }) {
     if (pos.z < -bound) { pos.z = -bound; vel.z = 0; }
     if (pos.z >  bound) { pos.z =  bound; vel.z = 0; }
 
-    // Terrain Collision & Ground Clamping in real meters
+    // Terrain Collision & Ground Clamping in real meters — the SINGLE
+    // authority for the floor (it reads the live exaggeration and the true
+    // elevation dataset; no second clamp that could disagree with it).
     if (g.engine?.collision) {
       g.engine.collision.clampPosition(pos, {
         mode: g.walkMode ? 'walk' : 'fly',
         exaggeration: g.engine.exaggeration || 1.0,
       });
       if (g.walkMode) vel.y = 0;
-    } else if (pos.y < WALKTHROUGH_MIN_ALTITUDE_M) {
-      pos.y = WALKTHROUGH_MIN_ALTITUDE_M;
-      vel.y = 0;
-    }
-
-    // Terrain floor clamp: the camera must stay ABOVE the rendered surface.
-    // The floor is re-read every frame because the visual scale can change
-    // under us (the workspace raises vertical exaggeration right after
-    // entry, so a spawn height computed at the old scale can leave the
-    // camera tens/hundreds of metres UNDER the mesh — seeing its underside
-    // as giant curved sheets). Mapping: mesh x=(u-0.5)*worldWidth,
-    // z=(v-0.5)*worldDepth ⇒ u = x/worldWidth + 0.5, v likewise.
-    const gw = g.worldWidth || 2.0;
-    const gd = g.worldDepth || 2.0;
-    const groundY = sampleVisualHeight(
-      Math.min(Math.max(pos.x / gw + 0.5, 0), 1),
-      Math.min(Math.max(pos.z / gd + 0.5, 0), 1)
-    );
-    const floorY = groundY + EYE_HEIGHT_M;
-    if (pos.y < floorY) {
-      pos.y = floorY;
-      if (vel.y < 0) vel.y = 0;
+    } else {
+      // Fallback when the engine isn't ready: never dive below the base
+      // plane minus a small margin for gullies.
+      const floorY = WALKTHROUGH_MIN_ALTITUDE_M;
+      if (pos.y < floorY) {
+        pos.y = floorY;
+        vel.y = 0;
+      }
     }
 
     applyLook(cam, fp);
-  }, [glRef, applyLook, sampleVisualHeight]);
+  }, [glRef, applyLook]);
 
   return {
     mode,

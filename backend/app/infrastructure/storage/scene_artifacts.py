@@ -63,6 +63,20 @@ def scene_raw_key(scene_id: str, name: str) -> str:
 
 # Known pipeline products (name -> artifact key suffix), shared by the
 # result service. The names are the API-facing product vocabulary.
+#
+# CONTRACT NOTE — depth vs dsm vs preview (do not blur these):
+#   "depth"   = the predicted metric surface array (dsm.npy): the model's
+#               monocular-depth-derived height field in metres. There is
+#               no separate "raw depth" product; AGL/agl_raw.npy is the
+#               un-anchored model signal and is NOT served as depth.
+#   "dsm"     = the georeferenced GeoTIFF twin of the same surface
+#               (only exists for scenes with a CRS).
+#   "preview" = dsm_preview.png — a Matplotlib diagnostic figure
+#               (axes/colourmap/colourbar) for HUMAN download only. It
+#               must NEVER be served as an interactive WebGL layer
+#               texture; viewer layers use the Pillow-generated
+#               greyscale data PNGs (dsm_layer.png / depth_layer.png,
+#               materialised on demand by terrain_service).
 RESULT_ARTIFACT_KEYS: Dict[str, str] = {
     "depth": "dsm.npy",
     "dsm": "dsm.tif",

@@ -68,7 +68,9 @@ def test_depth_dsm_metadata_endpoints(client, processed_scene):
 
     depth = client.get(f"/api/v1/scenes/{scene_id}/depth").json()
     assert depth["available"] is True
-    assert depth["url"] == f"/api/v1/scenes/{scene_id}/results/preview"
+    # The interactive texture URL must be the Pillow-generated greyscale
+    # depth texture — NEVER the Matplotlib diagnostic preview.
+    assert depth["url"] == f"/api/v1/scenes/{scene_id}/results/depth-texture"
     assert depth["download_url"] == f"/api/v1/scenes/{scene_id}/results/depth"
     assert client.get(depth["download_url"]).status_code == 200
     assert client.get(depth["url"]).status_code == 200

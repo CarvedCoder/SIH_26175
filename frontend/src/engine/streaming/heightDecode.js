@@ -1,37 +1,26 @@
 /**
  * DepthWizard Geospatial Engine — heightDecode
  *
- * Decoding helpers for backend height tiles and heightmaps:
+ * PURE decoders for backend height tiles and heightmaps:
  *   - Primary: non-interlaced 16-bit grayscale PNG (color type 0, bit depth 16)
  *     decoded with full numerical precision into a Float32Array of normalized
  *     [0, 1] elevation values.
  *   - Fallback: 8-bit canvas decode for legacy artifacts.
  *
- * Moved out of TerrainCanvas so both the inline heightmap path and the tile
- * streaming path share one implementation.
+ * Deliberately import-free (no api/client.js dependency): the terrain
+ * engine imports these decoders from Node-runnable code paths, and the
+ * auth-aware URL fetch lives in heightFetch.js (heightmap) and the
+ * streamer callbacks (tiles).
  */
-
-import { assetFetch } from '../../api/client.js';
 
 /**
- * Decode a heightmap/height-tile resource into { data, width, height } with
- * normalized [0, 1] elevation values.
+ * Decode raw heightmap/height-tile PNG bytes into { data, width, height }
+ * with normalized [0, 1] elevation values.
  *
- * This is a storage-asset fetch, not an authenticated API call: resolvedUrl
- * may resolve to a presigned MinIO URL or the legacy same-origin backend
- * route, and assetFetch() is what tells those apart safely. There is
- * deliberately no way to pass arbitrary auth headers into this function —
- * that was the leak: a caller could (and did) hand it the Supabase JWT
- * provider, which then rode along to MinIO and got rejected.
- *
- * @param {string} resolvedUrl - Already-resolved absolute/relative URL
+ * @param {ArrayBuffer} buf - Raw PNG bytes
  * @returns {Promise<{data: Float32Array, width: number, height: number}>}
  */
-export async function decodeHeightmap(resolvedUrl) {
-  const res = await assetFetch(resolvedUrl);
-  if (!res.ok) throw new Error(`heightmap fetch failed: ${res.status}`);
-
-  const buf = await res.arrayBuffer();
+export async function decodeHeightmapBytes(buf) {
   try {
     const parsed = await decodeHeightPng16(buf);
     if (parsed) return parsed;

@@ -214,6 +214,11 @@ export class LODManager {
     const vSpan = tile.vMax - tile.vMin;
     m.uniforms.uUvOffset.value.set(tile.uMin, 1.0 - tile.vMax);
     m.uniforms.uUvScale.value.set(uSpan, vSpan);
+    // Wireframe grid density = this chunk's real segment count, so the
+    // overlay traces the actual quad grid of the rendered geometry.
+    if (m.uniforms.uMeshDensity) {
+      m.uniforms.uMeshDensity.value = this.segments;
+    }
     this.tileMaterials.set(tile.id, m);
     return m;
   }
@@ -277,13 +282,19 @@ export class LODManager {
     // Texture LOD is independent of geometry LOD: cap at the provider's max
     // level; deeper geometry levels simply reuse the finest texture level.
     const texLevel = Math.min(tile.level, this.textureTiles.maxLevel ?? tile.level);
+    // A level-N geometry tile covers 2^(N-texLevel) texture tiles — scale
+    // the quadtree indices down to the texture level's grid, otherwise the
+    // request carries out-of-grid indices the backend must reject.
+    const shift = tile.level - texLevel;
+    const texX = tile.tx >> shift;
+    const texY = tile.ty >> shift;
 
     const dist = tile.distanceToCamera(camera.position);
     const priority = 1 / (1 + Math.max(0, dist));
-    const key = `${texLevel}/${tile.tx}/${tile.ty}`;
+    const key = `${texLevel}/${texX}/${texY}`;
 
     this.textureTiles.streamer
-      .request(texLevel, tile.tx, tile.ty, this.textureTiles.tileSize ?? 256, { priority })
+      .request(texLevel, texX, texY, this.textureTiles.tileSize ?? 256, { priority })
       .then((bitmap) => {
         if (!this.activeTiles.has(tile.id)) return;
         const u = tile.mesh?.material?.uniforms;

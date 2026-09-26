@@ -162,16 +162,27 @@ async def get_depth_meta(scene_id: str):
         )
 
     stats = result_service._load_array_stats(depth_path)
-    preview_path = files.get("preview")
     from backend.app.storage.service import storage_service
 
-    preview_url = (
-        storage_service.presign_artifact(scene_id, preview_path)
-        if preview_path is not None
+    # ``url`` is the BROWSER-RENDERABLE texture: a clean Pillow-generated
+    # greyscale PNG of the depth array (no axes/colourbar/border). The
+    # Matplotlib dsm_preview.png is a diagnostic/download artifact and is
+    # never used as an interactive WebGL texture.
+    depth_layer_path = None
+    try:
+        from backend.app.services.terrain_service import terrain_service
+
+        depth_layer_path = terrain_service.get_depth_layer_path(scene_id)
+    except (FileNotFoundError, ValueError):
+        depth_layer_path = None
+
+    texture_url = (
+        storage_service.presign_artifact(scene_id, depth_layer_path)
+        if depth_layer_path is not None
         else None
     ) or (
-        f"/api/v1/scenes/{scene_id}/results/preview"
-        if preview_path is not None
+        f"/api/v1/scenes/{scene_id}/results/depth-texture"
+        if depth_layer_path is not None
         else None
     )
     depth_url = (
@@ -181,7 +192,7 @@ async def get_depth_meta(scene_id: str):
     return DepthMetaResponse(
         scene_id=scene_id,
         available=True,
-        url=preview_url,
+        url=texture_url,
         download_url=depth_url,
         format="npy",
         width=stats["width"],
@@ -204,7 +215,8 @@ async def get_dsm_meta(scene_id: str):
     """DSM-layer metadata: preview (visual) + GeoTIFF download URLs."""
     files = result_service.get_result_files(scene_id)
     dsm_path = files.get("dsm")
-    if dsm_path is None:
+    depth_path = files.get("depth")
+    if dsm_path is None and depth_path is None:
         raise AppError(
             status_code=404,
             code="RESULTS_NOT_FOUND",
@@ -213,27 +225,51 @@ async def get_dsm_meta(scene_id: str):
             recoverable=True,
         )
 
-    metadata = result_service._read_dsm_metadata(dsm_path)
+    # Non-georeferenced scenes have no GeoTIFF twin; the predicted surface
+    # array (dsm.npy) is the DSM product and metadata falls back to it.
+    metadata = (
+        result_service._read_dsm_metadata(dsm_path)
+        if dsm_path is not None
+        else result_service._read_dsm_metadata(depth_path)
+    )
     from backend.app.storage.service import storage_service
 
+    # Greyscale data texture — the viewer's shader colormaps the red
+    # channel, so the matplotlib preview would render wrong colours. The
+    # texture the terrain service materializes on demand covers BOTH
+    # georeferenced (dsm.tif) and array-only scenes (dsm.npy).
+    texture_path = None
+    try:
+        from backend.app.services.terrain_service import terrain_service
+
+        texture_path = terrain_service.get_dsm_layer_path(scene_id)
+    except (FileNotFoundError, ValueError):
+        texture_path = None
     return DsmMetaResponse(
         scene_id=scene_id,
         available=True,
         url=(
-            # Greyscale data texture — the viewer's shader colormaps the red
-            # channel, so the matplotlib preview would render wrong colours.
-            # With the object store this is a presigned URL, generated for
-            # the texture the terrain service materializes on demand.
-            storage_service.presign_artifact(
-                scene_id, result_service.get_output_dir(scene_id) / "dsm_layer.png"
-            )
-            or f"/api/v1/scenes/{scene_id}/results/dsm-texture"
+            storage_service.presign_artifact(scene_id, texture_path)
+            if texture_path is not None
+            else None
+        )
+        or (
+            f"/api/v1/scenes/{scene_id}/results/dsm-texture"
+            if texture_path is not None
+            else None
         ),
         download_url=(
-            storage_service.presign_artifact(scene_id, dsm_path)
-            or f"/api/v1/scenes/{scene_id}/results/dsm"
+            (
+                storage_service.presign_artifact(scene_id, dsm_path)
+                or f"/api/v1/scenes/{scene_id}/results/dsm"
+            )
+            if dsm_path is not None
+            else (
+                storage_service.presign_artifact(scene_id, depth_path)
+                or f"/api/v1/scenes/{scene_id}/results/depth"
+            )
         ),
-        format="tif" if dsm_path.suffix == ".tif" else "npy",
+        format="tif" if (dsm_path is not None and dsm_path.suffix == ".tif") else "npy",
         width=metadata["width"],
         height=metadata["height"],
         crs=metadata["crs"],

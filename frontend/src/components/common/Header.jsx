@@ -104,9 +104,26 @@ export default function Header({ onNavigate }) {
   }, []);
 
   useEffect(() => {
-    probe();
-    const id = setInterval(probe, 30_000);
-    return () => clearInterval(id);
+    let cancelled = false;
+    let timer = null;
+    // Probe immediately, then poll. While the backend is still starting up
+    // (or unreachable) retry every 3 s so the indicator flips to online as
+    // soon as the API answers instead of sitting on "offline" for 30 s.
+    const run = async () => {
+      if (cancelled) return;
+      const result = await checkHealth();
+      if (cancelled) return;
+      setHealth({
+        status: result ? STATUS.online : STATUS.offline,
+        version: result?.version ?? null,
+      });
+      timer = setTimeout(run, result ? 30_000 : 3_000);
+    };
+    run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [probe]);
 
   const isHome      = state.status === AppState.NO_SCENE || state.status === AppState.SCENE_READY;

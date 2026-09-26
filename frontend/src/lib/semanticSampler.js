@@ -10,6 +10,7 @@ import {
   SEMANTIC_COLORS,
   SEMANTIC_COLORS_HEX,
 } from '../api/semantic.js';
+import { assetFetch } from '../api/client.js';
 
 /**
  * Robust parser for NumPy .npy format (v1.0 & v2.0).
@@ -64,6 +65,10 @@ export function parseNpy(buffer) {
   let data;
   if (descr.includes('u1') || descr.includes('b1')) {
     data = new Uint8Array(dataBuffer);
+  } else if (descr.includes('f2')) {
+    // IEEE half-precision (semantic_confidence.npy stores float16) — the
+    // standard typed arrays have no Float16, so widen to Float32 manually.
+    data = float16ToFloat32(new Uint16Array(dataBuffer));
   } else if (descr.includes('f4')) {
     data = new Float32Array(dataBuffer);
   } else if (descr.includes('f8')) {
@@ -75,6 +80,27 @@ export function parseNpy(buffer) {
   }
 
   return { descr, shape, data };
+}
+
+/** Widen IEEE 754 half-precision floats to Float32. */
+function float16ToFloat32(u16) {
+  const out = new Float32Array(u16.length);
+  for (let i = 0; i < u16.length; i++) {
+    const h = u16[i];
+    const sign = (h & 0x8000) >> 15;
+    const exp = (h & 0x7c00) >> 10;
+    const frac = h & 0x03ff;
+    let value;
+    if (exp === 0) {
+      value = frac === 0 ? 0 : frac * 6.103515625e-8; // subnormal (2^-24 * frac)
+    } else if (exp === 0x1f) {
+      value = frac === 0 ? Infinity : NaN;
+    } else {
+      value = (1 + frac / 1024) * Math.pow(2, exp - 15);
+    }
+    out[i] = sign ? -value : value;
+  }
+  return out;
 }
 
 const semanticCache = new Map();
@@ -94,14 +120,18 @@ export async function loadSemanticData(sceneId) {
     if (!meta || !meta.available) {
       const res = {
         available: false,
-        reason: 'Semantic segmentation unavailable for this scene.',
+        reason:
+          'Semantic segmentation is unavailable for this scene — it was processed with a checkpoint trained without the auxiliary semantic head.',
       };
       semanticCache.set(sceneId, res);
       return res;
     }
 
     const labelsUrl = meta.labels_url || getSemanticLabelsUrl(sceneId);
-    const labelsResp = await fetch(labelsUrl);
+    // assetFetch, not bare fetch: the labels URL may be a same-origin
+    // authenticated route (needs the JWT) or a presigned storage URL
+    // (which must travel WITHOUT the JWT) — assetFetch decides per URL.
+    const labelsResp = await assetFetch(labelsUrl);
     if (!labelsResp.ok) {
       throw new Error(`Failed to fetch labels: ${labelsResp.statusText}`);
     }
@@ -118,7 +148,7 @@ export async function loadSemanticData(sceneId) {
     let confData = null;
     if (meta.confidence_url) {
       try {
-        const confResp = await fetch(meta.confidence_url);
+        const confResp = await assetFetch(meta.confidence_url);
         if (confResp.ok) {
           const confBuf = await confResp.arrayBuffer();
           const parsedConf = parseNpy(confBuf);

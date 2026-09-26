@@ -2,8 +2,10 @@
  * DepthWizard — StatusStrip
  *
  * 28px telemetry strip along the very bottom of the terrain workspace:
- *   X / Y / Height of the last picked point, live FPS, GPU renderer and
- *   mesh resolution (grid × vertex count). Monospace, instrument style.
+ *   X / Y / Height of the last picked point, live FPS, and REAL renderer
+ *   telemetry from the terrain engine (active LOD tiles, triangles, draw
+ *   calls) — never source-raster dimensions mislabeled as mesh stats.
+ *   Monospace, instrument style.
  */
 const CELL = {
   display: 'inline-flex',
@@ -17,11 +19,19 @@ const CELL = {
 
 const VALUE = { color: 'var(--dw-fg)' };
 
-export default function StatusStrip({ selectedPoint, fps, terrainMeta, exaggeration, onToggleDebugHud }) {
-  const dims = terrainMeta?.dimensions ?? terrainMeta?.terrain?.dimensions ?? {};
-  const width = terrainMeta?.mesh_width ?? dims.width ?? terrainMeta?.width ?? null;
-  const height = terrainMeta?.mesh_height ?? dims.height ?? terrainMeta?.height ?? null;
-  const verts = width && height ? width * height : null;
+function fmtCount(n) {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return '—';
+  return n >= 1000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : String(n);
+}
+
+export default function StatusStrip({ selectedPoint, fps, telemetry, exaggeration, onToggleDebugHud }) {
+  const tiles = telemetry?.activeTileCount;
+  const triangles = telemetry?.triangleCount;
+  const drawCalls = telemetry?.drawCalls;
+  const lodDist = telemetry?.lodDistribution;
+  const lodStr = lodDist && Object.keys(lodDist).length
+    ? Object.entries(lodDist).map(([lvl, cnt]) => `L${lvl}:${cnt}`).join(' ')
+    : null;
 
   return (
     <div
@@ -54,12 +64,14 @@ export default function StatusStrip({ selectedPoint, fps, terrainMeta, exaggerat
       <span style={CELL}>
         EXAG <span style={VALUE}>{Number(exaggeration ?? 1).toFixed(1)}×</span>
       </span>
-      <span style={{ ...CELL, marginLeft: 'auto' }}>
-        Mesh{' '}
-        <span style={VALUE}>
-          {width && height ? `${width}×${height}` : '—'}
-          {verts ? ` (${verts.toLocaleString()} verts)` : ''}
-        </span>
+      <span style={{ ...CELL, marginLeft: 'auto' }} title={lodStr ? `LOD distribution ${lodStr}` : undefined}>
+        Tiles <span style={VALUE}>{typeof tiles === 'number' ? tiles : '—'}</span>
+      </span>
+      <span style={CELL}>
+        Tris <span style={VALUE}>{fmtCount(triangles)}</span>
+      </span>
+      <span style={CELL}>
+        Draws <span style={VALUE}>{typeof drawCalls === 'number' ? drawCalls : '—'}</span>
       </span>
       <span style={CELL}>
         GPU <span style={VALUE}>WebGL</span>

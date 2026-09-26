@@ -61,7 +61,12 @@ async def semantic_metadata(scene_id: str):
         k in legend_dict
         for k in ("building", "vegetation", "road", "water", "ground", "other")
     ):
-        legend = SemanticLegend(**legend_dict)
+        try:
+            legend = SemanticLegend(**legend_dict)
+        except Exception:
+            # A malformed legend must degrade to None (the frontend keeps
+            # its canonical palette), never crash the metadata route.
+            legend = None
 
     base = f"/api/v1/scenes/{scene_id}/results"
     return SemanticMetaResponse(

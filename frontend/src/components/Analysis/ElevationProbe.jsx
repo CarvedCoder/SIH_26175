@@ -73,22 +73,6 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe, se
     }, 160);
   }, [sceneId, terrainRef]);
 
-  // Sample elevation at normalised terrain coords [0, 1]
-  const sampleElevationAt = useCallback((nx, nz) => {
-    const g = terrainRef.current?.getRef?.()?.current;
-    if (!g?.heightData || !g.hmWidth || !g.hmHeight) return null;
-
-    const px = Math.min(Math.max(Math.round(nx * (g.hmWidth - 1)), 0), g.hmWidth - 1);
-    const pz = Math.min(Math.max(Math.round(nz * (g.hmHeight - 1)), 0), g.hmHeight - 1);
-    const raw = g.heightData[pz * g.hmWidth + px]; // [0, 1]
-
-    if (isAbsolute && typeof g.minElevation === 'number' && typeof g.elevationSpan === 'number') {
-      return g.minElevation + raw * g.elevationSpan;
-    }
-    // Relative mode: scene units scaled by heightScale
-    return raw * 100.0 * (g.heightScale ?? 1.0);
-  }, [terrainRef, isAbsolute]);
-
   useEffect(() => {
     if (!enabled) {
       setProbeData(null);
@@ -109,11 +93,8 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe, se
         return;
       }
 
-      // Normalised coordinates within canvas [-1, 1]
-      const ndcX = (x / rect.width) * 2 - 1;
-      const ndcY = -(y / rect.height) * 2 + 1;
-
-      pendingMouse.current = { clientX: x, clientY: y, ndcX, ndcY, rect };
+      // Absolute client coords — getTerrainPointFromEvent expects them
+      pendingMouse.current = { clientX: e.clientX, clientY: e.clientY };
 
       if (!rafRef.current) {
         rafRef.current = requestAnimationFrame(processProbe);
@@ -137,58 +118,40 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe, se
         return;
       }
 
-      const { clientX, clientY, ndcX, ndcY } = pendingMouse.current;
+      const { clientX, clientY } = pendingMouse.current;
 
-      const g = terrainRef.current?.getRef?.()?.current;
-      if (!g?.camera || !g.mesh) {
+      // REAL raycast against the active terrain chunks — the planar
+      // approximation this used to apply mapped the cursor to the wrong
+      // ground cell at every non-top-down angle (readouts of ±80 m on an
+      // 18 m scene came from here). getTerrainPointFromEvent returns true
+      // meters sampled from the terrain dataset at the hit point.
+      const hit = terrainRef.current?.getTerrainPointFromEvent?.({
+        clientX,
+        clientY,
+      });
+      if (!hit) {
         setMousePos({ x: clientX, y: clientY, visible: true });
         return;
       }
 
-      // Planar raycast approximation or top-down mapping
-      // For top-view / orbit: project ray to ground plane [-1, 1]
-      let nx = (ndcX + 1) / 2;
-      let nz = (1 - ndcY) / 2;
-
-      // In perspective/orbit: compute hit on the ground plane Y=0 or camera look direction
-      const cam = g.camera;
-      if (cam) {
-        const orb = g.orbit;
-        if (orb?.target) {
-          const targetX = orb.target.x ?? 0;
-          const targetZ = orb.target.z ?? 0;
-          const dist = cam.position.distance ? cam.position.distance(orb.target) : 2.5;
-          const wx = targetX + ndcX * dist * 0.45;
-          const wz = targetZ - ndcY * dist * 0.45;
-          const w = typeof g.worldWidth === 'number' && g.worldWidth > 0 ? g.worldWidth : 2;
-          const d = typeof g.worldDepth === 'number' && g.worldDepth > 0 ? g.worldDepth : 2;
-          nx = Math.max(0, Math.min(1, wx / w + 0.5));
-          nz = Math.max(0, Math.min(1, wz / d + 0.5));
-        }
-      }
-
-      const elev = sampleElevationAt(nx, nz);
-
       let semInfo = null;
-      if (semanticData?.available) {
-        semInfo = sampleSemanticAtUV(semanticData, nx, nz);
+      if (semanticData?.available && typeof hit.u === 'number') {
+        semInfo = sampleSemanticAtUV(semanticData, hit.u, hit.v);
         if (semInfo) {
           terrainRef.current?.setSemanticHighlightClass?.(semInfo.classId);
         }
       }
 
-      if (elev !== null) {
-        const data = {
-          x: (nx * 2 - 1).toFixed(3),
-          z: (nz * 2 - 1).toFixed(3),
-          elevation: elev,
-          metered: false,
-          semantic: semInfo,
-        };
-        setProbeData(data);
-        onProbe?.({ x: nx * 2 - 1, z: nz * 2 - 1, elevation: elev });
-        fetchExactElevation(nx, nz);
-      }
+      const data = {
+        x: hit.x.toFixed(1),
+        z: hit.z.toFixed(1),
+        elevation: hit.elevation,
+        metered: false,
+        semantic: semInfo,
+      };
+      setProbeData(data);
+      onProbe?.({ x: hit.u, z: hit.v, elevation: hit.elevation });
+      fetchExactElevation(hit.u, hit.v);
 
       setMousePos({ x: clientX, y: clientY, visible: true });
     }
@@ -203,7 +166,7 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe, se
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (exactTimer.current) clearTimeout(exactTimer.current);
     };
-  }, [enabled, terrainRef, sampleElevationAt, onProbe, fetchExactElevation, semanticData]);
+  }, [enabled, terrainRef, onProbe, fetchExactElevation, semanticData]);
 
   if (!enabled || !mousePos.visible || !probeData) return null;
 
