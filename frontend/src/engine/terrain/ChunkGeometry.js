@@ -117,13 +117,13 @@ export function buildChunkGeometry(options) {
       positions[p3 + 2] = z;
 
       const p2 = vertIdx * 2;
-      // Tile-LOCAL UVs [0, 1] within this chunk (v flipped for WebGL). Each
-      // chunk's material maps these back onto the global raster frame via
-      // uUvOffset = (uMin, 1 - vMax) and uUvScale = (uSpan, vSpan) — this is
-      // what allows every tile to carry its own streamed texture (spec §17)
-      // while semantic overlays/colormaps still sample global UVs.
-      uvs[p2] = ix / wSegs;
-      uvs[p2 + 1] = 1.0 - iz / hSegs;
+      // GLOBAL raster UVs [0, 1] baked into the geometry: every tile samples
+      // the single full-resolution drape texture directly, and the shared
+      // terrain material needs no per-tile offset/scale. (v flipped for
+      // WebGL: the geometry's north row — iz = 0, v = vMin — maps to uv.y = 1
+      // so an sRGB texture uploaded with flipY = true aligns north-up.)
+      uvs[p2] = uMin + (ix / wSegs) * (uMax - uMin);
+      uvs[p2 + 1] = 1.0 - (vMin + (iz / hSegs) * (vMax - vMin));
 
       // Metric Normal derivation using central differences in meters
       // (hX[iz][ix] = u - stepU/2, hX[iz][ix+1] = u + stepU/2,

@@ -87,6 +87,13 @@ export class TerrainTile {
     if (this.state === TileState.LOADED && this.mesh) return this.mesh;
 
     const mat = material || this.material;
+    // Skirt depth must cover the worst T-junction gap against a coarser
+    // neighbour (which scales with the tile's cell size) — a fixed 1.2 m
+    // skirt opened visible tears at LOD boundaries on steep urban DSMs.
+    // The exaggeration displacement in the vertex shader stretches the
+    // skirt proportionally, so this stays valid at any exaggeration.
+    const tileWidth = this.worldMaxX - this.worldMinX;
+    const skirtDepth = Math.max(2.5, tileWidth * 0.03);
     this.geometry = buildChunkGeometry({
       worldMinX: this.worldMinX,
       worldMaxX: this.worldMaxX,
@@ -99,7 +106,7 @@ export class TerrainTile {
       segments: this.segments,
       sampleHeight: this.sampleHeight,
       addSkirt: true,
-      skirtDepth: 1.2,
+      skirtDepth,
     });
 
     this.boundingBox.copy(this.geometry.boundingBox);

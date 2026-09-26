@@ -65,7 +65,6 @@ export default function TerrainDebugHUD({ engine, camera, visible = true }) {
             activeTiles: stats.activeTileCount,
             pendingTiles: stats.pendingTileCount ?? 0,
             heightStreaming: stats.heightStreaming,
-            textureStreaming: stats.textureStreaming,
             triangles: stats.triangleCount,
             lods: stats.lodDistribution,
             width_m: stats.worldWidth_m,
@@ -146,7 +145,7 @@ export default function TerrainDebugHUD({ engine, camera, visible = true }) {
           <>
             <span style={{ color: '#8aa0c4' }}>Streaming:</span>
             <span>
-              {telemetry.heightStreaming ? 'H✓' : 'H—'} {telemetry.textureStreaming ? 'T✓' : 'T—'}
+              {telemetry.heightStreaming ? 'H✓' : 'H—'}
               {telemetry.pendingTiles > 0 ? ` · ${telemetry.pendingTiles} loading` : ''}
             </span>
           </>

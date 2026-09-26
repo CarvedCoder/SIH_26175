@@ -71,7 +71,7 @@ function makeEngine(options = {}) {
   return { engine, scene, dataset, geoRef };
 }
 
-test('ChunkGeometry: tile-local UV v is flipped (v=1 at north row), u increases east', () => {
+test('ChunkGeometry: UVs are global; v flipped (v=1 at north row), u increases east', () => {
   const geo = buildChunkGeometry({
     worldMinX: -100, worldMaxX: 100,
     worldMinZ: -100, worldMaxZ: 100,
@@ -81,10 +81,10 @@ test('ChunkGeometry: tile-local UV v is flipped (v=1 at north row), u increases 
     addSkirt: false,
   });
   const uv = geo.attributes.uv;
-  // Vertex 0 = (ix=0, iz=0) = NW corner of the tile: u=0, v(local)=1
+  // Vertex 0 = (ix=0, iz=0) = NW corner of the tile: u=0, v=1
   assert.equal(uv.array[0], 0);
   assert.equal(uv.array[1], 1);
-  // Last surface vertex = (ix=8, iz=8) = SE corner: u=1, v(local)=0
+  // Last surface vertex = (ix=8, iz=8) = SE corner: u=1, v=0
   const last = 8 * (8 + 1) + 8;
   assert.equal(uv.array[last * 2], 1);
   assert.equal(uv.array[last * 2 + 1], 0);
@@ -131,12 +131,6 @@ test('Wireframe: shader grid overlay toggles, material.wireframe stays false', (
   engine.setWireframe(true);
   assert.equal(engine.material.uniforms.uMeshEnabled.value, 1.0);
   assert.equal(engine.material.wireframe, false, 'brute-force triangle wireframe must never be used');
-  // per-tile clones also carry grid on + wireframe off
-  for (const [, m] of engine.lodManager.tileMaterials) {
-    assert.equal(m.uniforms.uMeshEnabled.value, 1.0);
-    assert.equal(m.wireframe, false);
-    assert.equal(m.uniforms.uMeshDensity.value, 32, 'grid density = chunk segment count');
-  }
   engine.setWireframe(false);
   assert.equal(engine.material.uniforms.uMeshEnabled.value, 0.0);
 });
@@ -184,6 +178,6 @@ test('TerrainMaterial: data-layer colorspace contract (raw data, no sRGB decode)
   const mat = createTerrainMaterial({});
   assert.equal(mat.uniforms.uReliefStrength.value, 0.0);
   assert.equal(mat.uniforms.uColormapMode.value, 0.0);
-  assert.equal(mat.uniforms.uMeshDensity.value, 32.0);
+  assert.equal(mat.uniforms.uMeshSpacing.value, 16.0);
   assert.equal(mat.wireframe, false);
 });

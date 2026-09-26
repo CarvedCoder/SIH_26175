@@ -77,10 +77,19 @@ export class TerrainEngine {
       geoRef: this.geoRef,
     });
 
-    // 3. Create Terrain Material (base/template — every tile gets a clone).
-    //    uMeshDensity is seeded with the tile segment count so the wireframe
-    //    grid overlay traces each chunk's real quad grid.
+    // 3. Create THE shared terrain material — every tile uses this same
+    //    instance (UVs are global; one full-resolution drape texture), so
+    //    there are no per-tile clones to track or dispose.
     this.segments = 32;
+    const maxLod = Math.min(
+      4,
+      Math.max(
+        2,
+        Math.ceil(Math.log2(Math.max(this.geoRef.rasterWidth, this.geoRef.rasterHeight) / 256)),
+      ),
+    );
+    // Wireframe metric-grid spacing matches the finest quadtree cell.
+    const finestTile = Math.max(this.geoRef.worldWidth, this.geoRef.worldDepth) / (2 ** maxLod);
     this.material = createTerrainMaterial({
       texture: options.diffuseTexture,
       minElevation: this.geoRef.minElevation,
@@ -88,7 +97,7 @@ export class TerrainEngine {
       exaggeration: 1.0,
       colormapMode: 0.0,
       meshEnabled: false,
-      segments: this.segments,
+      meshSpacing: Math.max(1, finestTile / this.segments),
     });
 
     // 4. Group for holding chunk meshes in scene
@@ -100,19 +109,11 @@ export class TerrainEngine {
     //    caller supplies tile URL builders.
     this._tileFetchHeaders = options.tileFetchHeaders ?? null;
     this.heightStreamer = this._createHeightStreamer(options.heightTiles);
-    this.textureStreamer = this._createTextureStreamer(options.textureTiles);
 
     // 6. Initialize Quadtree LOD Manager. maxLod follows the raster: the
     //    finest quadtree level tiles the raster into ~256-px cells, so a
     //    2540-px raster refines 4 levels deep (level-4 tiles are ~10 m
     //    across at GSD 1 m with 32 segments ≈ 0.3 m mesh resolution).
-    const maxLod = Math.min(
-      4,
-      Math.max(
-        2,
-        Math.ceil(Math.log2(Math.max(this.geoRef.rasterWidth, this.geoRef.rasterHeight) / 256)),
-      ),
-    );
     this.lodManager = new LODManager({
       geoRef: this.geoRef,
       dataset: this.dataset,
@@ -123,14 +124,6 @@ export class TerrainEngine {
       segments: 32,
       heightTiles: this.heightStreamer
         ? { streamer: this.heightStreamer, tileSize: options.heightTiles.tileSize ?? 256 }
-        : null,
-      textureTiles: this.textureStreamer
-        ? {
-            streamer: this.textureStreamer,
-            tileSize: options.textureTiles.tileSize ?? 256,
-            maxLevel: options.textureTiles.maxLevel ?? 3,
-            anisotropy: options.textureTiles.anisotropy,
-          }
         : null,
     });
 
@@ -152,9 +145,6 @@ export class TerrainEngine {
     this.exaggeration = 1.0;
     // True once an RGB/layer texture has been applied (drives hybrid view)
     this.textureReady = false;
-    // Per-tile streamed imagery applies only while no user-selected layer
-    // (colormap) overrides the base RGB texture.
-    this.perTileTexturesEnabled = true;
     this.disposed = false;
 
     // Initial LOD evaluation
@@ -183,38 +173,6 @@ export class TerrainEngine {
     return streamer;
   }
 
-  _createTextureStreamer(config) {
-    if (!config?.url) return null;
-    const streamer = new TileStreamer({
-      fetchTile: async ({ z, x, y, size }, signal) => {
-        // Authenticated backend endpoint (never object storage) — the JWT
-        // belongs here.
-        const headers = typeof this._tileFetchHeaders === 'function'
-          ? await this._tileFetchHeaders() : (this._tileFetchHeaders || {});
-        const res = await fetch(config.url(z, x, y, size), { signal, headers });
-        if (!res.ok) throw new Error(`texture tile fetch failed: ${res.status}`);
-        const blob = await res.blob();
-        return createImageBitmap(blob);
-      },
-      maxCacheEntries: 96,
-    });
-    return streamer;
-  }
-
-  /**
-   * Apply a uniform mutation to the base material and every live tile clone.
-   *
-   * @param {Function} fn - (uniforms) => void
-   */
-  _applyToMaterials(fn) {
-    if (this.material?.uniforms) fn(this.material.uniforms);
-    if (this.lodManager) {
-      for (const [, m] of this.lodManager.tileMaterials.entries()) {
-        if (m.uniforms) fn(m.uniforms);
-      }
-    }
-  }
-
   /**
    * Per-frame update loop.
    *
@@ -235,9 +193,7 @@ export class TerrainEngine {
    */
   setExaggeration(factor) {
     this.exaggeration = Math.max(0.1, Number(factor) || 1.0);
-    this._applyToMaterials((u) => {
-      if (u.uExaggeration) u.uExaggeration.value = this.exaggeration;
-    });
+    this.material.uniforms.uExaggeration.value = this.exaggeration;
   }
 
   /**
@@ -249,10 +205,7 @@ export class TerrainEngine {
    * lines, which is exactly the visual failure this replaces.
    */
   setWireframe(enabled) {
-    const on = !!enabled;
-    this._applyToMaterials((u) => {
-      if (u.uMeshEnabled) u.uMeshEnabled.value = on ? 1.0 : 0.0;
-    });
+    this.material.uniforms.uMeshEnabled.value = enabled ? 1.0 : 0.0;
   }
 
   /**
@@ -261,13 +214,11 @@ export class TerrainEngine {
    * @param {boolean} [wireframe] - Keep the current wireframe overlay state
    */
   setSolidView(wireframe = false) {
-    this._applyToMaterials((u) => {
-      u.uTextureReady.value = 0.0;
-      u.uColormapMode.value = 0.0;
-      u.uReliefStrength.value = 0.0;
-      u.uMeshEnabled.value = wireframe ? 1.0 : 0.0;
-      u.uPerTileTexture.value = 0.0;
-    });
+    const u = this.material.uniforms;
+    u.uTextureReady.value = 0.0;
+    u.uColormapMode.value = 0.0;
+    u.uReliefStrength.value = 0.0;
+    u.uMeshEnabled.value = wireframe ? 1.0 : 0.0;
   }
 
   /**
@@ -278,13 +229,11 @@ export class TerrainEngine {
    * imagery's colors.
    */
   setHybridView(wireframe = false) {
-    this._applyToMaterials((u) => {
-      u.uTextureReady.value = this.textureReady ? 1.0 : u.uTextureReady.value;
-      u.uColormapMode.value = 0.0;
-      u.uReliefStrength.value = 1.0;
-      u.uMeshEnabled.value = wireframe ? 1.0 : 0.0;
-      u.uPerTileTexture.value = 0.0;
-    });
+    const u = this.material.uniforms;
+    u.uTextureReady.value = this.textureReady ? 1.0 : u.uTextureReady.value;
+    u.uColormapMode.value = 0.0;
+    u.uReliefStrength.value = 1.0;
+    u.uMeshEnabled.value = wireframe ? 1.0 : 0.0;
   }
 
   /**
@@ -295,72 +244,45 @@ export class TerrainEngine {
    * @param {boolean} [opts.override] - True when a user-selected layer replaces
    *   base imagery; disables per-tile streamed textures until invalidated.
    */
-  setTexture(texture, opts = {}) {
+  setTexture(texture) {
     if (!texture) return;
-    if (opts.override) {
-      this.perTileTexturesEnabled = false;
-    }
     this.textureReady = true;
-    this._applyToMaterials((u) => {
-      u.uTexture.value = texture;
-      u.uTextureReady.value = 1.0;
-      u.uPerTileTexture.value = 0.0;
-    });
+    const u = this.material.uniforms;
+    u.uTexture.value = texture;
+    u.uTextureReady.value = 1.0;
     this.material.needsUpdate = true;
-  }
-
-  /**
-   * Re-enable per-tile streamed imagery (e.g. after a user layer is closed).
-   */
-  enablePerTileTextures() {
-    this.perTileTexturesEnabled = true;
-    this._applyToMaterials((u) => {
-      u.uPerTileTexture.value = 0.0;
-    });
-    // Active tiles re-fetch lazily on their next add cycle
-    this.lodManager.invalidateTileTextures();
   }
 
   /**
    * Update colormap mode (0=rgb, 1=greyscale, 2=viridis, 3=diverging).
    */
   setColormapMode(mode) {
-    const m = Number(mode) || 0.0;
-    this._applyToMaterials((u) => {
-      u.uColormapMode.value = m;
-      // Colormaps sample the global texture; leave uPerTileTexture reset to
-      // the global path whenever a colormap is active.
-      if (m !== 0) {
-        u.uPerTileTexture.value = 0.0;
-      }
-    });
+    this.material.uniforms.uColormapMode.value = Number(mode) || 0.0;
   }
 
   /**
    * Configure elevation contour lines.
    */
   setContours(enabled, interval = 5.0) {
-    this._applyToMaterials((u) => {
-      u.uContoursEnabled.value = enabled ? 1.0 : 0.0;
-      if (interval > 0) {
-        u.uContourInterval.value = interval;
-      }
-    });
+    const u = this.material.uniforms;
+    u.uContoursEnabled.value = enabled ? 1.0 : 0.0;
+    if (interval > 0) {
+      u.uContourInterval.value = interval;
+    }
   }
 
   /**
    * Configure atmospheric depth fog.
    */
   setFog(enabled, near = null, far = null, color = null) {
-    this._applyToMaterials((u) => {
-      u.uFogEnabled.value = enabled ? 1.0 : 0.0;
-      const diag = Math.hypot(this.geoRef.worldWidth, this.geoRef.worldDepth);
-      u.uFogNear.value = near ?? 0.6 * diag;
-      u.uFogFar.value = far ?? 3.0 * diag;
-      if (color) {
-        u.uFogColor.value.copy(color);
-      }
-    });
+    const u = this.material.uniforms;
+    u.uFogEnabled.value = enabled ? 1.0 : 0.0;
+    const diag = Math.hypot(this.geoRef.worldWidth, this.geoRef.worldDepth);
+    u.uFogNear.value = near ?? 0.6 * diag;
+    u.uFogFar.value = far ?? 3.0 * diag;
+    if (color) {
+      u.uFogColor.value.copy(color);
+    }
   }
 
   /**
@@ -381,26 +303,25 @@ export class TerrainEngine {
       texture, enabled, opacity, highlightClass,
       confidenceTexture, confidenceEnabled,
     } = options;
-    this._applyToMaterials((u) => {
-      if (texture) {
-        u.uSemanticTex.value = texture;
-      }
-      if (confidenceTexture) {
-        u.uSemanticConfTex.value = confidenceTexture;
-      }
-      if (typeof confidenceEnabled === 'boolean') {
-        u.uSemanticConfEnabled.value = confidenceEnabled ? 1.0 : 0.0;
-      }
-      if (typeof enabled === 'boolean') {
-        u.uSemanticEnabled.value = enabled ? 1.0 : 0.0;
-      }
-      if (typeof opacity === 'number') {
-        u.uSemanticOpacity.value = Math.max(0, Math.min(1, opacity));
-      }
-      if (typeof highlightClass === 'number') {
-        u.uSemanticHighlightClass.value = highlightClass;
-      }
-    });
+    const u = this.material.uniforms;
+    if (texture) {
+      u.uSemanticTex.value = texture;
+    }
+    if (confidenceTexture) {
+      u.uSemanticConfTex.value = confidenceTexture;
+    }
+    if (typeof confidenceEnabled === 'boolean') {
+      u.uSemanticConfEnabled.value = confidenceEnabled ? 1.0 : 0.0;
+    }
+    if (typeof enabled === 'boolean') {
+      u.uSemanticEnabled.value = enabled ? 1.0 : 0.0;
+    }
+    if (typeof opacity === 'number') {
+      u.uSemanticOpacity.value = Math.max(0, Math.min(1, opacity));
+    }
+    if (typeof highlightClass === 'number') {
+      u.uSemanticHighlightClass.value = highlightClass;
+    }
     this.material.needsUpdate = true;
   }
 
@@ -454,9 +375,7 @@ export class TerrainEngine {
       isGeoreferenced: this.geoRef.isGeoreferenced,
       crs: this.geoRef.crs,
       heightStreaming: !!this.heightStreamer,
-      textureStreaming: !!this.textureStreamer && this.perTileTexturesEnabled,
       heightStreamCache: this.heightStreamer?.stats ?? null,
-      textureStreamCache: this.textureStreamer?.stats ?? null,
     };
   }
 
@@ -467,7 +386,6 @@ export class TerrainEngine {
     this.disposed = true;
     this.lodManager.dispose();
     this.heightStreamer?.dispose();
-    this.textureStreamer?.dispose();
     this.material.dispose();
     if (this.terrainGroup.parent) {
       this.terrainGroup.parent.remove(this.terrainGroup);

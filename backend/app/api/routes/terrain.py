@@ -106,7 +106,10 @@ async def get_scene_terrain_tile_height(
     x: int = Query(..., ge=0),
     y: int = Query(..., ge=0),
     z: int = Query(default=0, ge=0, le=8),
-    size: int = Query(default=128, ge=16, le=512),
+    # 1024 px overview requests (frontend global heightfield) and per-tile
+    # detail requests both flow through here; 512 was too low for the
+    # overview to keep urban-scale geometry for collision/probes.
+    size: int = Query(default=128, ge=16, le=1024),
 ):
     """Return a 16-bit PNG chunk of heights for quadtree tile (x, y) at level z.
 

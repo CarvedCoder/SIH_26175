@@ -162,7 +162,7 @@ test('6. Overview conversion produces a rectangular heightfield', () => {
   assert.ok(Math.abs(out[0] - 0.5) < 1e-6);
 });
 
-test('7. Chunk UVs are tile-local; material offset/scale restore global UVs', () => {
+test('7. Chunk UVs are GLOBAL raster UVs (single shared drape texture)', () => {
   const uMin = 0.25, uMax = 0.75, vMin = 0.5, vMax = 1.0;
   const geo = buildChunkGeometry({
     worldMinX: -100, worldMaxX: 100,
@@ -176,30 +176,23 @@ test('7. Chunk UVs are tile-local; material offset/scale restore global UVs', ()
   const pos = geo.getAttribute('position');
   const wSegs = 4;
 
-  // Corner vertices carry tile-local UVs (v flipped for WebGL)
-  const uOffset = { value: new THREE.Vector2() };
-  const uScale = { value: new THREE.Vector2() };
-  uOffset.value.set(uMin, 1 - vMax);
-  uScale.value.set(uMax - uMin, vMax - vMin);
-
+  // Vertex UVs are already GLOBAL raster UVs (v flipped for WebGL) — the
+  // shared material samples the drape texture directly, no offset/scale.
     for (let iz = 0; iz <= wSegs; iz++) {
       for (let ix = 0; ix <= wSegs; ix++) {
         const vi = iz * (wSegs + 1) + ix;
-        const uLocal = uv.getX(vi);
-        const vFlipped = uv.getY(vi);
-        // Shader mapping: global = offset + local * scale
-        const globalU = uOffset.value.x + uLocal * uScale.value.x;
-        const globalV = uOffset.value.y + vFlipped * uScale.value.y;
+        const u = uv.getX(vi);
+        const v = uv.getY(vi);
 
-        // Geometry maps tile-local UV fraction onto this tile's world bounds;
-        // reconstruct the local fraction from the vertex position. vUv is
+        // Geometry maps tile world bounds onto this tile's global UV window;
+        // reconstruct the expected global UV from the vertex position. vUv is
         // texture-space (v flipped): vUv = 1 - v_global.
         const uLocalExpect = (pos.getX(vi) + 100) / 200; // worldMinX=-100, width 200
         const vLocalExpect = (pos.getZ(vi) - 0) / 100;   // worldMinZ=0,  depth 100
         const expectU = uMin + uLocalExpect * (uMax - uMin);
         const expectV = 1 - (vMin + vLocalExpect * (vMax - vMin));
-        assert.ok(Math.abs(globalU - expectU) < 1e-6, `u mismatch at ${ix},${iz}`);
-        assert.ok(Math.abs(globalV - expectV) < 1e-6, `v mismatch at ${ix},${iz}`);
+        assert.ok(Math.abs(u - expectU) < 1e-6, `u mismatch at ${ix},${iz}`);
+        assert.ok(Math.abs(v - expectV) < 1e-6, `v mismatch at ${ix},${iz}`);
       }
     }
 });

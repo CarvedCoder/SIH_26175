@@ -341,7 +341,11 @@ class TerrainService:
         rgba = np.dstack([rgb_u8, alpha])
 
         height, width = rgba.shape[:2]
-        stride = max(1, int(np.ceil(max(height, width) / 2048)))
+        # The drape is ONE global texture sampled by every tile at every
+        # LOD, so keep full source resolution (up to 4096 px) — ~34 MB GPU
+        # for a 3140x2699 RGBA tile, trivial for the target GPUs, and it
+        # preserves close-range imagery sharpness.
+        stride = max(1, int(np.ceil(max(height, width) / 4096)))
         if stride > 1:
             rgba = rgba[::stride, ::stride]
 

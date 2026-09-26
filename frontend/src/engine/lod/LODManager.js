@@ -1,21 +1,24 @@
 /**
  * DepthWizard Geospatial Engine — LODManager
  *
- * Coordinates quadtree updates, frustum culling, per-tile materials, and
- * asynchronous terrain streaming in the 3D scene.
+ * Coordinates quadtree updates, frustum culling, and asynchronous height
+ * streaming in the 3D scene.
  *
- * Two height modes:
- *   - SYNC (default): the full heightmap is resident in TerrainDataset; chunk
- *     geometry builds instantly with exact shared-edge heights (zero seams).
- *   - STREAMED: heights arrive as backend quadtree tiles on demand. Chunk
- *     builds are asynchronous; while a tile loads, its nearest ready ancestor
- *     is rendered instead (no holes), and tiles are prioritized by camera
- *     distance. Chosen by TerrainCanvas for very large rasters (spec §13/§29).
+ * ARCHITECTURE (simplified):
+ *   - GEOMETRY: quadtree LOD over the scene; tiles share ONE terrain
+ *     material whose UVs are GLOBAL raster UVs (baked into the geometry),
+ *     so a single full-resolution drape texture serves every tile at any
+ *     LOD. No per-tile material clones, no per-tile textures, no UV-offset
+ *     juggling — that subsystem was the source of recurring close-range
+ *     rendering corruption (disposed materials, wrong texture quadrants,
+ *     LOD seam mismatches) and was removed by design.
+ *   - HEIGHTS: the full-resolution detail streams per tile from the
+ *     backend quadtree endpoints (ancestors render while tiles load — no
+ *     holes), so close-range geometry keeps urban-scale structure.
  *
- * Textures: each tile gets its own material clone and may receive its own
- * streamed texture (tile-local UVs); texture LOD is independent of geometry
- * LOD (spec §17/§19). The global texture remains the fallback until a tile's
- * texture arrives.
+ * Textures: ONE global drape texture (set via TerrainEngine.setTexture)
+ * with max anisotropy; value-encoded layers (depth/DSM/slope) are set the
+ * same way with NoColorSpace data textures.
  */
 
 import * as THREE from 'three';
@@ -27,13 +30,12 @@ export class LODManager {
    * @param {Object} options
    * @param {import('../geo/GeoReference.js').GeoReference} options.geoRef
    * @param {import('../terrain/TerrainDataset.js').TerrainDataset} options.dataset
-   * @param {THREE.Material} options.material - Base material (template for per-tile clones)
+   * @param {THREE.Material} options.material - THE shared terrain material
    * @param {THREE.Scene} options.scene
    * @param {number} [options.maxLod=3]
    * @param {number} [options.splitThreshold=0.85]
    * @param {number} [options.segments=32]
    * @param {Object|null} [options.heightTiles=null] - { streamer: TileStreamer }
-   * @param {Object|null} [options.textureTiles=null] - { streamer: TileStreamer, maxLevel, anisotropy }
    */
   constructor(options) {
     this.geoRef = options.geoRef;
@@ -47,22 +49,16 @@ export class LODManager {
 
     /** @type {{streamer: import('../streaming/TileStreamer.js').TileStreamer}|null} */
     this.heightTiles = options.heightTiles || null;
-    /** @type {{streamer: import('../streaming/TileStreamer.js').TileStreamer, maxLevel: number, anisotropy?: number}|null} */
-    this.textureTiles = options.textureTiles || null;
 
     this.frustum = new THREE.Frustum();
     this.projScreenMatrix = new THREE.Matrix4();
 
     // Set of active tiles currently added to scene
     this.activeTiles = new Map(); // tileId -> TerrainTile
-    /** @type {Map<string, THREE.Material>} tileId -> per-tile material clone */
-    this.tileMaterials = new Map();
     /** @type {Set<string>} tile ids with an in-flight height request */
     this.pendingBuilds = new Set();
     /** @type {Set<string>} tile ids wanted by the most recent update() */
     this._wantedIds = new Set();
-    /** @type {Map<string, THREE.Texture>} decoded tile textures, keyed by tile key */
-    this._tileTextureObjects = new Map();
 
     // Root Quadtree node covering full footprint
     const halfW = this.geoRef.worldWidth * 0.5;
@@ -131,7 +127,7 @@ export class LODManager {
         // A tile whose patch already arrived but was not yet built (e.g. it
         // re-entered the wanted set) gets its mesh built here.
         if (tile.patchReady && !tile.mesh) {
-          tile.buildMesh(this._materialFor(tile));
+          tile.buildMesh(this.material);
         }
       }
       const readySet = new Set();
@@ -149,21 +145,15 @@ export class LODManager {
 
     const neededSet = new Set(renderTiles.map((t) => t.id));
 
-    // 4. Remove tiles no longer needed (dispose their per-tile materials)
+    // 4. Remove tiles no longer needed. Meshes stay attached to their
+    //    TerrainTile (sharing the single material) so returning tiles are
+    //    reused as-is — nothing to dispose or rebuild.
     for (const [id, tile] of this.activeTiles.entries()) {
       if (!neededSet.has(id)) {
         if (tile.mesh && tile.mesh.parent) {
           tile.mesh.parent.remove(tile.mesh);
         }
         this.activeTiles.delete(id);
-      }
-    }
-    for (const id of [...this.tileMaterials.keys()]) {
-      if (!neededSet.has(id)) {
-        const m = this.tileMaterials.get(id);
-        // Dispose the clone, never the shared textures it references
-        m.dispose();
-        this.tileMaterials.delete(id);
       }
     }
 
@@ -173,10 +163,9 @@ export class LODManager {
 
     for (const tile of renderTiles) {
       if (!this.activeTiles.has(tile.id)) {
-        const mesh = tile.mesh ?? tile.buildMesh(this._materialFor(tile));
+        const mesh = tile.mesh ?? tile.buildMesh(this.material);
         this.scene.add(mesh);
         this.activeTiles.set(tile.id, tile);
-        this._requestTileTexture(tile, camera);
       }
 
       triCount += (tile.geometry?.index ? tile.geometry.index.count / 3 : 0);
@@ -189,38 +178,6 @@ export class LODManager {
     this.stats.pendingTileCount = this.pendingBuilds.size;
     this.stats.triangleCount = Math.round(triCount);
     this.stats.lodDistribution = lodCounts;
-  }
-
-  /**
-   * Per-tile material: clone the base material and map this tile's tile-local
-   * UVs onto the global raster frame. Geometry carries UVs in [0, 1] within
-   * the tile, so uUvOffset/uUvScale restore global UVs for semantic overlays,
-   * colormaps, and contour lines.
-   *
-   * @param {import('../tiles/TerrainTile.js').TerrainTile} tile
-   * @returns {THREE.Material}
-   */
-  _materialFor(tile) {
-    if (this.tileMaterials.has(tile.id)) {
-      return this.tileMaterials.get(tile.id);
-    }
-    // Non-engine materials (plain MeshBasicMaterial etc.) carry no tile UV
-    // mapping — share the base material untouched.
-    if (!this.material.uniforms?.uUvOffset) {
-      return this.material;
-    }
-    const m = this.material.clone();
-    const uSpan = tile.uMax - tile.uMin;
-    const vSpan = tile.vMax - tile.vMin;
-    m.uniforms.uUvOffset.value.set(tile.uMin, 1.0 - tile.vMax);
-    m.uniforms.uUvScale.value.set(uSpan, vSpan);
-    // Wireframe grid density = this chunk's real segment count, so the
-    // overlay traces the actual quad grid of the rendered geometry.
-    if (m.uniforms.uMeshDensity) {
-      m.uniforms.uMeshDensity.value = this.segments;
-    }
-    this.tileMaterials.set(tile.id, m);
-    return m;
   }
 
   /**
@@ -271,72 +228,6 @@ export class LODManager {
   }
 
   /**
-   * Request this tile's own streamed texture. Until it arrives (or if
-   * streaming is off), the tile renders with the global texture.
-   *
-   * @param {import('../tiles/TerrainTile.js').TerrainTile} tile
-   * @param {THREE.Camera} camera
-   */
-  _requestTileTexture(tile, camera) {
-    if (!this.textureTiles || !tile.mesh) return;
-    // Texture LOD is independent of geometry LOD: cap at the provider's max
-    // level; deeper geometry levels simply reuse the finest texture level.
-    const texLevel = Math.min(tile.level, this.textureTiles.maxLevel ?? tile.level);
-    // A level-N geometry tile covers 2^(N-texLevel) texture tiles — scale
-    // the quadtree indices down to the texture level's grid, otherwise the
-    // request carries out-of-grid indices the backend must reject.
-    const shift = tile.level - texLevel;
-    const texX = tile.tx >> shift;
-    const texY = tile.ty >> shift;
-
-    const dist = tile.distanceToCamera(camera.position);
-    const priority = 1 / (1 + Math.max(0, dist));
-    const key = `${texLevel}/${texX}/${texY}`;
-
-    this.textureTiles.streamer
-      .request(texLevel, texX, texY, this.textureTiles.tileSize ?? 256, { priority })
-      .then((bitmap) => {
-        if (!this.activeTiles.has(tile.id)) return;
-        const u = tile.mesh?.material?.uniforms;
-        if (!u) return;
-        // A user-selected layer (colormap mode != 0) always samples the
-        // global texture; per-tile imagery only applies in RGB mode.
-        if (u.uColormapMode.value !== 0) return;
-
-        let tex = this._tileTextureObjects.get(key);
-        if (!tex) {
-          tex = new THREE.CanvasTexture(bitmap);
-          tex.colorSpace = THREE.SRGBColorSpace;
-          tex.minFilter = THREE.LinearMipmapLinearFilter;
-          tex.magFilter = THREE.LinearFilter;
-          tex.wrapS = THREE.ClampToEdgeWrapping;
-          tex.wrapT = THREE.ClampToEdgeWrapping;
-          tex.generateMipmaps = true;
-          tex.flipY = true;
-          tex.anisotropy = this.textureTiles.anisotropy ?? 4;
-          this._tileTextureObjects.set(key, tex);
-        }
-        u.uTexture.value = tex;
-        u.uPerTileTexture.value = 1.0;
-      })
-      .catch((err) => {
-        if (!/aborted|disposed/i.test(String(err?.message || err))) {
-          console.warn(`[lod] texture tile ${key} failed:`, err);
-        }
-      });
-  }
-
-  /**
-   * Re-apply per-tile textures after a global texture/colormap change resets
-   * them. Tiles whose colormap mode is back to RGB will re-request lazily.
-   */
-  invalidateTileTextures() {
-    for (const [, material] of this.tileMaterials.entries()) {
-      material.uniforms.uPerTileTexture.value = 0.0;
-    }
-  }
-
-  /**
    * Clean up all tiles, materials, and geometries.
    */
   dispose() {
@@ -347,14 +238,6 @@ export class LODManager {
       tile.dispose();
     }
     this.activeTiles.clear();
-    for (const [, m] of this.tileMaterials.entries()) {
-      m.dispose();
-    }
-    this.tileMaterials.clear();
-    for (const [, tex] of this._tileTextureObjects.entries()) {
-      tex.dispose();
-    }
-    this._tileTextureObjects.clear();
     this.pendingBuilds.clear();
     this.root.dispose();
   }

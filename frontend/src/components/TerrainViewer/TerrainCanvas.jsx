@@ -27,23 +27,24 @@ import { overviewToHeightfield } from '../../engine/streaming/PatchHeightfield.j
 
 /* ─── Streaming thresholds ─────────────────────────────────────────────────
  * Inline heightmap: decoded once into a Float32Array (4 bytes/sample). Fine
- * up to ~4k×4k (64 MB); beyond that heights stream from the backend's
+ * up to ~2048×2048 (16 MB); beyond that heights stream from the backend's
  * quadtree tile endpoints with a coarse overview for global queries (§29).
+ * The 2048 gate matches the texture-streaming threshold: a 0.5 m urban DSM
+ * downsampled to 1024 px loses building-scale geometry entirely, which read
+ * as smooth "melted" blobs the moment the camera flew close. Per-tile
+ * streaming keeps full source resolution at every LOD.
  * Per-tile textures are streamed when the raster is large enough for the
  * single global texture to be a memory/quality concern (§17). */
-const HEIGHT_STREAM_THRESHOLD_PX = 4096;
-const TEXTURE_STREAM_THRESHOLD_PX = 2048;
-const OVERVIEW_SIZE_PX = 512;
+const HEIGHT_STREAM_THRESHOLD_PX = 2048;
+const OVERVIEW_SIZE_PX = 1024;
 
 /** Build tile URL callbacks from the backend tile_config (fractional-quadtree
  * convention: z = level, 0 <= x,y < 2^z, row 0 = north). */
 function buildTileUrlFns(tileConfig) {
-  if (!tileConfig?.height_tile_url || !tileConfig?.texture_tile_url) return null;
+  if (!tileConfig?.height_tile_url) return null;
   return {
     height: (z, x, y, size) =>
       resolveAssetUrl(`${tileConfig.height_tile_url}?x=${x}&y=${y}&z=${z}&size=${size}`),
-    texture: (z, x, y, size) =>
-      resolveAssetUrl(`${tileConfig.texture_tile_url}?x=${x}&y=${y}&z=${z}&size=${size}`),
   };
 }
 
@@ -323,8 +324,29 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     },
     setExaggeration(v) {
       const g = glRef.current;
+      const prev = g.exaggeration ?? 1;
       g.exaggeration = v;
       g.engine?.setExaggeration(v);
+      // Raising exaggeration raises the rendered surface — an orbit camera
+      // framed at the old scale can end up UNDER the mesh, viewing mirrored
+      // backface shards (the "melted/shredded terrain" failure). Lift the
+      // camera (and the orbit target with it) so it stays above the surface.
+      if (g.engine?.collision && g.camera && prev !== v) {
+        const minE = g.engine.geoRef.minElevation;
+        const ground = g.engine.collision.getTerrainHeight(
+          g.camera.position.x, g.camera.position.z,
+        );
+        const visual = minE + (ground - minE) * v;
+        const margin = Math.max(5, (g.maxElevation ?? 0) * 0.25 * v);
+        if (g.camera.position.y < visual + margin) {
+          const raise = visual + margin - g.camera.position.y;
+          g.camera.position.y += raise;
+          if (g.orbit?.target) {
+            g.orbit.target.y += raise;
+            g.orbit.update?.();
+          }
+        }
+      }
     },
     setWireframe(v) {
       const g = glRef.current;
@@ -350,7 +372,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         g.hybridView = true;
       };
       if (g.rgbTexture) {
-        g.engine.setTexture(g.rgbTexture, { override: false });
+        g.engine.setTexture(g.rgbTexture);
         g.overrideTexture = null;
         applyRelief();
       } else if (g.rgbTextureUrl) {
@@ -360,7 +382,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
             const maxAniso = g.renderer?.capabilities?.getMaxAnisotropy?.() || 8;
             tex.anisotropy = Math.min(16, maxAniso);
             g.rgbTexture = tex;
-            g.engine.setTexture(tex, { override: false });
+            g.engine.setTexture(tex);
             applyRelief();
           })
           .catch(() => {
@@ -429,7 +451,6 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         textureCount: info?.memory?.textures ?? 0,
         geometries: info?.memory?.geometries ?? 0,
         programs: info?.programs?.length ?? 0,
-        fps: g.lastFps ?? null,
       };
     },
     captureSnapshot() {
@@ -470,16 +491,13 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
             if (g.rgbTexture && g.rgbTexture !== tex) g.rgbTexture.dispose();
             g.rgbTexture = tex;
           }
-          // A user-selected layer overrides base imagery: disable per-tile
-          // streamed textures so the layer samples global UVs correctly.
-          g.engine.setTexture(tex, { override: true });
-          // The previous override texture is no longer referenced by any
-          // material — free its GPU memory (never dispose the base RGB
-          // drape or engine-managed streamed textures).
+          // The previous override texture is no longer referenced by the
+          // shared material — free its GPU memory.
           if (g.overrideTexture && g.overrideTexture !== tex) {
             g.overrideTexture.dispose();
           }
           g.overrideTexture = tex;
+          g.engine.setTexture(tex);
           g.engine.setWireframe(g.wireframe);
         })
         .catch((err) => console.warn('[terrain] layer texture load failed:', err));
@@ -917,7 +935,6 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
       terrainMeta.raster_height || 0
     );
     const streamHeights = !!(tileUrls && rasterMaxPx > HEIGHT_STREAM_THRESHOLD_PX);
-    const streamTextures = !!(tileUrls && rasterMaxPx > TEXTURE_STREAM_THRESHOLD_PX);
 
     let data, width, height;
     if (streamHeights) {
@@ -983,13 +1000,6 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
       hmHeight: height,
       heightTiles: streamHeights && tileUrls
         ? { url: tileUrls.height, tileSize: tileConfig.tile_size || 256 }
-        : null,
-      textureTiles: streamTextures && tileUrls
-        ? {
-            url: tileUrls.texture,
-            tileSize: tileConfig.tile_size || 256,
-            maxLevel: tileConfig.max_lod ?? 3,
-          }
         : null,
       // Height/texture *tile* endpoints are always authenticated FastAPI
       // routes (see buildTileUrlFns) — never object storage — so the JWT

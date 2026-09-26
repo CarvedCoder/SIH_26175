@@ -3,16 +3,16 @@
  *
  * Unified ShaderMaterial for chunked terrain rendering:
  *   - Directional sun lighting with tonal shadow grading
- *   - Texture tiling support with per-chunk UV offset/scale
+ *   - ONE shared material for every tile: UVs are GLOBAL raster UVs baked
+ *     into the geometry, sampling a single full-resolution drape texture
  *   - Real-world metric elevation contours (e.g. 5m minor, 25m major intervals)
  *   - Colormap blending (RGB, Greyscale, Viridis, Diverging)
  *   - Hybrid mode: photographic RGB drape + enhanced relief shading
  *   - Dynamic atmospheric fog scaled to scene diagonal
  *   - Independent semantic class overlays with optional confidence
  *     attenuation, without rebuilding geometry
- *   - Wireframe = per-tile mesh-grid overlay drawn on tile-local UVs, so
- *     it exactly matches each chunk's real triangulation grid at every
- *     LOD and never renders skirt walls as giant stretched triangles
+ *   - Wireframe = world-space metric grid overlay (uMeshSpacing metres),
+ *     drawn as a same-surface color mix — no z-fighting, no skirt walls
  *
  * COLOR-SPACE CONTRACT (single convention, do not scatter):
  *   - RGB drape textures (mode 0) are sRGB-encoded: the GPU decodes them
@@ -30,29 +30,32 @@ import * as THREE from 'three';
 const TERRAIN_VERT = /* glsl */ `
   uniform float uExaggeration;
   uniform float uMinElevation;
-  uniform vec2 uUvOffset;
-  uniform vec2 uUvScale;
 
-  varying vec2 vUv;       // GLOBAL raster UV [0, 1] — semantic masks, colormaps, mesh overlay
-  varying vec2 vTileUv;   // Tile-LOCAL UV [0, 1] — streamed per-tile textures + mesh grid
+  varying vec2 vUv;       // GLOBAL raster UV [0, 1] — drape, semantic masks, colormaps
+  varying vec2 vWorldXZ;  // world-space metric XZ — wireframe metric grid
   varying vec3 vNormal;
   varying float vElevation;
   varying float vViewDist;
 
   void main() {
-    vTileUv = uv;
-    vUv = uUvOffset + uv * uUvScale;
+    vUv = uv;
+    vWorldXZ = position.xz;
 
     // Apply visualization-only vertical exaggeration around the min elevation datum
     vec3 displacedPos = position;
+    vec3 n = normal;
     if (abs(uExaggeration - 1.0) > 0.001) {
       float baseH = max(0.0, position.y - uMinElevation);
       displacedPos.y = uMinElevation + baseH * uExaggeration;
+      // A Y-stretch by s maps a surface gradient (fx, fz) to (s·fx, s·fz),
+      // so the lighting normal must scale x/z by s too — otherwise slopes
+      // render with their flat 1x shading under high exaggeration.
+      n = normalize(vec3(n.x * uExaggeration, n.y, n.z * uExaggeration));
     }
 
     vElevation = position.y;
     // Calculate world normal from model matrix
-    vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+    vNormal = normalize((modelMatrix * vec4(n, 0.0)).xyz);
 
     vec4 viewPos = modelViewMatrix * vec4(displacedPos, 1.0);
     vViewDist = -viewPos.z;
@@ -64,7 +67,6 @@ const TERRAIN_VERT = /* glsl */ `
 const TERRAIN_FRAG = /* glsl */ `
   uniform sampler2D uTexture;
   uniform float uTextureReady;
-  uniform float uPerTileTexture;  // 1 = uTexture is this tile's own streamed texture (sample with vTileUv)
   uniform vec3 uSunDir;
   uniform vec3 uSunColor;
   uniform float uAmbient;
@@ -78,7 +80,7 @@ const TERRAIN_FRAG = /* glsl */ `
 
   uniform float uMeshEnabled;
   uniform vec3 uMeshColor;
-  uniform float uMeshDensity;    // per-tile grid density = the tile's segment count
+  uniform float uMeshSpacing;    // metric grid spacing in meters
 
   uniform float uFogEnabled;
   uniform float uFogNear;
@@ -94,18 +96,10 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uSemanticConfEnabled;
 
   varying vec2 vUv;
-  varying vec2 vTileUv;
+  varying vec2 vWorldXZ;
   varying vec3 vNormal;
   varying float vElevation;
   varying float vViewDist;
-
-  // uTexture is either the global raster image (sampled with global UV) or a
-  // per-tile streamed texture (sampled with tile-local UV). Terrain LOD and
-  // texture LOD are decoupled: the tile's texture level is chosen
-  // independently of its geometry subdivision (spec §19).
-  vec2 textureUv() {
-    return uPerTileTexture > 0.5 ? vTileUv : vUv;
-  }
 
   // Canonical semantic palette
   vec3 getSemanticColor(float classId) {
@@ -154,7 +148,7 @@ const TERRAIN_FRAG = /* glsl */ `
       // exact normalized value — no hidden sRGB decode must touch it.
       float t = 0.5;
       if (uTextureReady > 0.5) {
-        vec4 texSample = texture2D(uTexture, textureUv());
+        vec4 texSample = texture2D(uTexture, vUv);
         t = texSample.r;
       } else {
         float span = max(0.001, uMaxElevation - uMinElevation);
@@ -171,7 +165,7 @@ const TERRAIN_FRAG = /* glsl */ `
     } else {
       // RGB Satellite/Aerial or Solid relief mode
       if (uTextureReady > 0.5) {
-        vec4 texSample = texture2D(uTexture, textureUv());
+        vec4 texSample = texture2D(uTexture, vUv);
         // Nodata pixels (alpha=0 — source-raster nodata frame) fall back
         // to a dim neutral relief tone instead of literal black plates.
         vec3 noDataTone = vec3(0.16, 0.18, 0.21);
@@ -260,14 +254,13 @@ const TERRAIN_FRAG = /* glsl */ `
     }
     #endif
 
-    // Wireframe: per-tile MESH-GRID overlay on tile-local UVs. This is the
-    // single wireframe system (brute-force material.wireframe is never
-    // used): the grid density equals the chunk's segment count, so the
-    // drawn lines ARE the chunk's real quad grid — aligned at every LOD,
-    // no giant stretched triangles, no z-fighting (same-surface mix), and
-    // skirt walls show only their vertical columns.
+    // Wireframe: world-space METRIC grid overlay (uMeshSpacing metres).
+    // Single wireframe system (brute-force material.wireframe is never
+    // used): the grid is a same-surface color mix — aligned with the
+    // terrain by construction, no giant stretched triangles, no
+    // z-fighting, and it reads true distances at every LOD.
     if (uMeshEnabled > 0.5) {
-      vec2 g = vTileUv * uMeshDensity;
+      vec2 g = vWorldXZ / max(uMeshSpacing, 0.001);
       vec2 f = fract(g);
       vec2 d = min(f, 1.0 - f);
       vec2 fw2 = fwidth(g) * 1.1;
@@ -295,7 +288,6 @@ export function createTerrainMaterial(options = {}) {
 
   const uniforms = {
     uTexture: { value: options.texture || emptyTex },
-    uPerTileTexture: { value: 0.0 },
     uTextureReady: { value: options.texture ? 1.0 : 0.0 },
     uSunDir: { value: new THREE.Vector3(sunDir[0], sunDir[1], sunDir[2]) },
     uSunColor: { value: new THREE.Color(1.0, 0.96, 0.88) },
@@ -304,16 +296,12 @@ export function createTerrainMaterial(options = {}) {
     uExaggeration: { value: options.exaggeration || 1.0 },
     uMinElevation: { value: options.minElevation || 0.0 },
     uMaxElevation: { value: options.maxElevation || 100.0 },
-    uUvOffset: { value: new THREE.Vector2(0, 0) },
-    uUvScale: { value: new THREE.Vector2(1, 1) },
     uColormapMode: { value: options.colormapMode || 0.0 },
     uContoursEnabled: { value: 0.0 },
     uContourInterval: { value: 5.0 },
     uMeshEnabled: { value: options.meshEnabled ? 1.0 : 0.0 },
     uMeshColor: { value: new THREE.Color(0.12, 0.16, 0.20) },
-    // Per-tile grid density — matches the chunk segment count so wireframe
-    // lines trace the real geometry grid (set per clone by LODManager).
-    uMeshDensity: { value: options.segments || 32.0 },
+    uMeshSpacing: { value: options.meshSpacing || 16.0 },
     uFogEnabled: { value: 0.0 },
     uFogNear: { value: 200.0 },
     uFogFar: { value: 8000.0 },
@@ -334,7 +322,7 @@ export function createTerrainMaterial(options = {}) {
       derivatives: true,
     },
     // NOTE: brute-force material.wireframe is deliberately never enabled —
-    // the wireframe view is the uMeshEnabled per-tile grid overlay above.
+    // the wireframe view is the world-space metric grid overlay above.
     wireframe: false,
     side: THREE.DoubleSide,
     transparent: false,
