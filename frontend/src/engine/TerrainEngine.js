@@ -36,8 +36,13 @@ export class TerrainEngine {
    * @param {THREE.Texture} [options.diffuseTexture] - Initial RGB texture
    * @param {Object|null} [options.heightTiles=null] - Height tile streaming config
    * @param {Object|null} [options.textureTiles=null] - Texture tile streaming config
-   * @param {Object|Function} [options.fetchHeaders] - Auth headers (or async
-   *   provider) attached to every tile fetch — result files are auth-gated.
+   * @param {Object|Function} [options.tileFetchHeaders] - Auth headers (or
+   *   async provider) attached to every tile fetch. Tile URLs
+   *   (heightTiles.url / textureTiles.url) always point at authenticated
+   *   FastAPI quadtree endpoints — never at object storage — so this is
+   *   the one place in the streaming path where attaching the Supabase
+   *   JWT is correct. It must never be reused for a storage/asset fetch;
+   *   see api/client.js::assetFetch for those.
    */
   constructor(options) {
     this.scene = options.scene;
@@ -89,7 +94,7 @@ export class TerrainEngine {
 
     // 5. Tile streamers (transport + LRU cache), created only when the
     //    caller supplies tile URL builders.
-    this._fetchHeaders = options.fetchHeaders ?? null;
+    this._tileFetchHeaders = options.tileFetchHeaders ?? null;
     this.heightStreamer = this._createHeightStreamer(options.heightTiles);
     this.textureStreamer = this._createTextureStreamer(options.textureTiles);
 
@@ -146,8 +151,10 @@ export class TerrainEngine {
     if (!config?.url) return null;
     const streamer = new TileStreamer({
       fetchTile: async ({ z, x, y, size }, signal) => {
-        const headers = typeof this._fetchHeaders === 'function'
-          ? await this._fetchHeaders() : (this._fetchHeaders || {});
+        // Authenticated backend endpoint (never object storage) — the JWT
+        // belongs here.
+        const headers = typeof this._tileFetchHeaders === 'function'
+          ? await this._tileFetchHeaders() : (this._tileFetchHeaders || {});
         const res = await fetch(config.url(z, x, y, size), { signal, headers });
         if (!res.ok) throw new Error(`height tile fetch failed: ${res.status}`);
         const buf = await res.arrayBuffer();
@@ -164,8 +171,10 @@ export class TerrainEngine {
     if (!config?.url) return null;
     const streamer = new TileStreamer({
       fetchTile: async ({ z, x, y, size }, signal) => {
-        const headers = typeof this._fetchHeaders === 'function'
-          ? await this._fetchHeaders() : (this._fetchHeaders || {});
+        // Authenticated backend endpoint (never object storage) — the JWT
+        // belongs here.
+        const headers = typeof this._tileFetchHeaders === 'function'
+          ? await this._tileFetchHeaders() : (this._tileFetchHeaders || {});
         const res = await fetch(config.url(z, x, y, size), { signal, headers });
         if (!res.ok) throw new Error(`texture tile fetch failed: ${res.status}`);
         const blob = await res.blob();

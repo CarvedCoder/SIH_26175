@@ -18,7 +18,7 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useApp } from '../../store/appStore.jsx';
 import { getTerrain } from '../../api/terrain.js';
-import { resolveAssetUrl, authHeaders } from '../../api/client.js';
+import { resolveAssetUrl, authHeaders, assetFetch } from '../../api/client.js';
 import { TerrainEngine } from '../../engine/TerrainEngine.js';
 import TerrainDebugHUD from '../../engine/debug/TerrainDebugHUD.jsx';
 import { decodeHeightmap, decodeHeightPng16 } from '../../engine/streaming/heightDecode.js';
@@ -47,7 +47,11 @@ function buildTileUrlFns(tileConfig) {
 }
 
 /** Fetch the z=0 overview tile (whole raster, downsampled) and convert it to
- * a rectangular normalized heightfield for global spatial queries. */
+ * a rectangular normalized heightfield for global spatial queries. This is
+ * always an authenticated FastAPI quadtree endpoint (tileConfig.height_tile_url
+ * is built server-side as a backend route, never a presigned storage URL),
+ * so attaching the JWT here is correct — unlike the storage-asset fetches
+ * below (loadAuthTexture, decodeHeightmap), which must not. */
 async function fetchOverviewHeightfield(urlFn, rasterWidth, rasterHeight) {
   const res = await fetch(urlFn(0, 0, 0, OVERVIEW_SIZE_PX), { headers: await authHeaders() });
   if (!res.ok) throw new Error(`overview tile fetch failed: ${res.status}`);
@@ -63,10 +67,13 @@ async function fetchOverviewHeightfield(urlFn, rasterWidth, rasterHeight) {
   });
 }
 
-/** Load an auth-gated image URL into a THREE texture via fetch (TextureLoader
- * cannot send Authorization headers, and result files are auth-gated). */
+/** Load a result-texture URL into a THREE texture via fetch (TextureLoader
+ * cannot send headers anyway). `url` is a storage-asset URL — it may
+ * resolve to a presigned MinIO URL or the legacy backend file route — so
+ * this goes through assetFetch(), which decides per-request whether the
+ * JWT belongs on it, rather than always attaching it. */
 async function loadAuthTexture(url) {
-  const res = await fetch(url, { headers: await authHeaders() });
+  const res = await assetFetch(url);
   if (!res.ok) throw new Error(`texture fetch failed: ${res.status}`);
   const bitmap = await createImageBitmap(await res.blob());
   const tex = new THREE.CanvasTexture(bitmap);
@@ -807,7 +814,7 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
       height = overview.height;
     } else {
       console.info('[terrain-engine] decoding heightmap:', heightmap_url);
-      const decoded = await decodeHeightmap(resolveAssetUrl(heightmap_url), authHeaders);
+      const decoded = await decodeHeightmap(resolveAssetUrl(heightmap_url));
       if (g.disposed) return;
       ({ width, height, data } = decoded);
     }
@@ -841,7 +848,11 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
             maxLevel: tileConfig.max_lod ?? 3,
           }
         : null,
-      fetchHeaders: authHeaders,
+      // Height/texture *tile* endpoints are always authenticated FastAPI
+      // routes (see buildTileUrlFns) — never object storage — so the JWT
+      // belongs here. Contrast with loadAuthTexture/decodeHeightmap above,
+      // which fetch storage-asset URLs through assetFetch() instead.
+      tileFetchHeaders: authHeaders,
     });
     g.engine = engine;
     g.material = engine.material;

@@ -87,9 +87,10 @@ outputs/calib_net/gamus_rgb_grad/**
 
 gamus_full
 sih.zip
-
-# Local development databases
-
+project.zip
+best.pt
+.secrets/
+# local dev databases
 *.db
 *.db-shm
 *.db-wal
