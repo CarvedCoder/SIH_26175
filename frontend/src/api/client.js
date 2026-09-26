@@ -124,6 +124,61 @@ export async function downloadArtifact(url, filename) {
 }
 
 /**
+ * Fetch a "result asset" URL — heightmaps, textures, previews, downloads —
+ * as opposed to a JSON API call (use apiFetch for those).
+ *
+ * These URLs come from resolveAssetUrl() and can resolve to one of two
+ * fundamentally different things, decided at RUNTIME by the backend's
+ * storage config (see backend `storage/service.py::presign_artifact`):
+ *
+ *   1. A short-lived MinIO/S3 presigned URL (absolute, a DIFFERENT origin
+ *      from our API). It already carries its own signature in the query
+ *      string. It MUST NOT receive the Supabase JWT: MinIO rejects the
+ *      request (400) when an unexpected Authorization header is present,
+ *      and Chrome reports that as a CORS failure because the 400 response
+ *      has no CORS headers on it.
+ *   2. The legacy same-origin FastAPI file route (e.g.
+ *      `/api/v1/scenes/{id}/results/heightmap`), used only when no object
+ *      store is configured. This route enforces the exact same ownership
+ *      guard as every other backend endpoint, so it DOES need the JWT —
+ *      it just isn't reached through apiFetch because it returns raw
+ *      bytes, not JSON.
+ *
+ * assetFetch tells these apart from the URL itself — never from which
+ * call site invoked it — so application auth can never leak into a
+ * cross-origin storage request no matter which code path resolves it.
+ *
+ * @param {string} url - Usually the output of resolveAssetUrl().
+ * @param {RequestInit} [options] - Safe transport options (signal, cache, ...).
+ */
+export async function assetFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (isSameOriginAsApi(url)) {
+    // Same-origin backend route standing in for a storage asset — treat
+    // it like any other authenticated backend request.
+    Object.assign(headers, await authHeaders());
+  }
+  // Different origin: a presigned storage URL. Never attach application
+  // auth here — its only "auth" is the signature already in its query
+  // string, and it must travel alone.
+  return fetch(url, { ...options, headers });
+}
+
+function isSameOriginAsApi(url) {
+  if (!/^https?:\/\//i.test(url)) return true; // relative path => same origin
+  try {
+    const target = new URL(url);
+    const apiOrigin = /^https?:\/\//i.test(BASE_URL)
+      ? new URL(BASE_URL).origin
+      : window.location.origin;
+    return target.origin === apiOrigin;
+  } catch {
+    // Unparseable URL: fail closed — never attach the JWT to it.
+    return false;
+  }
+}
+
+/**
  * Resolve an asset URL returned by the backend against the API base.
  *
  * Backend asset URLs are relative paths (e.g. /api/v1/scenes/x/results/preview).
