@@ -53,8 +53,9 @@ outputs/
 
 gamus_full
 sih.zip
-
-
+project.zip
+best.pt
+.secrets/
 # local dev databases
 *.db
 *.db-shm

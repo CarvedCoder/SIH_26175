@@ -7,14 +7,14 @@ ground anchoring to an absolute DSM.
 
 ## Repository layout
 
-| Path | What it is |
-|---|---|
-| `depthwizard/` | The ML library: backbone, CalibrationNet, dataset, training/eval CLIs, and the ONE certified inference path (`depthwizard.inference.run_inference`) |
-| `backend/app/` | **The canonical FastAPI backend** (`backend.app.main:app`) — the `/api/v1` scene/job API the frontend uses |
-| `service/` | LEGACY stateless `/predict` service (manual smoke-test door only; not deployed) |
-| `frontend/` | React/Vite frontend (out of backend scope) |
-| `model.py` | CLI shim (`python model.py train/evaluate/infer/depth/...`) |
-| `model_tests/`, `tests/`, `backend_tests/` | ML core, DEM pipeline, and backend API test suites |
+| Path                                       | What it is                                                                                                                                          |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `depthwizard/`                             | The ML library: backbone, CalibrationNet, dataset, training/eval CLIs, and the ONE certified inference path (`depthwizard.inference.run_inference`) |
+| `backend/app/`                             | **The canonical FastAPI backend** (`backend.app.main:app`) — the `/api/v1` scene/job API the frontend uses                                          |
+| `service/`                                 | LEGACY stateless `/predict` service (manual smoke-test door only; not deployed)                                                                     |
+| `frontend/`                                | React/Vite frontend (out of backend scope)                                                                                                          |
+| `model.py`                                 | CLI shim (`python model.py train/evaluate/infer/depth/...`)                                                                                         |
+| `model_tests/`, `tests/`, `backend_tests/` | ML core, DEM pipeline, and backend API test suites                                                                                                  |
 
 ## Quick start (backend)
 
@@ -39,19 +39,43 @@ The API is then at `http://localhost:8000/api/v1` with docs at `/docs`.
 
 ## Configuration (environment)
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `DW_CKPT` | `outputs/calib_net/gamus_rgb_grad/best.pt` | CalibrationNet checkpoint |
-| `DW_CKPT_SHA256` | unset | Optional checkpoint integrity check |
-| `DW_DEVICE` | `auto` | `cuda` / `cpu` / `auto` |
-| `DW_BACKBONE` | `depth-anything/Depth-Anything-V2-Base-hf` | Live DAv2 fallback model |
-| `DW_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated explicit allowlist (never `*` by default) |
-| `DW_API_KEY` | unset | When set, all `/api/v1` routes (except health) require `X-API-Key` |
-| `DW_MAX_UPLOAD_BYTES` | `524288000` (500 MB) | Upload cap, enforced during streaming |
-| `DW_MAX_CONCURRENT_JOBS` | `1` | Simultaneous inference runs |
-| `DW_JOB_TTL_SECONDS` | `86400` | Job record retention |
+| Variable                 | Default                                       | Meaning                                                            |
+| ------------------------ | --------------------------------------------- | ------------------------------------------------------------------ |
+| `DW_CKPT`                | `outputs/calib_net/gamus_rgb_grad/best.pt`    | CalibrationNet checkpoint                                          |
+| `DW_CKPT_SHA256`         | unset                                         | Optional checkpoint integrity check                                |
+| `DW_DEVICE`              | `auto`                                        | `cuda` / `cpu` / `auto`                                            |
+| `DW_BACKBONE`            | `depth-anything/Depth-Anything-V2-Base-hf`    | Live DAv2 fallback model                                           |
+| `DW_CORS_ORIGINS`        | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated explicit allowlist (never `*` by default)          |
+| `DW_API_KEY`             | unset                                         | When set, all `/api/v1` routes (except health) require `X-API-Key` |
+| `DW_MAX_UPLOAD_BYTES`    | `524288000` (500 MB)                          | Upload cap, enforced during streaming                              |
+| `DW_MAX_CONCURRENT_JOBS` | `1`                                           | Simultaneous inference runs                                        |
+| `DW_JOB_TTL_SECONDS`     | `86400`                                       | Job record retention                                               |
 
 ## Docker (the canonical backend)
+
+You need to get a minio free lisence to start the server as of now (get the lisence through https://www.min.io/pricing)
+Store it under .secrets/minio.license/minio.license.txt
+then run
+
+```bash
+
+mkdir -p ~/aistor-binaries
+curl --progress-bar -L \
+  https://dl.min.io/aistor/mc/release/darwin-arm64/mc \
+  -o ~/aistor-binaries/mc
+chmod +x ~/aistor-binaries/mc
+export PATH="$HOME/aistor-binaries:$PATH" # works on linux and mac systems only
+
+mc alias set depthwizard \
+  http://localhost:9000 \
+  "$MINIO_ACCESS_KEY" \
+  "$MINIO_SECRET_KEY" # put actual data from .env in here
+
+mc license update depthwizard .secrets/minio.license/minio.license.txt
+
+mc license info depthwizard # verification
+
+```
 
 ```bash
 docker compose up --build
@@ -72,12 +96,12 @@ uv run pytest model_tests tests backend_tests
 
 ## Honesty contracts (do not break them)
 
-* FINAL/citable numbers come ONLY from `model.py evaluate` — the serving
+- FINAL/citable numbers come ONLY from `model.py evaluate` — the serving
   path is a demonstration, never a metric source.
-* Dn is min-max normalized **per 1024 tile** at training AND inference
+- Dn is min-max normalized **per 1024 tile** at training AND inference
   (`depthwizard/inference.py:normalize_dn_per_tile`).
-* Slope is computed only when a real GSD exists; otherwise the API reports
+- Slope is computed only when a real GSD exists; otherwise the API reports
   `gsd_available: false` with null degrees — never a guess.
-* Anchoring is arithmetic and always labelled `ANCHORED (not learned)`.
-* The API never fabricates success: unknown scenes 404 before jobs are
+- Anchoring is arithmetic and always labelled `ANCHORED (not learned)`.
+- The API never fabricates success: unknown scenes 404 before jobs are
   created, result `job_id` is null when unknown, missing artifacts 404.
