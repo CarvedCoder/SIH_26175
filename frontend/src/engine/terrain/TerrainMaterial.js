@@ -178,15 +178,27 @@ const TERRAIN_FRAG = /* glsl */ `
     }
 
     // Outdoor Geospatial Illumination: Hemispheric Sky/Ground Ambient + Direct Sun
+    // Ported fix: value-encoded colormaps (depth greyscale, DSM/slope
+    // viridis, error diverging) are VALUE-ENCODED — full sun shading
+    // double-darkens them into unreadable black (observed on the Depth
+    // layer). Only the RGB drape (mode 0) gets the full model; colormaps
+    // render near-unlit with a faint slope-relief cue. Backfaces flip the
+    // normal (terrain material is DoubleSide).
+    vec3 nrm = gl_FrontFacing ? vNormal : -vNormal;
+    float hemi = clamp(nrm.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 skyAmbient = vec3(0.55, 0.63, 0.74) * uAmbient;
     vec3 groundAmbient = vec3(0.26, 0.28, 0.32) * uAmbient;
-    float hemi = clamp(vNormal.y * 0.5 + 0.5, 0.0, 1.0);
     vec3 ambientLight = mix(groundAmbient, skyAmbient, hemi);
 
-    float diff = max(dot(vNormal, uSunDir), 0.0);
+    float diff = max(dot(nrm, uSunDir), 0.0);
     vec3 sunLight = uSunColor * (diff * 0.85);
 
-    vec3 lit = baseColor * (ambientLight + sunLight);
+    vec3 lit;
+    if (mode == 0) {
+      lit = baseColor * (ambientLight + sunLight);
+    } else {
+      lit = baseColor * (0.88 + 0.12 * diff);
+    }
     vec3 shaded = lit;
 
     // Metric contour lines (meters)

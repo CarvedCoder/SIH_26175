@@ -78,7 +78,7 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
           onClick={onBackToHome}
           className="font-display font-medium text-lg tracking-tight text-slate-200 hover:text-white transition-colors cursor-pointer focus:outline-none"
         >
-          TerraMesh
+          DepthWizard
         </button>
       </header>
 

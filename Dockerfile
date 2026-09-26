@@ -11,10 +11,11 @@
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-# libgomp1: torch's OpenMP runtime on slim Debian. rasterio/matplotlib
-# wheels bundle their own native libs — no system GDAL needed.
+# libgomp1: torch's OpenMP runtime on slim Debian. libexpat1: required by
+# rasterio's bundled GDAL. rasterio/matplotlib wheels bundle their own
+# remaining native libs — no system GDAL needed.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get install -y --no-install-recommends libgomp1 libexpat1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

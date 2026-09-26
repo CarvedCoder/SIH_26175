@@ -81,7 +81,7 @@ def _calculate_metrics(
 
 
 def _load_array(path: Path) -> np.ndarray:
-    """Load a NumPy-based raster/array result."""
+    """Load a NumPy- or GeoTIFF-based raster result."""
 
     if path.suffix.lower() == ".npy":
         return np.load(path)
@@ -94,9 +94,108 @@ def _load_array(path: Path) -> np.ndarray:
 
         return data[data.files[0]]
 
+    if path.suffix.lower() in {".tif", ".tiff"}:
+        import rasterio
+
+        with rasterio.open(path) as dataset:
+            return dataset.read(1)
+
     raise ValueError(
         f"Unsupported validation array format: {path.suffix}"
     )
+
+
+def _find_prediction_profile(
+    output_dir: Path,
+    prediction_path: Path,
+) -> dict[str, Any] | None:
+    """The prediction's rasterio grid (crs/transform/width/height), or
+    None when the prediction carries no georeferencing on disk."""
+
+    import rasterio
+
+    candidates = (
+        [prediction_path]
+        if prediction_path.suffix.lower() in {".tif", ".tiff"}
+        else []
+    ) + [output_dir / "dsm.tif", output_dir / "dsm_anchored.tif"]
+
+    for path in candidates:
+        if not path.exists():
+            continue
+        with rasterio.open(path) as dataset:
+            return {
+                "crs": dataset.crs,
+                "transform": dataset.transform,
+                "width": dataset.width,
+                "height": dataset.height,
+            }
+
+    return None
+
+
+def _reproject_reference_if_needed(
+    output_dir: Path,
+    prediction_path: Path,
+    reference_path: Path,
+    prediction: np.ndarray,
+    reference: np.ndarray,
+) -> np.ndarray:
+    """Bring the reference onto the prediction's EXACT grid before any
+    pixel comparison — mirroring
+    depthwizard.anchoring.resample_dem_to_tile: CRS required on both
+    sides, bilinear resampling, partial coverage REFUSED.
+
+    Returns the reference unchanged when no georeferencing can drive a
+    reprojection (pixel-space artifacts such as reference.npy written
+    on-grid by the processing pipeline) — the caller's shape check in
+    _calculate_metrics then guards the plain array case.
+    """
+
+    import rasterio
+    from rasterio.warp import Resampling, reproject
+
+    del prediction  # documented via the return contract above
+
+    if reference_path.suffix.lower() not in {".tif", ".tiff"}:
+        return reference
+
+    with rasterio.open(reference_path) as ref:
+        if ref.crs is None:
+            # Pixel-registered reference: no CRS to reproject with — the
+            # caller's shape check governs the comparison.
+            return reference
+
+        profile = _find_prediction_profile(output_dir, prediction_path)
+        if profile is None or profile["crs"] is None:
+            raise ValueError(
+                "reference is georeferenced but the prediction grid is "
+                "not — refusing a pixel-space comparison"
+            )
+
+        dst = np.full(
+            (profile["height"], profile["width"]), np.nan, dtype=np.float32
+        )
+        reproject(
+            source=rasterio.band(ref, 1),
+            destination=dst,
+            src_transform=ref.transform,
+            src_crs=ref.crs,
+            src_nodata=ref.nodata,
+            dst_transform=profile["transform"],
+            dst_crs=profile["crs"],
+            dst_nodata=np.nan,
+            resampling=Resampling.bilinear,
+        )
+
+    if np.isnan(dst).any():
+        raise ValueError(
+            f"reference '{reference_path.name}' does not fully cover the "
+            f"prediction footprint ({np.isnan(dst).mean():.1%} missing "
+            "pixels) — partial-coverage validation is refused."
+        )
+
+    return dst
 
 
 def get_validation(
@@ -171,6 +270,14 @@ def get_validation(
         try:
             prediction = _load_array(prediction_path)
             reference = _load_array(reference_path)
+
+            reference = _reproject_reference_if_needed(
+                output_dir,
+                prediction_path,
+                reference_path,
+                prediction,
+                reference,
+            )
 
             metrics = _calculate_metrics(
                 prediction,

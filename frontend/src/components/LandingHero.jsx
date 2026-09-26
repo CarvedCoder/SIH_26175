@@ -17,7 +17,11 @@ export default function LandingHero({ onOpenAuth, onOpenApp, user }) {
       <div className="absolute inset-0 z-0 pointer-events-auto">
         <HalftoneReveal
           src="/chris-grant-wVfgzs0oxRk-unsplash.jpg"
-          revealSrc="/Gemini_Generated_Image_final.png"
+          // Mouse-reveal circle shows the full-colour RGB aerial (the same
+          // photo the halftone is built from) — halftone → real image.
+          // (The old path pointed at an image never committed, so the
+          // circle rendered black.)
+          revealSrc="/chris-grant-wVfgzs0oxRk-unsplash.jpg"
           mode="color"
           dotSize={1.2}
           dotDensity={80}
