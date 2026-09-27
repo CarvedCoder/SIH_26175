@@ -388,15 +388,15 @@ export default function ResultDashboard() {
                   fontFamily: 'var(--dw-font-ui)',
                   fontSize: 15,
                   fontWeight: 600,
-                  color: '#fff',
+                  color: 'var(--dw-fg-invert)',
                   cursor: 'pointer',
                   letterSpacing: '0.01em',
                   outline: 'none',
                   transition: 'background 120ms ease, border-color 120ms ease',
                 }}
                 onMouseEnter={e => {
-                  e.currentTarget.style.background = '#2563eb';
-                  e.currentTarget.style.borderColor = '#2563eb';
+                  e.currentTarget.style.background = '#ffffff';
+                  e.currentTarget.style.borderColor = '#ffffff';
                 }}
                 onMouseLeave={e => {
                   e.currentTarget.style.background = 'var(--dw-accent)';

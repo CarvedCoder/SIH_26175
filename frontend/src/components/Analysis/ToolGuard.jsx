@@ -37,7 +37,7 @@ export default function ToolGuard({ children, fallbackMessage = 'Terrain not rea
           alignItems: 'center',
           gap: 8,
           padding: '10px 14px',
-          background: 'rgba(13,17,23,0.85)',
+          background: 'rgba(16,16,18,0.85)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-sm)',
           fontFamily: 'var(--dw-font-ui)',

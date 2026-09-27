@@ -1,27 +1,32 @@
 /* DepthWizard design tokens — instrument-panel / geospatial world */
-/* See DESIGN.md for the full visual system rationale */
+/* Monochrome ivory system: neutral graphite surfaces, white primary actions,
+   colour reserved for status. See DESIGN.md for the full visual system rationale */
 :root {
-  /* Palette */
-  --dw-void:    #07090e; /* canvas / page background */
-  --dw-panel:   #0d1117; /* header, side panels, bottom toolbar */
-  --dw-surface: #131923; /* cards, input fields, popovers */
-  --dw-rim:     #1c2636; /* 1px borders, dividers */
+  /* Palette — neutral zinc graphite, no hue */
+  --dw-void:    #09090b; /* canvas / page background */
+  --dw-panel:   #101012; /* header, side panels, bottom toolbar */
+  --dw-surface: #18181b; /* cards, input fields, popovers */
+  --dw-hover:   #1f1f23; /* one-step hover lightening */
+  --dw-rim:     #27272a; /* 1px borders, dividers */
+  --dw-rim-strong: #3f3f46; /* hover borders, active tracks */
 
   /* Foreground — high-clarity contrast for mission-control readability */
-  --dw-fg:       #f3f6fb; /* primary text — crisp and luminous */
-  --dw-fg-muted: #94a3b8; /* secondary labels, metadata — clearly legible */
-  --dw-fg-ghost: #64748b; /* tertiary, placeholders, units — readable */
+  --dw-fg:       #fafafa; /* primary text — crisp and luminous */
+  --dw-fg-muted: #a1a1aa; /* secondary labels, metadata — clearly legible */
+  --dw-fg-ghost: #71717a; /* tertiary, placeholders, units — readable */
+  --dw-fg-invert: #09090b; /* text on ivory / white primary surfaces */
 
-  /* Status / accent */
-  --dw-accent:  #3b82f6; /* active state, selection, progress — instrument blue */
+  /* Status / accent — accent is ivory; interactive states are luminance, not hue */
+  --dw-accent:      #fafafa;             /* active state, selection, progress */
+  --dw-accent-soft: rgba(250,250,250,0.10); /* subtle active washes, hover fills */
   --dw-confirm: #22c55e; /* completed, valid */
   --dw-live:    #f59e0b; /* active processing, warnings */
   --dw-fault:   #ef4444; /* errors, failures */
 
   /* Terrain-specific */
-  --dw-probe:  #60a5fa;           /* elevation probe marker */
-  --dw-fov:    rgba(59,130,246,0.22); /* minimap FOV cone fill */
-  --dw-marker: #f59e0b;           /* minimap camera position dot */
+  --dw-probe:  #fafafa;                  /* elevation probe marker */
+  --dw-fov:    rgba(250,250,250,0.16);   /* minimap FOV cone fill */
+  --dw-marker: #f59e0b;                  /* minimap camera position dot */
 
   /* Typography */
   --dw-font-ui:   'Geist Variable', ui-sans-serif, system-ui, sans-serif;
@@ -80,11 +85,11 @@
 
   /* Text selection */
   ::selection {
-    background-color: #1e3a5f;
+    background-color: #3f3f46;
     color: var(--dw-fg);
   }
   ::-moz-selection {
-    background-color: #1e3a5f;
+    background-color: #3f3f46;
     color: var(--dw-fg);
   }
   * {
@@ -98,20 +103,20 @@
   height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #07090e;
+  background: #09090b;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: #27272a;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #3f3f46;
 }
 
 /* Minimalist scrollbar — Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #1e293b #07090e;
+  scrollbar-color: #27272a #09090b;
 }
 
 /* Cross-browser keyframe animations */
@@ -230,7 +235,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.871 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -238,8 +243,8 @@
   --chart-5: oklch(0.269 0 0);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.922 0 0);
+  --sidebar-primary-foreground: oklch(0.205 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);

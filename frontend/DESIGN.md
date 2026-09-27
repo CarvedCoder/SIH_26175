@@ -16,22 +16,28 @@ The signature element is the **minimap as live mirror**: the uploaded photograph
 
 | Role | Name | Value | Usage |
 |------|------|-------|-------|
-| Ground | `--dw-void` | `#07090e` | Page / canvas background |
-| Panel | `--dw-panel` | `#0d1117` | Side panels, bottom toolbar, header |
-| Surface | `--dw-surface` | `#131923` | Cards, input fields, popovers |
-| Rim | `--dw-rim` | `#1c2636` | Thin 1px borders, dividers |
-| Text / Primary | `--dw-fg` | `#dde4ef` | Body copy, panel labels |
-| Text / Secondary | `--dw-fg-muted` | `#6b7d96` | Metadata, secondary labels |
-| Text / Tertiary | `--dw-fg-ghost` | `#38495c` | Disabled, placeholder |
-| Accent / Instrument | `--dw-accent` | `#3b82f6` | Active states, selected elements, progress indicators |
+| Ground | `--dw-void` | `#09090b` | Page / canvas background |
+| Panel | `--dw-panel` | `#101012` | Side panels, bottom toolbar, header |
+| Surface | `--dw-surface` | `#18181b` | Cards, input fields, popovers |
+| Hover | `--dw-hover` | `#1f1f23` | One-step hover lightening on surfaces |
+| Rim | `--dw-rim` | `#27272a` | Thin 1px borders, dividers |
+| Rim / Strong | `--dw-rim-strong` | `#3f3f46` | Hover borders, secondary control outlines |
+| Text / Primary | `--dw-fg` | `#fafafa` | Body copy, panel labels |
+| Text / Secondary | `--dw-fg-muted` | `#a1a1aa` | Metadata, secondary labels |
+| Text / Tertiary | `--dw-fg-ghost` | `#71717a` | Disabled, placeholder |
+| Text / Inverted | `--dw-fg-invert` | `#09090b` | Text on ivory primary surfaces |
+| Accent / Instrument | `--dw-accent` | `#fafafa` | Active states, selected elements, progress indicators |
+| Accent / Wash | `--dw-accent-soft` | `rgba(250,250,250,0.10)` | Subtle active backgrounds, hover fills |
 | Accent / Confirm | `--dw-confirm` | `#22c55e` | Processing complete, validation pass |
 | Accent / Live | `--dw-live` | `#f59e0b` | Active processing stage, warnings |
 | Accent / Fault | `--dw-fault` | `#ef4444` | Errors, failed stages |
-| Terrain / Probe | `--dw-probe` | `#60a5fa` | Elevation probe crosshair, measurement markers |
-| Minimap / Cone | `--dw-fov` | `rgba(59,130,246,0.25)` | FOV cone fill on minimap |
+| Terrain / Probe | `--dw-probe` | `#fafafa` | Elevation probe crosshair, measurement markers |
+| Minimap / Cone | `--dw-fov` | `rgba(250,250,250,0.16)` | FOV cone fill on minimap |
 | Minimap / Marker | `--dw-marker` | `#f59e0b` | Camera position dot |
 
-Colour strategy: **Restrained**. Neutrals carry the surface; one accent colour (`--dw-accent`, instrument blue) handles every active state. Fault, confirm, and live are reserved for status — they do not appear as decoration.
+Colour strategy: **Monochrome ivory (restrained)**. Neutral graphite surfaces carry the UI with no hue; interactive states are luminance, not colour — the ivory accent (`--dw-accent`) is a white-filled button, a white border, a white marker. Primary actions invert: ivory surface, near-black text (`--dw-fg-invert`). Fault, confirm, and live are the only hues in the chrome, reserved strictly for status; the remaining colour on screen belongs to the data itself (imagery, colormaps, semantic classes).
+
+Data colormaps are exempt from the monochrome rule: the diverging error map keeps its blue→grey→red ramp, viridis keeps its purples, semantic classes keep their assignment hexes — legends must stay truthful to the GLSL they mirror.
 
 ---
 
@@ -122,7 +128,7 @@ lucide-react, `stroke-width: 1.5`, consistent 16px in toolbar, 14px in panels. N
 
 ## Mode
 
-**Operate** — the user is completing analytical tasks. Expression lives in precise details: the minimap, the data-face readouts, the instrument-blue active state. The terrain viewport earns all the screen space it can get.
+**Operate** — the user is completing analytical tasks. Expression lives in precise details: the minimap, the data-face readouts, the ivory active state. The terrain viewport earns all the screen space it can get.
 
 ---
 

@@ -153,7 +153,7 @@ export default function LayerImageCard({
           top: 8,
           left: 8,
           padding: '4px 10px',
-          background: 'rgba(7,9,14,0.82)',
+          background: 'rgba(9,9,11,0.82)',
           borderRadius: 'var(--dw-radius-sm)',
           backdropFilter: 'blur(4px)',
           WebkitBackdropFilter: 'blur(4px)',

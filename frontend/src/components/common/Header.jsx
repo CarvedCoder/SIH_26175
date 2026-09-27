@@ -1,20 +1,22 @@
 /**
  * DepthWizard — Header
  *
- * 48px instrument-panel bar.
+ * 56px instrument-panel bar.
  * - Wordmark left
- * - Nav links centre
- * - Backend status dot + version right
+ * - Page nav centre (Home / Recent Projects / Help-About / Overview)
+ * - Backend status dot + version + user chip right
+ *
+ * Navigation is view-based (authContext view machine): Home returns to the
+ * workspace workflow, Recent Projects and Help / About are standalone pages.
  *
  * Design tokens: DESIGN.md §Palette, §Component Character
  * Spec: §4 Home/Landing navigation structure
  */
 import { useEffect, useState, useCallback } from 'react';
-import { X, HelpCircle, Info, Keyboard, Menu, LogOut } from 'lucide-react';
+import { X, Menu, LogOut } from 'lucide-react';
 import { checkHealth } from '../../api/client.js';
 import { useApp, AppState } from '../../store/appStore.jsx';
 import { useAuth } from '../../store/authContext.jsx';
-import RecentProjects from './RecentProjects.jsx';
 
 /** Maps to DESIGN.md status dot semantics */
 const STATUS = { checking: 'checking', online: 'online', offline: 'offline' };
@@ -75,12 +77,13 @@ function NavItem({ label, active, onClick, disabled }) {
   );
 }
 
-export default function Header({ onNavigate }) {
+export default function Header() {
   const { state, actions } = useApp();
   const auth = useAuth();
   const user = auth?.user;
   const logout = auth?.logout;
   const setView = auth?.setView;
+  const view = auth?.view;
 
   const getInitials = (name) => {
     if (!name) return 'U';
@@ -109,13 +112,18 @@ export default function Header({ onNavigate }) {
     return () => clearInterval(id);
   }, [probe]);
 
-  const isHome      = state.status === AppState.NO_SCENE || state.status === AppState.SCENE_READY;
-  const hasScene    = state.status !== AppState.NO_SCENE;
-  const inWorkspace = state.status === AppState.TERRAIN_READY || state.status === AppState.ANALYSIS;
+  const isHome      = view === 'app'
+    && (state.status === AppState.NO_SCENE || state.status === AppState.SCENE_READY);
+  const inRecent    = view === 'recent';
+  const inHelp      = view === 'help';
 
-  const [recentOpen, setRecentOpen]       = useState(false);
-  const [aboutOpen, setAboutOpen]         = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const goHome = () => {
+    setMobileMenuOpen(false);
+    actions.reset();
+    setView?.('app');
+  };
 
   return (
     <>
@@ -137,10 +145,7 @@ export default function Header({ onNavigate }) {
       >
         {/* Wordmark (Column 1 — left aligned) */}
         <button
-          onClick={() => {
-            setMobileMenuOpen(false);
-            actions.reset();
-          }}
+          onClick={goHome}
           aria-label="DepthWizard — go to home"
           style={{
             justifySelf: 'start',
@@ -193,48 +198,23 @@ export default function Header({ onNavigate }) {
         >
           <NavItem
             label="Home"
-            active={isHome && !recentOpen && !aboutOpen}
-            onClick={() => {
-              setRecentOpen(false);
-              setAboutOpen(false);
-              actions.reset();
-            }}
-          />
-          <NavItem
-            label="New Reconstruction"
-            active={false}
-            onClick={() => {
-              setRecentOpen(false);
-              setAboutOpen(false);
-              if (!isHome) actions.reset();
-            }}
+            active={isHome}
+            onClick={goHome}
           />
           <NavItem
             label="Recent Projects"
-            active={recentOpen}
-            onClick={() => {
-              setRecentOpen(v => !v);
-              setAboutOpen(false);
-              onNavigate?.('recent');
-            }}
+            active={inRecent}
+            onClick={() => setView?.('recent')}
           />
           <NavItem
             label="Help / About"
-            active={aboutOpen}
-            onClick={() => {
-              setAboutOpen(v => !v);
-              setRecentOpen(false);
-              onNavigate?.('help');
-            }}
+            active={inHelp}
+            onClick={() => setView?.('help')}
           />
           <NavItem
             label="Overview"
             active={false}
-            onClick={() => {
-              setRecentOpen(false);
-              setAboutOpen(false);
-              setView?.('landing');
-            }}
+            onClick={() => setView?.('landing')}
           />
         </nav>
 
@@ -286,7 +266,7 @@ export default function Header({ onNavigate }) {
                   height: 22,
                   borderRadius: '50%',
                   background: 'var(--dw-accent)',
-                  color: '#fff',
+                  color: 'var(--dw-fg-invert)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -371,10 +351,7 @@ export default function Header({ onNavigate }) {
           }}
         >
           <button
-            onClick={() => {
-              setMobileMenuOpen(false);
-              actions.reset();
-            }}
+            onClick={goHome}
             style={{
               background: 'none',
               border: 'none',
@@ -392,7 +369,7 @@ export default function Header({ onNavigate }) {
           <button
             onClick={() => {
               setMobileMenuOpen(false);
-              actions.reset();
+              setView?.('recent');
             }}
             style={{
               background: 'none',
@@ -401,25 +378,7 @@ export default function Header({ onNavigate }) {
               padding: '10px 0',
               fontFamily: 'var(--dw-font-ui)',
               fontSize: 15,
-              color: 'var(--dw-fg-muted)',
-              cursor: 'pointer',
-            }}
-          >
-            New Reconstruction
-          </button>
-          <button
-            onClick={() => {
-              setMobileMenuOpen(false);
-              setRecentOpen(true);
-            }}
-            style={{
-              background: 'none',
-              border: 'none',
-              textAlign: 'left',
-              padding: '10px 0',
-              fontFamily: 'var(--dw-font-ui)',
-              fontSize: 15,
-              color: recentOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+              color: inRecent ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
               cursor: 'pointer',
             }}
           >
@@ -428,7 +387,7 @@ export default function Header({ onNavigate }) {
           <button
             onClick={() => {
               setMobileMenuOpen(false);
-              setAboutOpen(true);
+              setView?.('help');
             }}
             style={{
               background: 'none',
@@ -437,7 +396,7 @@ export default function Header({ onNavigate }) {
               padding: '10px 0',
               fontFamily: 'var(--dw-font-ui)',
               fontSize: 15,
-              color: aboutOpen ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+              color: inHelp ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
               cursor: 'pointer',
             }}
           >
@@ -485,198 +444,6 @@ export default function Header({ onNavigate }) {
               Sign Out ({user.name})
             </button>
           )}
-        </div>
-      )}
-
-      {/* Slide-out Recent Projects Drawer (§28) */}
-      {recentOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Recent Projects"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(7,9,14,0.65)',
-            zIndex: 150,
-            display: 'flex',
-            justifyContent: 'flex-end',
-          }}
-          onClick={() => setRecentOpen(false)}
-        >
-          <div
-            style={{
-              width: '100%',
-              maxWidth: 440,
-              height: '100%',
-              background: 'var(--dw-panel)',
-              borderLeft: '1px solid var(--dw-rim)',
-              padding: '24px 20px',
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 18,
-              boxSizing: 'border-box',
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingBottom: 10,
-              borderBottom: '1px solid var(--dw-rim)',
-            }}>
-              <span style={{
-                fontFamily: 'var(--dw-font-ui)',
-                fontSize: 15,
-                fontWeight: 600,
-                color: 'var(--dw-fg)',
-              }}>
-                Session Persistence & Projects
-              </span>
-              <button
-                onClick={() => setRecentOpen(false)}
-                aria-label="Close recent projects"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--dw-fg-muted)',
-                  cursor: 'pointer',
-                  padding: 6,
-                  display: 'flex',
-                  alignItems: 'center',
-                  outline: 'none',
-                }}
-              >
-                <X size={18} strokeWidth={1.5} />
-              </button>
-            </div>
-
-            <RecentProjects
-              compact={false}
-              onClose={() => setRecentOpen(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Help / About Modal */}
-      {aboutOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Help and documentation"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(7,9,14,0.7)',
-            zIndex: 150,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
-          onClick={() => setAboutOpen(false)}
-        >
-          <div
-            style={{
-              width: '100%',
-              maxWidth: 540,
-              background: 'var(--dw-panel)',
-              border: '1px solid var(--dw-rim)',
-              borderRadius: 'var(--dw-radius-md)',
-              padding: 24,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 16,
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingBottom: 10,
-              borderBottom: '1px solid var(--dw-rim)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Info size={18} strokeWidth={1.5} color="var(--dw-accent)" />
-                <span style={{
-                  fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 15,
-                  fontWeight: 600,
-                  color: 'var(--dw-fg)',
-                }}>
-                  DepthWizard Terrain Intelligence
-                </span>
-              </div>
-              <button
-                onClick={() => setAboutOpen(false)}
-                aria-label="Close help modal"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--dw-fg-muted)',
-                  cursor: 'pointer',
-                  padding: 6,
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                <X size={18} strokeWidth={1.5} />
-              </button>
-            </div>
-
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-              fontFamily: 'var(--dw-font-ui)',
-              fontSize: 14,
-              color: 'var(--dw-fg-muted)',
-              lineHeight: 1.6,
-            }}>
-              <p style={{ margin: 0 }}>
-                DepthWizard transforms a single optical remote-sensing image into a fully interactive, measurable, and validatable 3D digital surface model (DSM).
-              </p>
-
-              <div style={{
-                background: 'var(--dw-surface)',
-                border: '1px solid var(--dw-rim)',
-                borderRadius: 'var(--dw-radius-sm)',
-                padding: '12px 14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-              }}>
-                <span style={{
-                  fontFamily: 'var(--dw-font-ui)',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: 'var(--dw-fg)',
-                  letterSpacing: '0.05em',
-                  textTransform: 'uppercase',
-                }}>
-                  Navigation Controls
-                </span>
-                <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '6px 10px', fontFamily: 'var(--dw-font-data)', fontSize: 13 }}>
-                  <span style={{ color: 'var(--dw-accent)' }}>Orbit Mode:</span>
-                  <span>Left-drag rotate · Right-drag pan · Scroll zoom</span>
-                  <span style={{ color: 'var(--dw-accent)' }}>Walkthrough:</span>
-                  <span>W/A/S/D fly · Space/Ctrl altitude · Shift boost · Mouse look</span>
-                  <span style={{ color: 'var(--dw-accent)' }}>Top View:</span>
-                  <span>Orthographic 2D/3D nadir view</span>
-                  <span style={{ color: 'var(--dw-accent)' }}>Elevation Probe:</span>
-                  <span>Hover cursor over terrain to sample elevation</span>
-                </div>
-              </div>
-
-              <p style={{ margin: 0, fontSize: 12.5, color: 'var(--dw-fg-ghost)' }}>
-                Intended for preliminary terrain assessment and geospatial reconnaissance support.
-              </p>
-            </div>
-          </div>
         </div>
       )}
     </>

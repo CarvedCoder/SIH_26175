@@ -144,11 +144,11 @@ export default function UploadZone() {
       style={{
         position: 'relative',
         width: '100%',
-        maxWidth: 580,
+        maxWidth: '100%',
         padding: '56px 36px',
         borderRadius: 'var(--dw-radius)',
         border: `1px dashed ${dragOver ? 'var(--dw-accent)' : 'var(--dw-rim)'}`,
-        background: dragOver ? 'rgba(59,130,246,0.06)' : 'var(--dw-surface)',
+        background: dragOver ? 'var(--dw-accent-soft)' : 'var(--dw-surface)',
         cursor: isUploading ? 'wait' : 'pointer',
         transition: 'border-color 150ms ease, background 150ms ease',
         display: 'flex',

@@ -165,12 +165,12 @@ export default function DisasterAssessmentPanel({
               <div style={{
                 marginTop: 4,
                 padding: '6px 8px',
-                background: isSteep ? 'rgba(245, 158, 11, 0.1)' : isLowBasin ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                border: '1px solid ' + (isSteep ? 'rgba(245, 158, 11, 0.25)' : isLowBasin ? 'rgba(59, 130, 246, 0.25)' : 'var(--dw-rim)'),
+                background: isSteep ? 'rgba(245, 158, 11, 0.1)' : isLowBasin ? 'rgba(250, 250, 250, 0.08)' : 'transparent',
+                border: '1px solid ' + (isSteep ? 'rgba(245, 158, 11, 0.25)' : isLowBasin ? 'rgba(250, 250, 250, 0.28)' : 'var(--dw-rim)'),
                 borderRadius: 'var(--dw-radius-sm)',
                 fontSize: 12,
                 fontFamily: 'var(--dw-font-ui)',
-                color: isSteep ? 'var(--dw-live)' : isLowBasin ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
+                color: isSteep ? 'var(--dw-live)' : isLowBasin ? 'var(--dw-fg)' : 'var(--dw-fg-muted)',
                 lineHeight: 1.4,
               }}>
                 {isSteep

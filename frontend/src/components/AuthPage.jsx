@@ -58,17 +58,14 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
   };
 
   return (
-    <div className="dark min-h-screen flex flex-col justify-center items-center p-4 sm:p-6 bg-slate-950 relative selection:bg-blue-600 selection:text-white">
-      {/* Subtle background glow */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
-
+    <div className="dark min-h-screen flex flex-col justify-center items-center p-4 sm:p-6 bg-zinc-950 relative selection:bg-zinc-800 selection:text-zinc-100">
       {/* Top Bar with Back Button and Brand */}
       <header className="absolute top-0 left-0 right-0 h-20 px-6 sm:px-12 flex items-center justify-between z-10">
         <button
           onClick={onBackToHome}
-          className="flex items-center gap-2.5 text-sm font-medium text-slate-400 hover:text-slate-100 transition-colors duration-200 cursor-pointer focus:outline-none group"
+          className="flex items-center gap-2.5 text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors duration-200 cursor-pointer focus:outline-none group"
         >
-          <div className="p-1.5 rounded-full bg-slate-900 border border-slate-800 group-hover:border-slate-700 transition-colors">
+          <div className="p-1.5 rounded-full bg-zinc-900 border border-zinc-800 group-hover:border-zinc-700 transition-colors">
             <ArrowLeft className="w-4 h-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
           </div>
           <span>Back to overview</span>
@@ -76,7 +73,7 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
 
         <button
           onClick={onBackToHome}
-          className="font-display font-medium text-lg tracking-tight text-slate-200 hover:text-white transition-colors cursor-pointer focus:outline-none"
+          className="font-display font-medium text-lg tracking-tight text-zinc-200 hover:text-white transition-colors cursor-pointer focus:outline-none"
         >
           DepthWizard
         </button>
@@ -87,7 +84,7 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
         {!supabaseConfigured && (
           <div
             role="status"
-            className="mb-4 px-4 py-3 rounded-lg bg-amber-950/50 border border-amber-800 text-amber-200 text-sm text-center"
+            className="mb-4 px-4 py-3 rounded-lg bg-amber-950/50 border border-amber-800/80 text-amber-200 text-sm text-center"
           >
             Local mode — Supabase is not configured. Accounts stay on this
             device only; enter any email and a password (8+ characters) to
@@ -95,7 +92,7 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
           </div>
         )}
         {error && (
-          <div role="alert" className="mb-4 px-4 py-3 rounded-lg bg-red-950/60 border border-red-800 text-red-200 text-sm text-center">
+          <div role="alert" className="mb-4 px-4 py-3 rounded-lg bg-red-950/60 border border-red-800/80 text-red-200 text-sm text-center">
             {error}
           </div>
         )}

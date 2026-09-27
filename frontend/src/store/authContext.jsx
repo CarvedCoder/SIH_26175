@@ -16,7 +16,7 @@ export function AuthProvider({ children }) {
   });
 
   // Default view is 'landing'
-  const [view, setView] = useState('landing'); // 'landing' | 'auth' | 'app'
+  const [view, setView] = useState('landing'); // 'landing' | 'auth' | 'app' | 'recent' | 'help'
 
   // Sync user state to localStorage
   useEffect(() => {

@@ -7,7 +7,7 @@
  * Escape releases the lock.
  *
  * Matches the ControlsHint / CameraHUD panel idiom:
- *   - rgba(13,17,23,0.9) panel, 1px var(--dw-rim), blur backdrop
+ *   - rgba(16,16,18,0.9) panel, 1px var(--dw-rim), blur backdrop
  *   - Data face for the key summary, UI face for the instruction
  */
 
@@ -50,10 +50,10 @@ export default function WalkthroughPrompt({ cameraMode = 'orbit' }) {
       }}
     >
       <div style={{
-        background: 'rgba(13, 17, 23, 0.90)',
+        background: 'rgba(16, 16, 18, 0.90)',
         backdropFilter: 'blur(10px)',
         WebkitBackdropFilter: 'blur(10px)',
-        border: '1px solid var(--dw-rim, #222c3e)',
+        border: '1px solid var(--dw-rim, #27272a)',
         borderRadius: 6,
         boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
         padding: '8px 14px',
@@ -71,18 +71,18 @@ export default function WalkthroughPrompt({ cameraMode = 'orbit' }) {
           fontWeight: 600,
           letterSpacing: '0.08em',
           textTransform: 'uppercase',
-          color: 'var(--dw-fg, #e2e8f0)',
+          color: 'var(--dw-fg, #fafafa)',
         }}>
-          <MousePointerClick size={13} color="var(--dw-accent, #3b82f6)" aria-hidden="true" />
+          <MousePointerClick size={13} color="var(--dw-accent, #fafafa)" aria-hidden="true" />
           Walkthrough
-          <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: '0.02em', color: 'var(--dw-fg-muted, #94a3b8)' }}>
+          <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: '0.02em', color: 'var(--dw-fg-muted, #a1a1aa)' }}>
             Click the terrain to capture the cursor
           </span>
         </span>
         <span style={{
           fontFamily: 'var(--dw-font-data, monospace)',
           fontSize: 10.5,
-          color: 'var(--dw-fg-ghost, #94a3b8)',
+          color: 'var(--dw-fg-ghost, #71717a)',
           letterSpacing: '0.04em',
           whiteSpace: 'nowrap',
         }}>

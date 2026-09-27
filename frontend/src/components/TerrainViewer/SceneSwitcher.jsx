@@ -69,7 +69,7 @@ export default function SceneSwitcher({ disabled = false }) {
         display: 'flex',
         alignItems: 'center',
         gap: 2,
-        background: 'rgba(13,17,23,0.92)',
+        background: 'rgba(16,16,18,0.92)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
         padding: '3px 6px',

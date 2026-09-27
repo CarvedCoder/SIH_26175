@@ -174,7 +174,7 @@ function ColormapBadge({ type, visible }) {
 
   const gradients = {
     rgb:         'linear-gradient(to right, #e53e3e, #38a169, #3b82f6)',
-    greyscale:   'linear-gradient(to right, #0d1117, #dde4ef)',
+    greyscale:   'linear-gradient(to right, #09090b, #f4f4f5)',
     viridis:     'linear-gradient(to right, #440154, #31688e, #35b779, #fde725)',
     diverging:   'linear-gradient(to right, #2563eb, #dde4ef, #ef4444)',
     categorical: 'linear-gradient(to right, #e74c3c, #2ecc71, #9b9b9b, #3498db, #d2b48c)',
