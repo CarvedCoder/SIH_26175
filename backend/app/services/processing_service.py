@@ -85,12 +85,66 @@ class ProcessingService:
 
     # -- configuration ------------------------------------------------------
 
-    def _resolve_checkpoint(self) -> Path:
-        """Resolve the calibration checkpoint. Single source of truth:
-        settings.checkpoint (DW_CKPT), else the repo default below
-        (mirrored in docker-compose)."""
+    def _resolve_checkpoint(
+        self, architecture: str = "auto", *, allow_download: bool = False
+    ) -> tuple[Path, str]:
+        """Resolve the checkpoint and CONCRETE architecture for the
+        requested height-model backend -> (checkpoint, "rdah"|"calibration_net").
+
+        rdah: the released pretrained Track1 checkpoint. With
+        ``allow_download`` (inference paths only — NEVER health probes) a
+        missing checkpoint is auto-downloaded + MD5-verified on first use
+        (depthwizard/rdah.py). DW_CKPT may point at a different RDAH
+        checkpoint; a DW_CKPT that is NOT an RDAH checkpoint is a loud
+        error, never a silent swap.
+        calibration_net: DW_CKPT, else the repo default below (mirrored in
+        docker-compose), else the tiny tracked flagship at the repo root.
+        auto (legacy clients and old job records): follow the checkpoint —
+        DW_CKPT's detected architecture when set, else the RDAH default.
+        """
 
         env_checkpoint = self.settings.checkpoint
+
+        if architecture == "auto":
+            if env_checkpoint and Path(env_checkpoint).exists():
+                from depthwizard.tifops import detect_architecture
+
+                architecture = detect_architecture(env_checkpoint)
+            else:
+                architecture = "rdah"
+
+        if architecture == "rdah":
+            if env_checkpoint:
+                env_path = Path(env_checkpoint)
+                if not env_path.exists():
+                    raise FileNotFoundError(
+                        "DW_CKPT points at a missing checkpoint: "
+                        f"{env_path}"
+                    )
+                from depthwizard.tifops import detect_architecture
+
+                if detect_architecture(str(env_path)) != "rdah":
+                    raise ValueError(
+                        "DW_CKPT points at a non-RDAH checkpoint but "
+                        "architecture 'rdah' was requested — unset DW_CKPT "
+                        "or request calibration_net."
+                    )
+                return self._verify_checkpoint_sha(env_path), "rdah"
+            default = (
+                PROJECT_ROOT / "checkpoints" / "rdah" / "rdah_track1_best_model.pth"
+            )
+            if allow_download:
+                from depthwizard.rdah import ensure_rdah_checkpoint
+
+                return Path(ensure_rdah_checkpoint(str(default))), "rdah"
+            if not default.exists():
+                raise FileNotFoundError(
+                    "RDAH checkpoint not present yet — it is downloaded and "
+                    "MD5-verified automatically on the first processing job "
+                    "(depthwizard/rdah.py), or pre-fetch it with "
+                    "`python model.py infer`."
+                )
+            return default, "rdah"
 
         if env_checkpoint:
             checkpoint = Path(env_checkpoint)
@@ -98,12 +152,22 @@ class ProcessingService:
             checkpoint = (
                 PROJECT_ROOT / "outputs" / "calib_net" / "postproc_flagship" / "best.pt"
             )
+            if not checkpoint.exists():
+                # Tiny tracked fallback (repo root) so calibration_net stays
+                # servable on a fresh clone with no trained outputs.
+                checkpoint = PROJECT_ROOT / "best.pt"
 
         if not checkpoint.exists():
             raise FileNotFoundError(
                 "DepthWizard checkpoint not found. Set DW_CKPT to a valid "
                 "checkpoint."
             )
+
+        return self._verify_checkpoint_sha(checkpoint), architecture
+
+    def _verify_checkpoint_sha(self, checkpoint: Path) -> Path:
+        """Enforce DW_CKPT_SHA256 when set (defense against a tampered or
+        swapped serving checkpoint)."""
 
         expected_sha = self.settings.checkpoint_sha256
         if expected_sha:
@@ -115,7 +179,6 @@ class ProcessingService:
                     "checkpoint SHA-256 mismatch — refusing to load a "
                     "checkpoint that does not match DW_CKPT_SHA256."
                 )
-
         return checkpoint
 
     def _inference_kwargs(self) -> dict[str, Any]:
@@ -370,6 +433,7 @@ class ProcessingService:
         scene_id: str,
         *,
         mode: str = "auto",
+        architecture: str = "auto",
         ground_elev: float | None = None,
     ) -> dict[str, Any]:
         """Run DepthWizard inference for a scene (blocking; call from a worker)."""
@@ -380,7 +444,7 @@ class ProcessingService:
         output_dir.mkdir(parents=True, exist_ok=True)
         process_dir.mkdir(parents=True, exist_ok=True)
 
-        checkpoint = self._resolve_checkpoint()
+        checkpoint, architecture = self._resolve_checkpoint(architecture, allow_download=True)
 
         self.jobs.update_job(
             job_id,
@@ -412,6 +476,7 @@ class ProcessingService:
                     ckpt_path=checkpoint,
                     out_dir=output_dir,
                     mode=mode,
+                    architecture=architecture,
                     ground_elev=ground_elev,
                     write_files=True,
                     should_cancel=lambda: self._check_cancelled(job_id),
@@ -455,6 +520,7 @@ class ProcessingService:
         scene_id: str,
         *,
         bbox: tuple[int, int, int, int],
+        architecture: str = "auto",
     ) -> dict[str, Any]:
         """Re-run inference on a pixel-space bbox of the scene input.
 
@@ -469,7 +535,7 @@ class ProcessingService:
         input_path = self.resolve_scene_input(scene_id)
         output_dir = scene_artifact_store().path_for(scene_output_dir_key(scene_id))
         output_dir.mkdir(parents=True, exist_ok=True)
-        checkpoint = self._resolve_checkpoint()
+        checkpoint, architecture = self._resolve_checkpoint(architecture, allow_download=True)
 
         self.jobs.update_job(
             job_id, status="processing", stage="depth_inference", progress=5.0
@@ -520,6 +586,7 @@ class ProcessingService:
                     ckpt_path=checkpoint,
                     out_dir=output_dir,
                     mode="tiles",
+                    architecture=architecture,
                     write_files=True,
                     should_cancel=lambda: self._check_cancelled(job_id),
                     **self._inference_kwargs(),
@@ -652,11 +719,13 @@ class ProcessingService:
                         int(bbox["x_max"]),
                         int(bbox["y_max"]),
                     ),
+                    architecture=request.get("architecture", "auto"),
                 )
             return self.process_scene(
                 job_id,
                 job.scene_id,
                 mode=request.get("mode", "auto"),
+                architecture=request.get("architecture", "auto"),
                 ground_elev=request.get("ground_elev"),
             )
         except Exception as exc:

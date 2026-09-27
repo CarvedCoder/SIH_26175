@@ -12,6 +12,7 @@
  */
 import { useState, useRef, useEffect } from 'react';
 import { refineScene, getJobStatus } from '../../api/processing.js';
+import { useApp } from '../../store/appStore.jsx';
 import {
   Sliders,
   Crop,
@@ -48,6 +49,9 @@ export default function DetailMode({
   const [errorMessage, setErrorMessage] = useState(null);
   const [activeJobId, setActiveJobId] = useState(null);
   const pollIntervalRef = useRef(null);
+  // Refine runs through the SAME height-model backend as the full-scene
+  // run, so the refined tile stays consistent with its parent product.
+  const { state } = useApp();
 
   // Clean up poll on unmount
   useEffect(() => {
@@ -66,6 +70,7 @@ export default function DetailMode({
       const res = await refineScene(sceneId, {
         bbox: selectedBbox,
         resolution,
+        architecture: state.modelBackend,
       });
 
       const jobId = res?.job_id;

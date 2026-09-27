@@ -334,7 +334,7 @@ def test_worker_executes_job_from_record_alone(storage_root, make_repo, monkeypa
     svc = ProcessingService(job_service=JobService(repo))
     calls: list[tuple[str, str, float | None]] = []
 
-    def fake_process(job_id, scene_id, *, mode="auto", ground_elev=None):
+    def fake_process(job_id, scene_id, *, mode="auto", architecture="auto", ground_elev=None):
         calls.append((job_id, scene_id, ground_elev))
         repo.update(job_id, status="completed", result={"cancelled": False})
         return {"cancelled": False}

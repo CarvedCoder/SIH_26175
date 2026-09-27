@@ -106,6 +106,68 @@ def test_ground_elev_passed_to_inference(client, uploaded_scene, mock_inference)
     assert kwargs["ground_elev"] == 120.5
 
 
+# ---------------------------------------------------------------------------
+# Height-model backend switch (RDAH integration)
+# ---------------------------------------------------------------------------
+
+def test_architecture_passed_to_inference(client, uploaded_scene, mock_inference):
+    """The frontend's backend switch rides through to run_inference."""
+    scene_id = uploaded_scene["scene_id"]
+    client.post(
+        f"/api/v1/scenes/{scene_id}/process",
+        json={"architecture": "calibration_net"},
+    )
+    _input_path, kwargs = mock_inference[0]
+    assert kwargs["architecture"] == "calibration_net"
+
+
+def test_architecture_auto_omitted_defaults_to_checkpoint(
+    client, uploaded_scene, mock_inference
+):
+    """Legacy clients that omit architecture follow the configured
+    checkpoint (auto) — never a silent backend swap."""
+    scene_id = uploaded_scene["scene_id"]
+    client.post(f"/api/v1/scenes/{scene_id}/process", json={})
+    _input_path, kwargs = mock_inference[0]
+    # the fixture's DW_CKPT is a calibration_net checkpoint
+    assert kwargs["architecture"] == "calibration_net"
+
+
+def test_rdah_with_calibration_env_checkpoint_fails_loudly(
+    client, uploaded_scene, mock_inference
+):
+    """A DW_CKPT pointing at a calibration checkpoint while rdah is
+    requested is a typed, recoverable failure — never a silent swap."""
+    import time
+
+    scene_id = uploaded_scene["scene_id"]
+    response = client.post(
+        f"/api/v1/scenes/{scene_id}/process",
+        json={"architecture": "rdah"},
+    )
+    assert response.status_code == 200  # job accepted...
+    job_id = response.json()["job_id"]
+
+    # the inline worker runs on its own thread — poll to terminal state
+    for _ in range(50):
+        job = client.get(f"/api/v1/jobs/{job_id}").json()
+        if job["status"] in ("failed", "completed", "cancelled"):
+            break
+        time.sleep(0.1)
+
+    assert job["status"] == "failed"
+    assert job["error"]["code"] == "INVALID_INPUT"
+    assert "DW_CKPT" in job["error"]["message"]
+
+
+def test_process_rejects_unknown_architecture(client, uploaded_scene):
+    response = client.post(
+        f"/api/v1/scenes/{uploaded_scene['scene_id']}/process",
+        json={"architecture": "depth_anything"},
+    )
+    assert response.status_code == 422
+
+
 def test_job_status_unknown_404(client):
     response = client.get("/api/v1/jobs/job_000000000000")
     assert response.status_code == 404

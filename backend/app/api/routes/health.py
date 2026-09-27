@@ -7,8 +7,9 @@
     GET /api/v1/health/ready -> readiness: able to accept work (cheap check)
 
 ``model_loaded`` honestly reports whether the serving stack can serve
-inference: the calibration checkpoint is resolvable (DW_CKPT or the repo
-default). It is NOT a claim that the DAv2 backbone is resident (it
+inference: a height-model checkpoint is resolvable (DW_CKPT or the repo
+default for the requested backend — RDAH by default, else CalibrationNet).
+It is NOT a claim that the DAv2 backbone is resident (it
 lazy-loads on first use). Readiness performs the same cheap filesystem
 check — no GPU/model loading happens on any health request.
 """
@@ -29,9 +30,9 @@ router = APIRouter(
 
 def _health_payload() -> HealthResponse:
     try:
-        checkpoint = processing_service._resolve_checkpoint()
+        checkpoint, _architecture = processing_service._resolve_checkpoint()
         model_loaded = checkpoint.is_file()
-    except FileNotFoundError:
+    except (FileNotFoundError, ValueError):
         model_loaded = False
 
     return HealthResponse(
@@ -61,9 +62,9 @@ def readiness() -> HealthResponse:
     storage root writable). Cheap by design — never loads models."""
     model_loaded = False
     try:
-        checkpoint = processing_service._resolve_checkpoint()
+        checkpoint, _architecture = processing_service._resolve_checkpoint()
         model_loaded = checkpoint.is_file()
-    except FileNotFoundError:
+    except (FileNotFoundError, ValueError):
         pass
     # a readiness probe also proves the durable roots are reachable
     from backend.app.core.paths import ensure_directories

@@ -1,4 +1,4 @@
-"""Evaluate the calibration net against the FROZEN Phase-1 gates.  [CITABLE]
+"""Evaluate the height model (CalibrationNet | RDAH) against frozen gates.  [CITABLE]
 
 This command mirrors the certified 09 eval logic EXACTLY — it is the ONLY
 source of FINAL / citable numbers in the project. Any refactor must keep the
@@ -6,14 +6,22 @@ evaluation code path byte-equivalent in behavior: same checkpoint
 construction, same full-tile forward, same pooled/per-tile/per-city metrics
 via the frozen depthwizard.metrics module.
 
-Loads best.pt from `train`, runs full-tile inference over val (+test),
-computes pooled/per-tile/per-city metrics, compares against
-outputs/reference/reference_card.json and prints PASS/FAIL verdicts.
+A/B backend comparison (RDAH integration, task Sec. 16): ``--model``
+selects the architecture (calibration_net | rdah | auto-detect). BOTH
+backends run through the SAME dataset split, preprocessing, target, masks
+and metric functions — the only difference is the height model. The
+report additionally includes parameter count, mean inference time per
+tile and peak VRAM (CUDA max_memory_allocated; None on CPU).
 
 Usage:
   python model.py evaluate --config configs/phase2.yaml
   python model.py evaluate --config configs/phase2.yaml \
       --checkpoint outputs/calib_net/rgb_cos/best.pt --splits val --error-maps 0
+  python model.py evaluate --model rdah --dataset gamus \
+      --config configs/gamus.yaml \
+      --checkpoint checkpoints/rdah/rdah_track1_best_model.pth
+  python model.py evaluate --model calibration_net --dataset gamus \
+      --config configs/gamus.yaml --checkpoint outputs/calib_net/rgb/best.pt
 """
 
 from __future__ import annotations
@@ -59,7 +67,7 @@ from depthwizard.normalize import (
 from depthwizard.scene_types import classify_scene, stratify_by_scene_type
 
 NAME = "evaluate"
-HELP = "CITABLE eval of the calibration net vs frozen gates (val [+test])"
+HELP = "CITABLE eval of the height model (CalibrationNet | RDAH) vs frozen gates (val [+test])"
 
 
 def _extensions_for_tile(pred, agl, cls, dataset, gsd_m):
@@ -183,19 +191,25 @@ def evaluate_split_adapter(model, ds, device: str, dataset: str):
     target, same minmax Dn, same pooled/per-tile aggregation, same metric
     functions) but sources samples through the adapter pipeline and feeds
     the net's full input contract (Dn | RGB | SEM). ``model`` is a
-    tifops.LoadedModel (single source for checkpoint rebuilding).
+    tifops.LoadedModel (single source for checkpoint rebuilding — works
+    for BOTH architectures; the RDAH backend additionally consumes the
+    dn_stats 4-vector to reconstruct the RAW DAv2 depth scale).
     """
+    import time as _time
+
     import torch
 
     net = model.net
     net.eval()
     use_rgb = model.use_rgb
     use_sem = model.use_sem
+    needs_stats = getattr(model, "needs_stats", False) or model.film_stats
     gsd = 0.33 if dataset == "gamus" else None  # documented / unknown
 
     pooled_p, pooled_t, pooled_m = [], [], []
     per_tile, by_city = [], defaultdict(lambda: defaultdict(list))
     ext_tiles = []
+    fwd_secs = []
     for i in range(len(ds)):
         s = ds[i]
         dn = s["dn"].to(device)
@@ -207,11 +221,17 @@ def evaluate_split_adapter(model, ds, device: str, dataset: str):
         )
         stats = (
             s["dn_stats"].to(device)
-            if (getattr(model, "film_stats", False) and s.get("dn_stats") is not None)
+            if (needs_stats and s.get("dn_stats") is not None)
             else None
         )
+        if device.startswith("cuda"):
+            torch.cuda.synchronize()
+        t_fwd = _time.perf_counter()
         with torch.no_grad():
             pred = net(dn, rgb, None, sem, stats)["pred"][0, 0].cpu().numpy()
+        if device.startswith("cuda"):
+            torch.cuda.synchronize()
+        fwd_secs.append(_time.perf_counter() - t_fwd)
         agl = s["agl"][0].numpy()  # adapter already clean_agl
         m = valid_target_mask(agl)
         pooled_p.append(pred[m].ravel())
@@ -235,7 +255,28 @@ def evaluate_split_adapter(model, ds, device: str, dataset: str):
     scene_tab = stratify_by_scene_type(per_tile, [e["scene_type"] for e in ext_tiles])
     ext_summary = _summarize_extensions(ext_tiles)
     ext_summary["scene_types_full_metrics"] = scene_tab
+    perf = _perf_block(model, fwd_secs, device)
+    ext_summary["perf"] = perf
     return pooled, summary, city_tab, per_tile, ext_summary
+
+
+def _perf_block(model, fwd_secs, device: str) -> dict:
+    """Parameter count / mean inference time / peak VRAM for the A/B
+    comparison (task Sec. 16). Peak VRAM is CUDA-only (None on CPU)."""
+    import torch
+
+    n_par = sum(p.numel() for p in model.net.parameters())
+    peak_vram = None
+    if device.startswith("cuda") and torch.cuda.is_available():
+        peak_vram = float(torch.cuda.max_memory_allocated()) / (1024**2)
+    return {
+        "architecture": model.architecture,
+        "params": int(n_par),
+        "mean_fwd_sec_per_tile": (
+            float(np.mean(fwd_secs)) if fwd_secs else None
+        ),
+        "peak_vram_mb": peak_vram,
+    }
 
 
 def _error_map(stem, rgb, dn, pred, agl, out_png: Path) -> None:
@@ -268,6 +309,14 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
     )
     add_config_arg(p, "configs/phase2.yaml")
     p.add_argument(
+        "--model",
+        choices=("calibration_net", "rdah", "auto"),
+        default="auto",
+        help="height-model backend for the A/B comparison (default: "
+        "auto-detect from the checkpoint). Both backends use the SAME "
+        "split, preprocessing, target, masks and metrics.",
+    )
+    p.add_argument(
         "--dataset",
         choices=("dfc2019", "gamus"),
         default="dfc2019",
@@ -284,7 +333,7 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
     return p
 
 
-def _run_gamus(args, cfg, ckpt, net, device, cache_dir, ckpt_dataset) -> int:
+def _run_gamus(args, cfg, model, device, cache_dir, ckpt_dataset) -> int:
     """GAMUS evaluation / cross-dataset evaluation (Phase 5).
 
     Cross-dataset = a checkpoint trained on the OTHER dataset passed via
@@ -292,33 +341,21 @@ def _run_gamus(args, cfg, ckpt, net, device, cache_dir, ckpt_dataset) -> int:
     trained input channels (Dn [+RGB [+SEM]]); zero-fill applies when a
     sem-expecting net meets a sample without semantics.
     NO gates: the frozen reference card is DFC-only by construction.
+    ``model`` is a tifops.LoadedModel — architecture-agnostic (works for
+    CalibrationNet AND the RDAH backend).
     """
     import torch
 
-    from depthwizard.tifops import LoadedModel
-
     paths = cfg["paths"]
-    model = LoadedModel(
-        net=net,
-        use_rgb=bool(ckpt["use_rgb"]),
-        widths=tuple(ckpt["widths"]),
-        clamp_min=ckpt.get("clamp_min", 0.0),
-        affine_init={
-            "a": float(ckpt["affine_init"]["a"]),
-            "b": float(ckpt["affine_init"]["b"]),
-        },
-        epoch=int(ckpt["epoch"]),
-        checkpoint=Path(args.checkpoint) if args.checkpoint else Path("ckpt"),
-        val_subset_mae=ckpt.get("val_subset_mae"),
-        use_sem=bool(ckpt.get("use_sem", False)),
-        sem_classes=int(ckpt.get("sem_classes", 0)),
-        sem_aux_head=bool(ckpt.get("sem_aux_head", False)),
-    )
+    net = model.net
+    needs_stats = getattr(model, "needs_stats", False) or model.film_stats
 
     dcfg = dict(cfg.get("dataset") or {})
     dcfg["name"] = "gamus"
     sub_cfg = {"paths": paths, "dataset": dcfg}
-    out_dir = Path(paths["outputs_dir"]) / "calib_net" / (args.out_tag or "gamus_eval")
+    out_dir = Path(paths["outputs_dir"]) / (
+        "rdah_net" if model.architecture == "rdah" else "calib_net"
+    ) / (args.out_tag or "gamus_eval")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     results, per_tile_all = {}, {}
@@ -370,6 +407,19 @@ def _run_gamus(args, cfg, ckpt, net, device, cache_dir, ckpt_dataset) -> int:
             print(
                 f"        scene types: { {k: v['n_tiles'] for k, v in sorted(ext.get('scene_types', {}).items())} }"
             )
+            perf = ext.get("perf")
+            if perf:
+                vram = (
+                    f"{perf['peak_vram_mb']:.0f} MB"
+                    if perf.get("peak_vram_mb") is not None
+                    else "n/a (CPU)"
+                )
+                print(
+                    f"        perf: architecture={perf['architecture']} "
+                    f"params={perf['params']:,}  "
+                    f"fwd={perf['mean_fwd_sec_per_tile']:.2f}s/tile  "
+                    f"peak VRAM={vram}"
+                )
 
     ckpt_path = args.checkpoint or "(config default)"
     cross = ckpt_dataset != "gamus"
@@ -401,7 +451,7 @@ def _run_gamus(args, cfg, ckpt, net, device, cache_dir, ckpt_dataset) -> int:
             )
             stats = (
                 s["dn_stats"].to(device)
-                if (model.film_stats and s.get("dn_stats") is not None)
+                if (needs_stats and s.get("dn_stats") is not None)
                 else None
             )
             with torch.no_grad():
@@ -423,16 +473,18 @@ def _run_gamus(args, cfg, ckpt, net, device, cache_dir, ckpt_dataset) -> int:
 
     report = {
         "created": datetime.now(timezone.utc).isoformat(),
-        "kind": "calibration_net_eval",
+        "kind": "height_model_eval",
+        "architecture": model.architecture,
         "dataset": "gamus",
         "cross_dataset": cross,
         "trained_on": ckpt_dataset,
         "checkpoint": {
             "path": str(ckpt_path),
-            "epoch": ckpt["epoch"],
-            "use_rgb": bool(ckpt["use_rgb"]),
-            "use_sem": bool(ckpt.get("use_sem", False)),
-            "loss": ckpt.get("loss"),
+            "epoch": model.epoch,
+            "architecture": model.architecture,
+            "use_rgb": model.use_rgb,
+            "use_sem": model.use_sem,
+            "val_subset_mae": model.val_subset_mae,
         },
         "results": results,
         "gate_verdicts": {},
@@ -444,14 +496,21 @@ def _run_gamus(args, cfg, ckpt, net, device, cache_dir, ckpt_dataset) -> int:
             "(undocumented — flagged, not fabricated).",
             "No gate verdicts: the frozen reference card is DFC-only.",
             "Slope computed with GSD=0.33 m (documented on the HF card).",
+            "Backend: " + (
+                "RDAH-Net (official HeightPredTransformer; depth input = "
+                "raw DAv2 x depth_scale; output nDSM metres)"
+                if model.architecture == "rdah"
+                else "CalibrationNet (clamp(a*Dn + b, 0), Dn min-max)"
+            ),
         ],
     }
     dump_json(report, out_dir / "eval_calib_gamus.json")
 
     lines = [
-        "# Calibration net — GAMUS evaluation",
+        f"# Height model ({model.architecture}) — GAMUS evaluation",
         "",
         f"- checkpoint: `{ckpt_path}` (trained on **{ckpt_dataset}**)",
+        f"- architecture: **{model.architecture}**",
         f"- cross-dataset: **{cross}**",
         "",
         "| split | MAE (m) | RMSE (m) | r | bias (m) |",
@@ -495,54 +554,58 @@ def run(args) -> int:
     device = resolve_device(args.device)
     cache_dir = resolve_cache(paths, args.cache_subdir)
 
-    ckpt_path = (
-        args.checkpoint
-        or Path(paths["outputs_dir"]) / "calib_net" / "dn_only" / "best.pt"
-    )
+    # ---- checkpoint + architecture resolution ---------------------------
+    # --model (CLI) > auto-detect from the payload. RDAH default checkpoint
+    # = the released Track1 release (auto-downloads + MD5-verifies).
+    architecture = None if args.model == "auto" else args.model
+    mcfg = dict(cfg.get("model") or {})
+    if architecture is None and mcfg.get("architecture") in ("rdah", "calibration_net"):
+        architecture = mcfg["architecture"]
+
+    ckpt_path = args.checkpoint
+    if ckpt_path is None and architecture == "rdah":
+        from depthwizard.rdah import RDAH_CKPT_DIR, RDAH_CHECKPOINTS
+
+        ckpt_path = Path(mcfg.get("checkpoint") or "") or (
+            RDAH_CKPT_DIR / RDAH_CHECKPOINTS["track1"]["filename"]
+        )
+    if ckpt_path is None:
+        ckpt_path = Path(paths["outputs_dir"]) / "calib_net" / "dn_only" / "best.pt"
+    if not ckpt_path.exists() and (
+        architecture == "rdah" or "rdah" in str(ckpt_path)
+    ):
+        from depthwizard.rdah import ensure_rdah_checkpoint
+
+        try:
+            ckpt_path = ensure_rdah_checkpoint(ckpt_path)
+        except Exception as e:  # noqa: BLE001 — loud, actionable error
+            print(f"[error] {e}")
+            return 1
     if not ckpt_path.exists():
         print(
             f"[error] checkpoint not found: {ckpt_path} — run `model.py train` first."
         )
         return 1
-    # weights_only=True: the training payload is a state dict + primitives
-    # (verified against the train command's save block) — the restricted
-    # loader refuses pickle payloads instead of executing them.
-    ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
-    from depthwizard.tifops import validate_checkpoint_payload
 
-    validate_checkpoint_payload(ckpt)
-    use_rgb = bool(ckpt["use_rgb"])
-    # in_ch: prefer the EXPLICIT field stored by train (covers every
-    # variant: 1/2/4/5 legacy + 7/8/10/11 sem); fall back to the frozen
-    # legacy mapping (identical for the 1/4 flagships).
-    in_ch = ckpt.get("in_ch") or (4 if use_rgb else 1)
-    net = CalibrationNet(
-        in_ch=int(in_ch),
-        widths=tuple(ckpt["widths"]),
-        a0=ckpt["affine_init"]["a"],
-        b0=ckpt["affine_init"]["b"],
-        clamp_min=ckpt.get("clamp_min", 0.0),
-        sem_classes=int(ckpt.get("sem_classes", 0)),
-        sem_aux_head=bool(ckpt.get("sem_aux_head", False)),
-        semantic_mode=semantic_mode_from_ckpt(ckpt),
-        parameterization=str(ckpt.get("parameterization", "absolute_affine")),
-        bounded=bool(ckpt.get("bounded", False)),
-        context_module=str(ckpt.get("context_module", "none")),
-        fusion_mode=str(ckpt.get("fusion_mode", "early")),
-        use_uncertainty=bool(ckpt.get("use_uncertainty", False)),
-        film_stats=bool(ckpt.get("film_stats", False)),
-    ).to(device)
-    net.load_state_dict(ckpt["model_state"])
+    # ---- registry load (CalibrationNet | RDAH) — single source ---------
+    from depthwizard.tifops import load_height_model
+
+    model = load_height_model(ckpt_path, device, architecture=architecture)
+    net = model.net
     net.eval()
-    ckpt_dataset = ckpt.get("dataset", "dfc2019")
+    use_rgb = model.use_rgb
+
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    ckpt_dataset = str(ckpt.get("dataset", "gamus" if model.architecture == "rdah" else "dfc2019"))
     print(
-        f"[i] ckpt {ckpt_path} (epoch {ckpt['epoch']}, subset-MAE "
-        f"{ckpt.get('val_subset_mae', float('nan')):.3f}, use_rgb={use_rgb}, "
+        f"[i] ckpt {ckpt_path} (epoch {model.epoch}, subset-MAE "
+        f"{model.val_subset_mae if model.val_subset_mae is not None else float('nan'):.3f}, "
+        f"use_rgb={use_rgb}, architecture={model.architecture}, "
         f"trained on {ckpt_dataset})"
     )
 
     if args.dataset == "gamus":
-        return _run_gamus(args, cfg, ckpt, net, device, cache_dir, ckpt_dataset)
+        return _run_gamus(args, cfg, model, device, cache_dir, ckpt_dataset)
 
     base = DFC2019Config(
         rgb_dir=Path(paths["rgb_dir"]),
@@ -555,7 +618,7 @@ def run(args) -> int:
 
     out_dir = (
         Path(paths["outputs_dir"])
-        / "calib_net"
+        / ("rdah_net" if model.architecture == "rdah" else "calib_net")
         / (args.out_tag or ("rgb" if use_rgb else "dn_only"))
     )
     results, per_tile_all = {}, {}
@@ -661,13 +724,15 @@ def run(args) -> int:
 
     report = {
         "created": datetime.now(timezone.utc).isoformat(),
-        "kind": "calibration_net_eval",
+        "kind": "height_model_eval",
+        "architecture": model.architecture,
         "dataset": "dfc2019",
         "checkpoint": {
             "path": str(ckpt_path),
-            "epoch": ckpt["epoch"],
+            "epoch": model.epoch,
+            "architecture": model.architecture,
             "use_rgb": use_rgb,
-            "loss": ckpt.get("loss"),
+            "val_subset_mae": model.val_subset_mae,
             "trained_on": ckpt_dataset,
         },
         "results": results,

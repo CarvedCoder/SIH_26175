@@ -76,8 +76,16 @@ def _ckpt_path() -> Path:
     env = os.environ.get("DW_CKPT")
     if env:
         return Path(env)
+    # Height-model backend checkpoint (RDAH integration): model.checkpoint
+    # owns the path now; infer.checkpoint is the legacy CalibrationNet
+    # fallback for configs that predate the architecture registry.
+    mcfg = _cfg().get("model", {})
     p = _paths().get("outputs_dir", "outputs")
-    tag = _infer_cfg().get("checkpoint", f"{p}/calib_net/rgb_cos/best.pt")
+    tag = (
+        mcfg.get("checkpoint")
+        or _infer_cfg().get("checkpoint")
+        or f"{p}/calib_net/rgb_cos/best.pt"
+    )
     return _ROOT / tag if not Path(tag).is_absolute() else Path(tag)
 
 

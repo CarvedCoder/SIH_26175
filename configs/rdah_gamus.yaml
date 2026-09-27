@@ -1,0 +1,79 @@
+# RDAH-Net fine-tuning on GAMUS — the rdah backend config.
+#
+# Pipeline (unchanged except the height model):
+#   GAMUS RGB -> Depth Anything V2 (FROZEN, cached) -> raw Dn
+#     -> RDAH HeightPredTransformer (pretrained Track1 release)
+#     -> nDSM metres -> (optional) DEM anchoring -> absolute DSM
+#
+# The pretrained checkpoint loads STRICTLY (any mismatch fails loudly);
+# missing file auto-downloads from figshare (article 31986864, MIT) with
+# MD5 verification — depthwizard/rdah.py.
+#
+# Paper training recipe (Jiang et al. 2026, Remote Sensing 18(7) 1024):
+#   Adam, lr 1e-5, batch 8, ~100 epochs, L1/SmoothL1 loss.
+# RTX 4050 (6 GB) adaptation: 512 crops + batch 2 + AMP (CUDA autocast is
+# enabled automatically by the train command); 1024 full tiles are used
+# for the val monitor and evaluate (RDAH needs multiples of 128, <= 1024).
+#
+# Commands (runbook):
+#   # 0) GAMUS depth cache must exist first (ViT-B, namespaced <tag>/gamus/)
+#   python model.py depth --config configs/gamus.yaml --dataset gamus \
+#       --out-dir outputs/depth_cache --limit 512 --device auto
+#   # 1) fine-tune (pretrained RDAH -> GAMUS)
+#   python model.py train --config configs/rdah_gamus.yaml --out-tag rdah_gamus
+#   # 2) evaluate (same split/target/masks/metrics as calibration_net A/B)
+#   python model.py evaluate --model rdah --dataset gamus \
+#       --config configs/rdah_gamus.yaml \
+#       --checkpoint outputs/rdah_net/rdah_gamus/best.pt --splits val
+#   # 2b) A/B against the legacy backend (identical protocol):
+#   python model.py evaluate --model calibration_net --dataset gamus \
+#       --config configs/rdah_gamus.yaml \
+#       --checkpoint outputs/calib_net/gamus_rgb/best.pt --splits val
+#   # 3) benchmark resolutions + peak VRAM on your GPU
+#   python model.py bench --architecture rdah --device cuda
+
+paths:
+  rgb_dir: Train-Track1-RGB/Track1-RGB
+  truth_dir: Train-Track1-Truth/Track1-Truth
+  splits_json: outputs/splits/splits.json
+  depth_cache_dir: outputs/depth_cache
+  affine_json: outputs/baseline/global_affine_gamus.json
+  outputs_dir: outputs
+
+dataset:
+  name: gamus
+  source: local
+  backend: hdf5
+  local_root: gamus_full
+  manifest: outputs/splits/gamus_splits.json
+  limit: 0
+  load_semantics: true
+
+model:
+  # ---- height-model backend selection (the registry) ----
+  architecture: rdah
+  checkpoint: checkpoints/rdah/rdah_track1_best_model.pth
+  pretrained: true
+  # Depth Anything V2 stays FROZEN as the depth backbone (cache-based,
+  # never trained) — documented; no joint end-to-end training.
+  freeze_depth_anything: true
+  # RDAH depth input = raw DAv2 relative depth x 40 (verified against the
+  # released checkpoint's BN statistics; see depthwizard/rdah.py).
+  depth_scale: 40.0
+
+rdah:
+  input_size: 1024       # Track1 training resolution (multiples of 128)
+  use_amp: true          # CUDA autocast fp16 (6 GB GPU friendly)
+
+train:
+  crop_size: 512         # multiple of 128 (RDAH architecture constraint)
+  batch_size: 2          # RTX 4050 6 GB with AMP; raise to 8 on larger GPUs
+  epochs: 40
+  lr: 0.00001            # paper recipe: Adam lr 1e-5 (fine-tuning)
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1               # paper: L1 (masked L1 in the shared trainer)
+  workers: 2
+  val_subset: 859
+  patience: 10
+  seed: 42

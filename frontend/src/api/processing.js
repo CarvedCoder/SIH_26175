@@ -5,17 +5,23 @@ import { apiFetch } from './client.js';
  * Start a processing job for a scene.
  * POST /scenes/{id}/process
  *
- * The backend runs the DAv2 + CalibrationNet flagship with a fixed 1024
- * training tile contract; it accepts only `mode` and `ground_elev` and
- * rejects unknown options with a 422, so no phantom knobs are sent here.
+ * The backend runs the DAv2 depth backbone plus the selected height-model
+ * backend with a fixed 1024 training tile contract; it accepts `mode`,
+ * `architecture` and `ground_elev` and rejects unknown options with a 422,
+ * so no phantom knobs are sent here.
  *
  * @param {string} sceneId
- * @param {{ mode?: 'auto'|'crop'|'resize'|'tiles', groundElev?: number }} [opts]
+ * @param {{
+ *   mode?: 'auto'|'crop'|'resize'|'tiles',
+ *   architecture?: 'rdah'|'calibration_net',
+ *   groundElev?: number,
+ * }} [opts]
  * @returns {Promise<import('../types/api.js').JobStartResponse>}
  */
 export async function startProcessing(sceneId, opts = {}) {
   const body = {};
   if (opts.mode) body.mode = opts.mode;
+  if (opts.architecture) body.architecture = opts.architecture;
   if (opts.groundElev != null) body.ground_elev = opts.groundElev;
 
   return apiFetch(`/scenes/${sceneId}/process`, {
@@ -48,7 +54,7 @@ export async function cancelJob(jobId) {
  * Submit a local tile refinement job for a selected bounding box.
  * POST /scenes/{id}/refine
  * @param {string} sceneId
- * @param {{ bbox: { x_min: number, y_min: number, x_max: number, y_max: number }, resolution?: 'standard'|'high' }} opts
+ * @param {{ bbox: { x_min: number, y_min: number, x_max: number, y_max: number }, resolution?: 'standard'|'high', architecture?: 'rdah'|'calibration_net' }} opts
  * @returns {Promise<{ job_id: string, status: string }>}
  */
 export async function refineScene(sceneId, opts) {
@@ -58,6 +64,7 @@ export async function refineScene(sceneId, opts) {
     body: JSON.stringify({
       bbox: opts.bbox,
       resolution: opts.resolution ?? 'high',
+      architecture: opts.architecture ?? 'rdah',
     }),
   });
 }

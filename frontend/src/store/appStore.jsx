@@ -41,6 +41,15 @@ const Action = {
   RESUME_SESSION:     'RESUME_SESSION',
   REMOVE_RECENT_PROJECT: 'REMOVE_RECENT_PROJECT',
   CLEAR_RECENT_PROJECTS: 'CLEAR_RECENT_PROJECTS',
+  SET_MODEL_BACKEND: 'SET_MODEL_BACKEND',
+};
+
+/** Height-model backend switch (RDAH integration) — kept internal; the
+ *  values ('rdah' | 'calibration_net') are the API contract strings.
+ *  @type {Record<string, string>} */
+const ModelBackend = {
+  RDAH:            'rdah',
+  CALIBRATION_NET: 'calibration_net',
 };
 
 /**
@@ -88,6 +97,8 @@ const Action = {
  * @property {AppError|null} error
  * @property {SceneInfo[]} sceneQueue - current multi-upload batch (session-only)
  * @property {Object[]} recentScenes
+ * @property {string} modelBackend - height-model backend sent with every
+ *           processing/refine request ('rdah' | 'calibration_net')
  */
 
 /** @type {AppStoreState} */
@@ -100,6 +111,19 @@ const initialState = {
   terrain: null,
   validation: null,
   error: null,
+  // Height-model backend selector — persisted so the choice survives a
+  // reload (the same value rides along on refine requests to keep a
+  // scene's products consistent).
+  modelBackend: (() => {
+    try {
+      const stored = localStorage.getItem('dw_model_backend');
+      return stored === ModelBackend.CALIBRATION_NET
+        ? ModelBackend.CALIBRATION_NET
+        : ModelBackend.RDAH;
+    } catch {
+      return ModelBackend.RDAH;
+    }
+  })(),
   // Current multi-upload batch, in upload order. Session-persisted so a
   // page refresh mid-batch keeps the switcher working (recentScenes
   // carries the completed results; see sessionStorage below). Adjacent
@@ -370,6 +394,14 @@ function reducer(state, action) {
       return { ...state, recentScenes: [] };
     }
 
+    case Action.SET_MODEL_BACKEND: {
+      const backend = action.payload === ModelBackend.CALIBRATION_NET
+        ? ModelBackend.CALIBRATION_NET
+        : ModelBackend.RDAH;
+      try { localStorage.setItem('dw_model_backend', backend); } catch { /* storage unavailable — session-only choice */ }
+      return { ...state, modelBackend: backend };
+    }
+
     case Action.RESET:
       try { sessionStorage.removeItem('dw_scene_queue'); } catch {}
       return { ...initialState, recentScenes: state.recentScenes, sceneQueue: [] };
@@ -420,6 +452,7 @@ export function AppProvider({ children }) {
     clearRecentProjects: () => dispatch({
       type: Action.CLEAR_RECENT_PROJECTS,
     }),
+    setModelBackend: (backend) => dispatch({ type: Action.SET_MODEL_BACKEND, payload: backend }),
   }), [dispatch]);
 
   // Memoized so consumers relying on reference equality (e.g. effects that

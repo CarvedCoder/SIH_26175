@@ -1,0 +1,36 @@
+paths:
+  rgb_dir: Train-Track1-RGB/Track1-RGB
+  truth_dir: Train-Track1-Truth/Track1-Truth
+  splits_json: outputs/splits/splits.json
+  depth_cache_dir: outputs/depth_cache
+  affine_json: outputs/baseline/global_affine_gamus.json
+  outputs_dir: outputs
+dataset:
+  name: gamus
+  source: local
+  backend: hdf5
+  local_root: fake_gamus
+  manifest: outputs/splits/gamus_splits.json
+  limit: 0
+  load_semantics: true
+model:
+  architecture: rdah
+  checkpoint: checkpoints/rdah/rdah_track1_best_model.pth
+  pretrained: true
+  freeze_depth_anything: true
+  depth_scale: 40.0
+rdah:
+  input_size: 1024
+  use_amp: true
+train:
+  crop_size: 512
+  batch_size: 1
+  epochs: 1
+  lr: 1.0e-05
+  weight_decay: 0.0001
+  grad_clip: 5.0
+  loss: l1
+  workers: 0
+  val_subset: 4
+  patience: 10
+  seed: 42

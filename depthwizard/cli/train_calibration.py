@@ -1,6 +1,24 @@
-"""Train the spatial calibration net.
+"""Train the height model (CalibrationNet OR RDAH fine-tuning).
 
-Model:  H(x,y) = clamp(a(x,y)*Dn(x,y) + b(x,y), 0)
+Backend selection (RDAH integration — config ``model.architecture``):
+  * configs WITHOUT ``model.architecture`` (or with the legacy value
+    ``CalibrationNet_v2``) -> the FROZEN CalibrationNet path, byte-identical
+    to the pre-RDAH command (every existing experiment config is
+    unaffected).
+  * configs WITH ``model.architecture: rdah`` -> fine-tune the official
+    RDAH-Net (HeightPredTransformer, pretrained Track1 release) on the
+    SAME dataset/loss/scheduler/monitor infrastructure. The pretrained
+    checkpoint (``model.checkpoint``, default
+    ``checkpoints/rdah/rdah_track1_best_model.pth``) loads strictly — any
+    mismatch fails loudly. Paper training recipe: Adam, lr 1e-5, batch 8,
+    L1 (SmoothL1 in the released code) — set ``train.lr: 1.0e-5`` in the
+    config (see configs/rdah_gamus.yaml). Depth Anything V2 stays FROZEN
+    (the depth cache is the backbone output; it is never trained).
+    RDAH consumes (normalized Dn, dn_stats, RGB) exactly like CalibrationNet
+    — the adapter (depthwizard/rdah.py) reconstructs the RAW DAv2 scale
+    from the stats and applies the official x40 depth input.
+
+CalibrationNet model:  H(x,y) = clamp(a(x,y)*Dn(x,y) + b(x,y), 0)
         a, b from a ~0.2M-param U-Net over Dn (+RGB [+SEM one-hot] [+DEM]
         ablation flags). Every variant starts EXACTLY at the affine baseline
         via the zero-weight head + a0,b0 bias init (worklog Section 1).
@@ -44,6 +62,8 @@ Usage:
   python model.py train --config configs/gamus.yaml --out-tag gamus_dn
   python model.py train --config configs/gamus.yaml --use-rgb --use-sem \
       --out-tag gamus_rgb_sem                   # Exp 4 on GAMUS
+  python model.py train --config configs/rdah_gamus.yaml \
+      --out-tag rdah_gamus                     # RDAH fine-tune on GAMUS
 """
 
 from __future__ import annotations
@@ -73,7 +93,7 @@ from depthwizard.losses import DepthLoss, LossConfig
 from depthwizard.metrics import height_metrics
 
 NAME = "train"
-HELP = "train the spatial calibration net (U-Net affine over Dn [+RGB])"
+HELP = "train the height model (CalibrationNet | RDAH fine-tuning)"
 
 
 def val_subset_mae(
@@ -85,6 +105,7 @@ def val_subset_mae(
     use_dem: bool = False,
     use_sem: bool = False,
     film_stats: bool = False,
+    needs_stats: bool = False,
 ) -> float:
     """Pooled MAE (metres) over the first `subset` val tiles, full-tile.
 
@@ -93,6 +114,8 @@ def val_subset_mae(
     ``use_sem`` (Exp 4/5): the val sample's one-hot semantic layer feeds
     the net's ``sem`` argument — validation uses the SAME input contract
     as training (GT semantics = privileged information, documented).
+    ``needs_stats`` (RDAH): the RAW-scale stats 4-vector is REQUIRED —
+    the RDAH adapter reconstructs the RAW DAv2 depth from it.
     """
     import torch
 
@@ -111,7 +134,7 @@ def val_subset_mae(
             )
             stats = (
                 s["dn_stats"].to(device)
-                if (film_stats and s.get("dn_stats") is not None)
+                if ((film_stats or needs_stats) and s.get("dn_stats") is not None)
                 else None
             )
             pred = net(dn, rgb, dem, sem, stats)["pred"][0, 0].cpu().numpy()
@@ -130,6 +153,15 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_config_arg(p, "configs/phase2.yaml")
+    p.add_argument(
+        "--architecture",
+        choices=("calibration_net", "rdah"),
+        default=None,
+        help="height-model backend override (default: config "
+        "model.architecture; configs without the key keep the frozen "
+        "CalibrationNet path). 'rdah' fine-tunes the official pretrained "
+        "RDAH-Net — see configs/rdah_gamus.yaml.",
+    )
     p.add_argument("--epochs", type=int, default=None)
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--lr", type=float, default=None)
@@ -252,6 +284,24 @@ def run(args) -> int:
     with open(args.config, "r", encoding="utf-8") as f:
         raw_cfg = yaml.safe_load(f)
     v2_cfg = CalibrationConfig.from_dict(raw_cfg)
+
+    # ---- backend selection (RDAH integration) ---------------------------
+    # CLI --architecture > config model.architecture; a MISSING key keeps
+    # the frozen legacy CalibrationNet path (existing configs unaffected).
+    architecture = (
+        args.architecture
+        or str((raw_cfg.get("model") or {}).get("architecture") or "")
+    )
+    if architecture in ("", "CalibrationNet_v2"):
+        architecture = "calibration_net"
+    if architecture not in ("calibration_net", "rdah"):
+        print(f"[error] unknown model.architecture {architecture!r} — "
+              "expected 'calibration_net' or 'rdah'.")
+        return 1
+    is_rdah = architecture == "rdah"
+    mcfg_raw = dict(raw_cfg.get("model") or {})
+    rdah_ckpt_cfg = mcfg_raw.get("checkpoint")
+    depth_scale = float(mcfg_raw.get("depth_scale", 40.0))
     
     # Apply CLI overrides if provided
     if args.epochs is not None: v2_cfg.train.epochs = args.epochs
@@ -295,17 +345,42 @@ def run(args) -> int:
     cache_dir = resolve_cache(paths, args.cache_subdir)
     print(f"[i] depth cache: {cache_dir}")
 
-    if not Path(paths["affine_json"]).exists():
+    if is_rdah:
+        # RDAH guards: the backend has NO dem/sem/uncertainty channels and
+        # no affine parameterization — refuse silently-degraded variants.
+        if use_dem or use_sem or sem_aux_head or args.use_dem or args.use_sem:
+            print(
+                "[error] architecture: rdah does not support --use-dem / "
+                "--use-sem / --sem-aux-head (no such input channels or "
+                "heads in HeightPredTransformer). Use architecture: "
+                "calibration_net for those ablations."
+            )
+            return 1
+        if v2_cfg.model.parameterization != "absolute_affine" or film_stats:
+            print(
+                "[error] architecture: rdah ignores CalibrationNet "
+                "parameterization/film settings — remove them from the "
+                "config (RDAH is direct regression, see depthwizard/rdah.py)."
+            )
+            return 1
+        a0 = b0 = None  # no affine init in the RDAH path
         print(
-            f"[error] {paths['affine_json']} missing — run `model.py fit-baseline` "
-            "first (init needs a0,b0)."
+            f"[i] device={device}  architecture=rdah  "
+            f"depth_scale={depth_scale}  (paper recipe: Adam lr 1e-5, "
+            f"batch 8 — set train.lr accordingly)"
         )
-        return 1
-    a0, b0 = load_affine_init(paths["affine_json"])
-    print(
-        f"[i] device={device}  use_rgb={use_rgb}  use_dem={use_dem}  "
-        f"use_sem={use_sem}  affine-init a0={a0:.6f} b0={b0:.6f}"
-    )
+    else:
+        if not Path(paths["affine_json"]).exists():
+            print(
+                f"[error] {paths['affine_json']} missing — run `model.py fit-baseline` "
+                "first (init needs a0,b0)."
+            )
+            return 1
+        a0, b0 = load_affine_init(paths["affine_json"])
+        print(
+            f"[i] device={device}  use_rgb={use_rgb}  use_dem={use_dem}  "
+            f"use_sem={use_sem}  affine-init a0={a0:.6f} b0={b0:.6f}"
+        )
 
     # DEM-channel resolution (unchanged for the legacy path; guarded on the
     # factory path). The honesty contract (demprior.py) requires the proxy
@@ -485,31 +560,72 @@ def run(args) -> int:
         f"(monitor subset={args.val_subset or tcfg['val_subset']})"
     )
 
-    # in_ch via the SINGLE source (channel order Dn | RGB | SEM | DEM). The
-    # zero-weight head + a0,b0 bias init pins every variant to the affine
-    # baseline at step 0 — ablation discipline.
-    in_ch = derive_in_ch(
-        use_rgb=use_rgb, use_sem=use_sem, use_dem=use_dem, sem_classes=sem_classes
-    )
-    net = CalibrationNet(
-        in_ch=in_ch,
-        widths=tuple(v2_cfg.model.widths),
-        a0=a0,
-        b0=b0,
-        clamp_min=v2_cfg.model.clamp_min,
-        sem_classes=sem_classes,
-        sem_aux_head=sem_aux_head,
-        semantic_mode=v2_cfg.model.semantic_mode,
-        parameterization=v2_cfg.model.parameterization,
-        bounded=v2_cfg.model.bounded,
-        max_shift=10.0, # Will be configurable later
-        fusion_mode=v2_cfg.fusion.mode,
-        context_module=v2_cfg.model.context,
-        use_uncertainty=v2_cfg.loss.uncertainty_weight > 0,
-        film_stats=film_stats,
-    ).to(device)
-    n_par = sum(p.numel() for p in net.parameters())
-    print(f"[i] CalibrationNet in_ch={in_ch}  params={n_par:,}")
+    # ---- net construction: architecture registry ------------------------
+    if is_rdah:
+        # RDAH fine-tuning: the official HeightPredTransformer (5,371,663
+        # params) behind the CalibrationNet-compatible adapter. RGB is
+        # REQUIRED by this backend. Depth Anything V2 stays frozen — it is
+        # not part of `net` at all (the depth cache is its output).
+        use_rgb = True
+        in_ch = 4  # informational: Dn(1) + RGB(3) semantics inside the adapter
+        from depthwizard.rdah import (
+            RDAH_CKPT_DIR,
+            RDAH_CHECKPOINTS,
+            RDAHHeightModel,
+            load_rdah_state_dict,
+        )
+        from depthwizard.rdah_net import HeightPredTransformer
+
+        ckpt_file = (
+            Path(rdah_ckpt_cfg)
+            if rdah_ckpt_cfg
+            else RDAH_CKPT_DIR / RDAH_CHECKPOINTS["track1"]["filename"]
+        )
+        if not ckpt_file.exists():
+            from depthwizard.rdah import ensure_rdah_checkpoint
+
+            try:
+                ckpt_file = ensure_rdah_checkpoint(ckpt_file)
+            except Exception as e:  # noqa: BLE001 — loud, actionable error
+                print(f"[error] {e}")
+                return 1
+        ckpt_rdah = torch.load(ckpt_file, map_location=device, weights_only=True)
+        net_core = HeightPredTransformer()
+        load_rdah_state_dict(
+            net_core, ckpt_rdah["model_state_dict"], source=str(ckpt_file)
+        )
+        net = RDAHHeightModel(core=net_core, depth_scale=depth_scale).to(device)
+        n_par = sum(p.numel() for p in net.parameters())
+        print(
+            f"[i] RDAH HeightPredTransformer (pretrained {ckpt_file.name}) "
+            f"depth_scale={depth_scale}  params={n_par:,}"
+        )
+    else:
+        # in_ch via the SINGLE source (channel order Dn | RGB | SEM | DEM). The
+        # zero-weight head + a0,b0 bias init pins every variant to the affine
+        # baseline at step 0 — ablation discipline.
+        in_ch = derive_in_ch(
+            use_rgb=use_rgb, use_sem=use_sem, use_dem=use_dem, sem_classes=sem_classes
+        )
+        net = CalibrationNet(
+            in_ch=in_ch,
+            widths=tuple(v2_cfg.model.widths),
+            a0=a0,
+            b0=b0,
+            clamp_min=v2_cfg.model.clamp_min,
+            sem_classes=sem_classes,
+            sem_aux_head=sem_aux_head,
+            semantic_mode=v2_cfg.model.semantic_mode,
+            parameterization=v2_cfg.model.parameterization,
+            bounded=v2_cfg.model.bounded,
+            max_shift=10.0, # Will be configurable later
+            fusion_mode=v2_cfg.fusion.mode,
+            context_module=v2_cfg.model.context,
+            use_uncertainty=v2_cfg.loss.uncertainty_weight > 0,
+            film_stats=film_stats,
+        ).to(device)
+        n_par = sum(p.numel() for p in net.parameters())
+        print(f"[i] CalibrationNet in_ch={in_ch}  params={n_par:,}")
 
     opt = torch.optim.Adam(
         net.parameters(),
@@ -573,7 +689,11 @@ def run(args) -> int:
     )
     k_sub = args.val_subset if args.val_subset is not None else tcfg["val_subset"]
 
-    out_dir = Path(paths["outputs_dir"]) / "calib_net" / (args.out_tag or "dn_only")
+    out_dir = (
+        Path(paths["outputs_dir"])
+        / ("rdah_net" if is_rdah else "calib_net")
+        / (args.out_tag or ("rdah_gamus" if is_rdah else "dn_only"))
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # ONCE, before training: constructed at the TRUE base LR, T_max = total epochs.
@@ -614,7 +734,7 @@ def run(args) -> int:
             ):
                 stats = (
                     batch["dn_stats"].to(device, non_blocking=True)
-                    if (film_stats and batch.get("dn_stats") is not None)
+                    if ((film_stats or is_rdah) and batch.get("dn_stats") is not None)
                     else None
                 )
                 out = net(dn, rgb, dem, sem, stats)
@@ -665,6 +785,7 @@ def run(args) -> int:
         mae = val_subset_mae(
             net, ds["val"], k_sub, use_rgb, device,
             use_dem=use_dem, use_sem=use_sem, film_stats=film_stats,
+            needs_stats=is_rdah,
         )
         history.append(
             {
@@ -679,54 +800,83 @@ def run(args) -> int:
         star = ""
         if mae < best_mae - 1e-4:
             best_mae, best_epoch, bad, star = mae, epoch, 0, "  <- best"
-            torch.save(
-                {
-                    "model_state": net.state_dict(),
-                    "use_rgb": use_rgb,
-                    "use_dem": use_dem,  # Method-D challenger marker;
-                    "use_sem": use_sem,  # Exp 4/5 marker (Phase 4)
-                    "sem_classes": sem_classes,  # K of the one-hot block
-                    "sem_aux_head": sem_aux_head,
-                    "semantic_mode": v2_cfg.model.semantic_mode,
-                    "parameterization": v2_cfg.model.parameterization,
-                    "bounded": v2_cfg.model.bounded,
-                    "fusion_mode": v2_cfg.fusion.mode,
-                    "context_module": v2_cfg.model.context,
-                    "use_uncertainty": v2_cfg.loss.uncertainty_weight > 0,
-                    "film_stats": film_stats,
-                    "in_ch": in_ch,  # explicit, future-proofs the
-                    # checkpoint against future
-                    # variants (derive_in_ch source)
-                    "widths": list(v2_cfg.model.widths),
-                    "clamp_min": mcfg.get("clamp_min", 0.0),
-                    "affine_init": {"a": a0, "b": b0},
-                    "loss": loss_cfg.main,
-                    "loss_weights": {
-                        "w_grad": loss_cfg.w_grad,
-                        "w_smooth": loss_cfg.w_smooth,
-                        "w_sem": loss_cfg.w_sem,
+            if is_rdah:
+                # RDAH checkpoint format: the INNER HeightPredTransformer
+                # state dict under the official key 'model_state_dict' (no
+                # adapter prefix — the loader strips/handles prefixes, and
+                # the file stays loadable by the official repo's test.py).
+                # 'architecture' makes registry detection explicit.
+                torch.save(
+                    {
+                        "architecture": "rdah",
+                        "model_state_dict": net.net.state_dict(),
+                        "depth_scale": float(depth_scale),
+                        "loss": loss_cfg.main,
+                        "loss_weights": {
+                            "w_grad": loss_cfg.w_grad,
+                            "w_smooth": loss_cfg.w_smooth,
+                            "w_sem": loss_cfg.w_sem,
+                        },
+                        "epoch": epoch,
+                        "amp_enabled": amp_enabled,
+                        "scaler_state": scaler.state_dict(),
+                        "val_subset_mae": mae,
+                        "splits_json": str(paths["splits_json"]),
+                        "dataset": (dataset_name or "dfc2019"),
+                        "pretrained_from": str(ckpt_file),
+                        "created": datetime.now(timezone.utc).isoformat(),
                     },
-                    "epoch": epoch,
-                    "amp_enabled": amp_enabled,
-                    "scaler_state": scaler.state_dict(),
-                    "val_subset_mae": mae,
-                    "splits_json": str(paths["splits_json"]),
-                    "dataset": (dataset_name or "dfc2019"),
-                    "mixed_weights": mixed_weights_note,
-                    # SYNTHETIC-DEM-PROXY marker travels INTO the checkpoint so
-                    # any downstream evaluate/infer command can tell at a glance
-                    # whether the model trained on a synthetic DEM. Per
-                    # demprior.py's contract, NEVER present such a model's win
-                    # as a citable "DEM conditioning works" claim.
-                    "dem_source": (
-                        "SYNTHETIC-DEM-PROXY"
-                        if synth_dem
-                        else (f"dem_dir:{dem_dir.name}" if dem_dir else None)
-                    ),
-                    "created": datetime.now(timezone.utc).isoformat(),
-                },
-                out_dir / "best.pt",
-            )
+                    out_dir / "best.pt",
+                )
+            else:
+                torch.save(
+                    {
+                        "model_state": net.state_dict(),
+                        "use_rgb": use_rgb,
+                        "use_dem": use_dem,  # Method-D challenger marker;
+                        "use_sem": use_sem,  # Exp 4/5 marker (Phase 4)
+                        "sem_classes": sem_classes,  # K of the one-hot block
+                        "sem_aux_head": sem_aux_head,
+                        "semantic_mode": v2_cfg.model.semantic_mode,
+                        "parameterization": v2_cfg.model.parameterization,
+                        "bounded": v2_cfg.model.bounded,
+                        "fusion_mode": v2_cfg.fusion.mode,
+                        "context_module": v2_cfg.model.context,
+                        "use_uncertainty": v2_cfg.loss.uncertainty_weight > 0,
+                        "film_stats": film_stats,
+                        "in_ch": in_ch,  # explicit, future-proofs the
+                        # checkpoint against future
+                        # variants (derive_in_ch source)
+                        "widths": list(v2_cfg.model.widths),
+                        "clamp_min": mcfg.get("clamp_min", 0.0),
+                        "affine_init": {"a": a0, "b": b0},
+                        "loss": loss_cfg.main,
+                        "loss_weights": {
+                            "w_grad": loss_cfg.w_grad,
+                            "w_smooth": loss_cfg.w_smooth,
+                            "w_sem": loss_cfg.w_sem,
+                        },
+                        "epoch": epoch,
+                        "amp_enabled": amp_enabled,
+                        "scaler_state": scaler.state_dict(),
+                        "val_subset_mae": mae,
+                        "splits_json": str(paths["splits_json"]),
+                        "dataset": (dataset_name or "dfc2019"),
+                        "mixed_weights": mixed_weights_note,
+                        # SYNTHETIC-DEM-PROXY marker travels INTO the checkpoint so
+                        # any downstream evaluate/infer command can tell at a glance
+                        # whether the model trained on a synthetic DEM. Per
+                        # demprior.py's contract, NEVER present such a model's win
+                        # as a citable "DEM conditioning works" claim.
+                        "dem_source": (
+                            "SYNTHETIC-DEM-PROXY"
+                            if synth_dem
+                            else (f"dem_dir:{dem_dir.name}" if dem_dir else None)
+                        ),
+                        "created": datetime.now(timezone.utc).isoformat(),
+                    },
+                    out_dir / "best.pt",
+                )
         else:
             bad += 1
         print(
@@ -738,6 +888,7 @@ def run(args) -> int:
                 "history": history,
                 "best": {"epoch": best_epoch, "mae": best_mae},
                 "config": {
+                    "architecture": architecture,
                     "use_rgb": use_rgb,
                     "use_dem": use_dem,
                     "use_sem": use_sem,

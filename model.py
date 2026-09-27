@@ -10,8 +10,12 @@ Every pipeline stage fires from this file:
     python model.py dummies      --config configs/phase1.yaml      # constant floors
     python model.py reference    --config configs/phase1.yaml      # frozen gates
     python model.py train        --config configs/phase2.yaml      # calibration net
+    python model.py train        --config configs/rdah_gamus.yaml # RDAH fine-tune
     python model.py evaluate     --config configs/phase2.yaml      # CITABLE numbers
-    python model.py infer        --input scene.tif                 # demo DSM
+    python model.py evaluate     --model rdah --dataset gamus \
+        --checkpoint checkpoints/rdah/rdah_track1_best_model.pth   # rdah A/B
+    python model.py infer        --input scene.tif                 # demo DSM (rdah default)
+    python model.py bench        --architecture rdah               # resolution/VRAM sweep
     python model.py eval-scene   --pred dsm.tif --truth AGL.tif    # diagnostics
     python model.py gt-check     --pred dsm.npy --truth AGL.tif    # smoke protocol
     python model.py diag         --config configs/phase2.yaml      # run diagnostics

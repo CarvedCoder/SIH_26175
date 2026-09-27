@@ -64,10 +64,12 @@ def _job_request_payload(request: ProcessRequest | RefineRequest) -> dict:
                 "x_max": request.bbox.x_max,
                 "y_max": request.bbox.y_max,
             },
+            "architecture": request.architecture.value,
         }
     return {
         "kind": "process",
         "mode": request.mode.value,
+        "architecture": request.architecture.value,
         "ground_elev": request.ground_elev,
     }
 

@@ -1,12 +1,24 @@
 """Checkpoint loading + predict-function factory (inference code path).
 
-This module is the SINGLE place that knows how to rebuild a CalibrationNet
-from a ``best.pt`` checkpoint. Both the ``infer`` CLI command and the FastAPI
-service import ``load_calib_net`` / ``make_predict_fn`` from here, so the
-webapp can never drift from the certified CLI forward pass (the same class of
-drift that the Phase-2.5 smoke test guarded against).
+This module is the SINGLE place that knows how to rebuild a height model
+from a checkpoint. Both the ``infer`` CLI command and the FastAPI service
+import ``load_height_model`` / ``make_predict_fn`` from here, so the webapp
+can never drift from the certified CLI forward pass.
 
-Checkpoint contract (written by the ``train`` command, do not change):
+Architecture registry (RDAH integration):
+    "calibration_net"  the frozen Phase-2 CalibrationNet path — rebuilt by
+                       ``load_calib_net`` exactly as before (this module's
+                       original, byte-identical behavior).
+    "rdah"             the official RDAH-Net backend — built by
+                       ``depthwizard.rdah.load_rdah_model`` (pretrained
+                       HeightPredTransformer + adapter).
+    ``load_height_model`` selects by explicit argument or by inspecting
+    the checkpoint payload (CalibrationNet checkpoints carry
+    ``model_state`` + ``use_rgb``; RDAH checkpoints carry
+    ``model_state_dict``) — never a silent guess when both/neither match.
+
+Checkpoint contract, CalibrationNet (written by the ``train`` command,
+do not change):
     {
       "model_state":  OrderedDict — CalibrationNet state_dict,
       "use_rgb":      bool        -> in_ch 4 | 1,
@@ -36,7 +48,7 @@ import numpy as np
 class LoadedModel:
     """Everything the inference path needs, plus provenance for reporting."""
 
-    net: "object"  # CalibrationNet (torch) — kept opaque here
+    net: "object"  # CalibrationNet | RDAH adapter (torch) — kept opaque here
     use_rgb: bool
     widths: tuple
     clamp_min: float
@@ -53,11 +65,27 @@ class LoadedModel:
     fusion_mode: str = "early"
     use_uncertainty: bool = False
     film_stats: bool = False  # Exp 1 FiLM checkpoints (additive default)
+    # ---- RDAH integration (additive defaults — legacy checkpoints and
+    # every existing caller keep working unchanged) ----
+    architecture: str = "calibration_net"  # "calibration_net" | "rdah"
+    height_type: str = "AGL"  # semantic role of net output (RDAH: "nDSM")
+    depth_scale: float = 40.0  # rdah only: raw DAv2 depth x scale constant
 
     @property
     def tag(self) -> str:
         """Human-readable model id for logs / stats panels."""
+        if self.architecture == "rdah":
+            return f"rdah_{Path(self.checkpoint).stem}_ep{self.epoch}"
         return f"calib_{Path(self.checkpoint).parent.name}_ep{self.epoch}"
+
+    @property
+    def needs_stats(self) -> bool:
+        """True when the forward call REQUIRES the dn_stats 4-vector.
+
+        CalibrationNet needs it only for FiLM checkpoints (film_stats);
+        the RDAH backend ALWAYS needs it (the RAW DAv2 scale is
+        reconstructed from the log-stats — see depthwizard/rdah.py)."""
+        return self.architecture == "rdah" or self.film_stats
 
 
 def resolve_torch_device(device: Optional[str]) -> str:
@@ -223,16 +251,99 @@ def load_calib_net(ckpt_path: Path | str, device: str = "cpu") -> LoadedModel:
     )
 
 
+# ---------------------------------------------------------------------------
+# Architecture registry — calibration_net | rdah
+# ---------------------------------------------------------------------------
+
+
+def detect_architecture(ckpt_path: Path | str) -> str:
+    """Inspect a checkpoint file and return its architecture string.
+
+    Detection rules (no silent guesses — ambiguous files raise):
+      * explicit ``architecture`` field wins (DepthWizard-saved ckpts);
+      * ``model_state_dict`` (official RDAH key) -> "rdah";
+      * ``model_state`` (CalibrationNet key)     -> "calibration_net";
+      * anything else raises — the file is not a known height-model
+        checkpoint and guessing would silently load garbage.
+    """
+    import torch
+
+    ckpt_path = Path(ckpt_path)
+    if not ckpt_path.exists():
+        raise FileNotFoundError(
+            f"checkpoint not found: {ckpt_path} — train first "
+            f"(`python model.py train`) or pass --checkpoint."
+        )
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
+    if not isinstance(ckpt, dict):
+        raise ValueError(
+            f"checkpoint payload must be a dict, got {type(ckpt).__name__} "
+            f"({ckpt_path})"
+        )
+    arch = ckpt.get("architecture")
+    if arch in ("calibration_net", "rdah"):
+        return str(arch)
+    has_rdah = "model_state_dict" in ckpt
+    has_calib = "model_state" in ckpt
+    if has_rdah and not has_calib:
+        return "rdah"
+    if has_calib and not has_rdah:
+        return "calibration_net"
+    raise ValueError(
+        f"cannot determine the architecture of {ckpt_path}: it carries "
+        f"{'both' if has_rdah and has_calib else 'neither'} "
+        "model_state/model_state_dict. Pass --architecture explicitly or "
+        "use a checkpoint produced by `model.py train` / the official "
+        "RDAH-Net release."
+    )
+
+
+def load_height_model(
+    ckpt_path: Path | str,
+    device: str = "cpu",
+    architecture: Optional[str] = None,
+    depth_scale: float = 40.0,
+) -> LoadedModel:
+    """THE height-model entry point: registry dispatch over architectures.
+
+    ``architecture``: "calibration_net" | "rdah" | None (None = detect
+    from the checkpoint payload — see detect_architecture). Both paths
+    return a LoadedModel with the same surface (net / use_rgb / tag /
+    needs_stats), so DepthWizardPredictor, the service and the CLI serve
+    both backends from one code path.
+    """
+    arch = architecture or detect_architecture(ckpt_path)
+    if arch not in ("calibration_net", "rdah"):
+        raise ValueError(
+            f"unknown architecture {arch!r} — expected 'calibration_net' "
+            "or 'rdah'."
+        )
+    if arch == "rdah":
+        from .rdah import load_rdah_model
+
+        return load_rdah_model(ckpt_path, device=device, depth_scale=depth_scale)
+    return load_calib_net(ckpt_path, device)
+
+
 def make_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
-    """Return predict(dn, rgb) -> np.ndarray[H,W] float32 metres.
+    """Return predict(dn, rgb, stats) -> np.ndarray[H,W] float32 metres.
 
     ``dn``  : np.float32 [H,W] in [0,1] (minmax_normalize output)
     ``rgb`` : np.uint8 [H,W,3]  OR None when the net is dn-only
+    ``stats``: dn_tile_stats [4] of the same tile — REQUIRED for the RDAH
+               backend (RAW-scale reconstruction), optional for FiLM
+               CalibrationNet checkpoints, ignored otherwise.
 
     The ImageNet normalization lives HERE (not in callers) so the recipe
-    exists in exactly one inference location:
+    exists in exactly one inference location per architecture:
         uint8 -> /255 -> (x - mean) / std          [Phase-2 audited contract]
+    (identical for both backends — the official RDAH recipe matches).
     """
+    if model.architecture == "rdah":
+        from .rdah import make_rdah_predict_fn
+
+        return make_rdah_predict_fn(model, device)
+
     import torch
 
     from .dataset import IMAGENET_MEAN, IMAGENET_STD
@@ -278,7 +389,9 @@ def make_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
 
 
 def make_full_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
-    """Return predict_full(dn, rgb) -> dict with EVERYTHING the model emits.
+    """Return predict_full(dn, rgb, stats) -> dict with EVERYTHING the model
+    emits (architecture-agnostic surface; RDAH returns sem_probs=None —
+    it has no semantic head, the post-processing stage degrades honestly).
 
     Keys: ``pred`` (float32 [H,W] metres — identical to make_predict_fn's
     output), ``sem_probs`` (float32 [K,H,W] softmax over the PREDICTED
@@ -290,6 +403,11 @@ def make_full_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
     The plain ``make_predict_fn`` above is unchanged and remains the
     certified minimal path.
     """
+    if model.architecture == "rdah":
+        from .rdah import make_rdah_full_predict_fn
+
+        return make_rdah_full_predict_fn(model, device)
+
     import torch
 
     from .dataset import IMAGENET_MEAN, IMAGENET_STD

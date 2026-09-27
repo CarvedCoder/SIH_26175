@@ -55,6 +55,21 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
         default=None,
         help="override ckpt path (default: configs/infer.yaml)",
     )
+    p.add_argument(
+        "--architecture",
+        choices=["auto", "calibration_net", "rdah"],
+        default=None,
+        help="height-model backend: rdah (official RDAH-Net, default) | "
+        "calibration_net (legacy Phase-2 net) | auto (detect from the "
+        "checkpoint payload)",
+    )
+    p.add_argument(
+        "--depth-scale",
+        type=float,
+        default=None,
+        help="RDAH only: raw DAv2 depth x scale constant (default 40.0, "
+        "the value verified against the released checkpoint)",
+    )
     p.add_argument("--input", required=True, help="PNG / JPG / TIF image")
     p.add_argument(
         "--out", default=None, help="output dir (default: outputs/infer/<stem>)"
@@ -123,24 +138,63 @@ def run(args) -> int:
     cfg = load_config(args.config)
     paths = cfg.get("paths", {})
     icfg = cfg.get("infer", {})
+    mcfg = cfg.get("model", {}) or {}
+
+    # Backend selection (RDAH integration): CLI --architecture > config
+    # model.architecture > config infer.architecture > "auto" (detect
+    # from the checkpoint payload — never a silent guess).
+    architecture = (
+        args.architecture
+        or mcfg.get("architecture")
+        or icfg.get("architecture")
+        or "auto"
+    )
+    if architecture == "auto":
+        architecture = None
+    depth_scale = (
+        args.depth_scale
+        if args.depth_scale is not None
+        else float(mcfg.get("depth_scale", icfg.get("depth_scale", 40.0)))
+    )
 
     ckpt = (
         args.checkpoint
         or icfg.get("checkpoint")
-        or str(
-            Path(paths.get("outputs_dir", "outputs"))
-            / "calib_net"
-            / "rgb_cos"
-            / "best.pt"
-        )
+        or mcfg.get("checkpoint")
     )
+    if ckpt is None:
+        if architecture == "rdah" or architecture is None:
+            # default backend after the RDAH integration: the pretrained
+            # official checkpoint (auto-downloads on first use)
+            from depthwizard.rdah import RDAH_CKPT_DIR, RDAH_CHECKPOINTS
+
+            ckpt = str(RDAH_CKPT_DIR / RDAH_CHECKPOINTS["track1"]["filename"])
+        else:
+            ckpt = str(
+                Path(paths.get("outputs_dir", "outputs"))
+                / "calib_net"
+                / "rgb_cos"
+                / "best.pt"
+            )
     if not Path(ckpt).exists():
-        print(
-            f"[error] checkpoint not found: {ckpt}\n"
-            f"        train one (`python model.py train --out-tag rgb_cos`) or "
-            f"pass --checkpoint."
-        )
-        return 1
+        if architecture == "rdah" or (
+            architecture is None and "rdah" in str(ckpt)
+        ):
+            # the released checkpoint is fetched + MD5-verified on demand
+            from depthwizard.rdah import ensure_rdah_checkpoint
+
+            try:
+                ckpt = str(ensure_rdah_checkpoint(ckpt))
+            except Exception as e:  # noqa: BLE001 — loud, actionable error
+                print(f"[error] {e}")
+                return 1
+        else:
+            print(
+                f"[error] checkpoint not found: {ckpt}\n"
+                f"        train one (`python model.py train --out-tag rgb_cos`) or "
+                f"pass --checkpoint."
+            )
+            return 1
 
     device = resolve_device(args.device or icfg.get("device", "auto"))
     mode = args.mode or icfg.get("mode", "auto")
@@ -184,6 +238,8 @@ def run(args) -> int:
         postprocess=args.postprocess,
         postprocess_params=pp_params,
         tta=args.tta,
+        architecture=architecture,
+        depth_scale=depth_scale,
     )
 
     if args.json_out:

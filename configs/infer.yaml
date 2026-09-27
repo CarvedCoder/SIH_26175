@@ -8,10 +8,33 @@ paths:
   depth_cache_dir: outputs/depth_cache
   outputs_dir: outputs
 
+model:
+  # Height-model backend (RDAH integration) — the DEFAULT after integration.
+  #   rdah             official RDAH-Net (HeightPredTransformer) with the
+  #                    released pretrained Track1 checkpoint; depth input is
+  #                    RAW DAv2 x depth_scale (NOT min-max); output = nDSM
+  #                    metres. See depthwizard/rdah.py.
+  #   calibration_net  the legacy Phase-2 net (H = clamp(a*Dn + b, 0), Dn
+  #                    min-max [0,1] per tile) — kept fully functional for
+  #                    A/B comparison: set architecture: calibration_net and
+  #                    point infer.checkpoint at a trained best.pt.
+  architecture: rdah
+  # Pretrained official checkpoint (auto-downloads + MD5-verifies on first
+  # use from figshare article 31986864 when missing — depthwizard/rdah.py).
+  checkpoint: checkpoints/rdah/rdah_track1_best_model.pth
+  pretrained: true
+  # Depth Anything V2 stays FROZEN as the depth backbone (never trained);
+  # documented for clarity — see depthwizard/backbone.py.
+  freeze_depth_anything: true
+  # RDAH depth input = raw DAv2 relative depth x depth_scale (the constant
+  # verified against the released checkpoint's BN statistics; 35-45 is
+  # empirically flat — see depthwizard/rdah.py module docstring).
+  depth_scale: 40.0
+
 infer:
-  # Flagship checkpoint (rgb_cos). Train your own with:
-  #   python model.py train --use-rgb --cosine --out-tag rgb_cos
-  checkpoint: outputs/calib_net/mixed_slope_005_retrained/best.pt
+  # Legacy CalibrationNet checkpoints were referenced here pre-RDAH; the
+  # height backend above (model.checkpoint) owns the path now. Switch the
+  # backend back via:  architecture: calibration_net + a trained best.pt.
   device: auto                  # auto | cuda | cpu
   mode: auto                    # auto | crop | resize | tiles
   # Live Depth-Anything-V2 when no cached Dn exists (arbitrary uploads).

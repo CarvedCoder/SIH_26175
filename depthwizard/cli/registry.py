@@ -70,12 +70,12 @@ SPECS: List[tuple] = [
     (
         "train_calibration",
         "train",
-        "train the spatial calibration net (U-Net affine over Dn [+RGB])",
+        "train the height model (CalibrationNet | RDAH fine-tuning)",
     ),
     (
         "eval_calibration",
         "evaluate",
-        "CITABLE eval of the calibration net vs frozen gates (val [+test])",
+        "CITABLE eval of the height model (CalibrationNet | RDAH) vs frozen gates (val [+test])",
     ),
     (
         "eval_postprocess",
@@ -86,6 +86,11 @@ SPECS: List[tuple] = [
         "infer",
         "infer",
         "image -> AGL/DSM with the flagship (demo path, supports Track-2 anchoring)",
+    ),
+    (
+        "bench_model",
+        "bench",
+        "benchmark a height backend (resolution sweep, params, peak VRAM)",
     ),
     (
         "eval_scene",

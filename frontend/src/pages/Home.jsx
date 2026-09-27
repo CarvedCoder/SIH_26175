@@ -176,12 +176,103 @@ function PipelineOverview() {
   );
 }
 
+/* Height-model backend switch (RDAH integration): pretrained RDAH-Net by
+ * default, legacy CalibrationNet one click away. The choice rides on the
+ * process request and is kept for refine so a scene stays consistent. */
+const BACKEND_OPTIONS = [
+  {
+    value: 'rdah',
+    label: 'RDAH-Net',
+    note: 'Pretrained height regression · unclamped nDSM (m)',
+  },
+  {
+    value: 'calibration_net',
+    label: 'CalibrationNet',
+    note: 'Legacy per-tile affine calibration · clamped heights',
+  },
+];
+
+function ModelBackendSelector() {
+  const { state, actions } = useApp();
+  const active = BACKEND_OPTIONS.find(o => o.value === state.modelBackend)
+    ?? BACKEND_OPTIONS[0];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <span style={{
+        fontFamily: 'var(--dw-font-ui)',
+        fontSize: 11,
+        fontWeight: 500,
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        color: 'var(--dw-fg-ghost)',
+      }}>
+        Height model
+      </span>
+      <div role="radiogroup" aria-label="Height model backend" style={{
+        display: 'flex',
+        border: '1px solid var(--dw-rim)',
+        borderRadius: 'var(--dw-radius-sm)',
+        overflow: 'hidden',
+      }}>
+        {BACKEND_OPTIONS.map((opt, i) => {
+          const selected = opt.value === state.modelBackend;
+          return (
+            <button
+              key={opt.value}
+              role="radio"
+              aria-checked={selected}
+              onClick={() => actions.setModelBackend(opt.value)}
+              style={{
+                flex: 1,
+                height: 36,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                background: selected ? 'var(--dw-accent)' : 'var(--dw-surface)',
+                border: 'none',
+                borderLeft: i > 0 ? '1px solid var(--dw-rim)' : 'none',
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 13,
+                fontWeight: selected ? 600 : 500,
+                color: selected ? 'var(--dw-fg-invert)' : 'var(--dw-fg-muted)',
+                cursor: 'pointer',
+                outline: 'none',
+                transition: 'background 120ms ease, color 120ms ease',
+              }}
+              onMouseEnter={e => {
+                if (!selected) e.currentTarget.style.background = 'var(--dw-hover)';
+              }}
+              onMouseLeave={e => {
+                if (!selected) e.currentTarget.style.background = 'var(--dw-surface)';
+              }}
+              onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; e.currentTarget.style.outlineOffset = '-2px'; }}
+              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+      <span style={{
+        fontFamily: 'var(--dw-font-data)',
+        fontSize: 12,
+        color: 'var(--dw-fg-muted)',
+      }}>
+        {active.note}
+      </span>
+    </div>
+  );
+}
+
 function StartProcessingPanel({ sceneId }) {
-  const { actions } = useApp();
+  const { state, actions } = useApp();
+  const architecture = state.modelBackend;
 
   const handleStart = useCallback(async () => {
     try {
-      const job = await startProcessing(sceneId);
+      const job = await startProcessing(sceneId, { architecture });
       actions.startProcessing(job.job_id);
     } catch (err) {
       actions.processingFail({
@@ -190,7 +281,7 @@ function StartProcessingPanel({ sceneId }) {
         recoverable: err.recoverable ?? true,
       });
     }
-  }, [sceneId, actions]);
+  }, [sceneId, architecture, actions]);
 
   return (
     <div style={{
@@ -199,6 +290,7 @@ function StartProcessingPanel({ sceneId }) {
       gap: 10,
       width: '100%',
     }}>
+      <ModelBackendSelector />
       <button
         onClick={handleStart}
         style={{

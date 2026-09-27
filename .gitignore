@@ -121,3 +121,7 @@ cdk.out/
 eggs/
 pip-wheel-metadata/
 wheels/
+
+# RDAH released checkpoint (65 MB) — never committed; auto-downloaded and
+# MD5-verified on first use (depthwizard/rdah.py, figshare 31986864).
+checkpoints/

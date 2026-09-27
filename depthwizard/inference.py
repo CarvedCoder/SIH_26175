@@ -8,20 +8,34 @@ Who uses this module:
 Because every consumer imports the same functions, the webapp can never
 drift from the certified CLI forward pass.
 
-Flow:
+Flow (height-model backend is pluggable — architecture registry in
+``depthwizard/tifops.py``):
     read image (Pillow for PNG/JPG/JPEG, rasterio for GeoTIFF; georef
       state reported honestly, never invented)
       -> resolve RAW Dn (explicit .npy | depth cache | LIVE Depth Anything
          V2, one 1024 tile per forward — the training granularity)
-      -> flagship CalibrationNet  H = clamp(a(x,y)*Dn + b(x,y), 0)
-         Dn min-max normalized at the granularity the net consumes
-         (per 1024 tile in tiles mode — the training contract)
+      -> height backend, selected by checkpoint/config:
+           "rdah"  (default after the RDAH integration): official
+                    RDAH-Net — depth input = RAW Dn x 40 (0-255 range,
+                    NOT min-max), RGB ImageNet-normalized; output = nDSM
+                    metres, direct regression (NO a*Dn+b affine logic);
+                    see depthwizard/rdah.py for the verified recipe.
+           "calibration_net" (legacy/frozen): H = clamp(a(x,y)*Dn + b(x,y), 0)
+                    with Dn min-max normalized per 1024 tile (training
+                    contract).
          modes: crop (center 1024) | resize (letterboxed 1024, aspect
          preserved) | tiles (any size, overlapping windows + weighted
          stitching — depthwizard.tiling, per-window Dn)
-      -> optional Track-2 anchoring  DSM = AGL + ground  [ANCHORED (not learned)]
+      -> optional Track-2 anchoring  DSM = height + ground  [ANCHORED (not learned)]
       -> outputs: dsm.npy (+ dsm.tif when georeferenced) (+ _anchored), preview PNG
       -> scene payload (downsampled grid + RGB PNG + stats) for the webapp
+
+Both backends keep the SAME downstream contracts: the predictor emits
+metre heights on the source grid; anchoring, writing and geospatial
+metadata handling are shared and untouched. The payload reports which
+backend produced the heights (``meta.model_architecture``) and their
+semantic role (``meta.height_type``: "AGL" for CalibrationNet, "nDSM"
+for RDAH — never mislabelled as absolute terrain elevation).
 
 This is a DEMONSTRATION path, never a citable evaluation (numbers come only
 from the ``evaluate`` command).
@@ -297,7 +311,13 @@ class DnResolution:
 
 
 class DepthWizardPredictor:
-    """Flagship predictor: Dn (+RGB) -> AGL metres.
+    """Flagship predictor: Dn (+RGB) -> height metres.
+
+    Height backend (RDAH integration): ``architecture`` selects the model
+    family — "rdah" (official RDAH-Net, default for new configs) or
+    "calibration_net" (the frozen Phase-2 net). None = auto-detect from
+    the checkpoint payload (see tifops.detect_architecture). Both share
+    the exact same downstream path: RAW Dn in, metre heights out.
 
     Dn resolution order (honest about which path fired):
         1. explicit raw .npy path      -> source="explicit"
@@ -305,9 +325,11 @@ class DepthWizardPredictor:
         3. LIVE Depth Anything V2      -> source="live"   (downloads weights!)
        (4. none of the above -> error; we never fabricate a depth substitute)
 
-    Dn here is RAW relative depth. Per-tile min-max normalization happens in
-    predict(), exactly where the training cache recipe applies it (per 1024
-    tile) — see normalize_dn_per_tile.
+    Dn here is RAW relative depth. Normalization happens inside
+    predict() at exactly the granularity the net consumes — per 1024
+    tile min-max for CalibrationNet (the training contract, see
+    normalize_dn_per_tile); RAW x depth_scale for the RDAH backend
+    (reconstructed from the same per-tile stats — depthwizard/rdah.py).
     """
 
     def __init__(
@@ -317,9 +339,11 @@ class DepthWizardPredictor:
         cache_dir: Path | str | None = None,
         live_backbone: bool = True,
         backbone_id: str = "depth-anything/Depth-Anything-V2-Base-hf",
+        architecture: str | None = None,
+        depth_scale: float = 40.0,
     ):
         from .tifops import (
-            load_calib_net,
+            load_height_model,
             make_full_predict_fn,
             make_predict_fn,
             resolve_torch_device,
@@ -329,7 +353,11 @@ class DepthWizardPredictor:
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.live_backbone = live_backbone
         self.backbone_id = backbone_id
-        self.model = load_calib_net(ckpt_path, self.device)
+        # registry: calibration_net | rdah | None (auto-detect from ckpt)
+        self.model = load_height_model(
+            ckpt_path, self.device, architecture=architecture,
+            depth_scale=depth_scale,
+        )
         self._predict_fn = make_predict_fn(self.model, self.device)
         self._predict_full_fn = make_full_predict_fn(self.model, self.device)
         self._backbone = None
@@ -337,6 +365,11 @@ class DepthWizardPredictor:
     @property
     def model_tag(self) -> str:
         return self.model.tag
+
+    @property
+    def architecture(self) -> str:
+        """Active height backend: "calibration_net" | "rdah"."""
+        return self.model.architecture
 
     # ------------------------------------------------------------------
     def _backbone_raw_per_tile(self, rgb_u8: np.ndarray) -> np.ndarray:
@@ -574,13 +607,19 @@ class DepthWizardPredictor:
 
     def make_tta_predict_fn(self) -> Callable[[np.ndarray], np.ndarray]:
         """Full-path TTA closure: transformed RGB -> LIVE backbone Dn ->
-        per-tile normalized forward -> AGL on the transformed grid.
+        per-tile normalized forward -> height on the transformed grid.
 
         The identity orientation of a cached-Dn deployment must NOT be
         reused for flipped augmentations (a flipped image needs a flipped
         backbone pass — reusing the cached orientation would silently
         predict the unflipped world). This closure therefore always runs
         the live backbone and raises if it is disabled.
+
+        Backend note: per-window (dn, stats) are computed together — the
+        RDAH backend reconstructs the RAW depth scale from the stats, so
+        both backends get exactly the inputs their training contract
+        defined (min-max [0,1] + stats flows to both; each applies its own
+        conversion exactly once).
         """
         if not self.live_backbone:
             raise ValueError(
@@ -590,11 +629,27 @@ class DepthWizardPredictor:
             )
 
         def predict_aug(rgb_aug_u8: np.ndarray) -> np.ndarray:
-            raw = self._backbone_raw_per_tile(rgb_aug_u8)
-            dn = normalize_dn_per_tile(raw)
-            return self._predict_fn(
-                dn, rgb_aug_u8 if self.model.use_rgb else None
-            )
+            from .tiling import OverlapStitcher, TilingConfig, iter_tile_windows
+
+            h, w = rgb_aug_u8.shape[:2]
+            cfg = TilingConfig(tile_size=TILE)
+            stitcher = OverlapStitcher(h, w, cfg)
+            for window in iter_tile_windows(h, w, cfg):
+                tile_rgb = _window_tile(rgb_aug_u8, window, TILE)
+                tile_raw = self._backbone.raw_depth(tile_rgb)
+                # per-window normalization + stats (the SAME pair every
+                # backend's training contract consumed)
+                dn_n, stats = minmax_normalize_with_stats(tile_raw)
+                pred = self._predict_fn(
+                    dn_n, tile_rgb if self.model.use_rgb else None, stats
+                )
+                stitcher.add_tile(window, pred)
+            out = stitcher.finalize()
+            if np.isnan(out).any():
+                raise RuntimeError(
+                    "TTA tiled forward left uncovered NaN pixels"
+                )
+            return out
 
         return predict_aug
 
@@ -635,11 +690,16 @@ def run_inference(
     postprocess_params: dict | None = None,
     tta: bool = False,
     should_cancel: Callable[[], bool] | None = None,
+    architecture: str | None = None,
+    depth_scale: float = 40.0,
 ) -> dict:
     """Full inference run -> scene payload dict (see build_scene_payload).
 
+    ``architecture``: None (auto-detect from the checkpoint) | "rdah" |
+    "calibration_net" — the height-model backend registry.
+
     Post-processing (task Sec. 19 API):
-        postprocess="none"    raw AGL passthrough — byte-identical legacy path
+        postprocess="none"    raw height passthrough — byte-identical legacy path
         postprocess=<preset>  median|guided|bilateral|wls|conf|semantic|full
         postprocess_params    optional {field: value} overrides for
                               PostProcessConfig (e.g. wls_lambda=2.0)
@@ -648,9 +708,11 @@ def run_inference(
                               and at every stage boundary; True raises
                               InferenceCancelled (service-backed cancellation)
 
-    Order is FROZEN: AGL_raw -> refine -> (anchor) -> write. The raw AGL is
-    always preserved (agl_raw.npy) and the anchored DSM is built from the
-    REFINED AGL, so DSM == DEM + AGL_refined holds exactly.
+    Order is FROZEN: height_raw -> refine -> (anchor) -> write. The raw
+    heights are always preserved (agl_raw.npy) and the anchored DSM is
+    built from the REFINED heights, so DSM == DEM + height_refined holds
+    exactly (nDSM + ground elevation = absolute DSM — never mislabel the
+    relative prediction as absolute terrain elevation).
     """
     t0 = time.perf_counter()
     input_path = Path(input_path)
@@ -661,6 +723,8 @@ def run_inference(
         cache_dir=cache_dir,
         live_backbone=live_backbone,
         backbone_id=backbone_id,
+        architecture=architecture,
+        depth_scale=depth_scale,
     )
 
     rgb_u8, profile = read_image(input_path)
@@ -767,10 +831,19 @@ def run_inference(
         f"neg {stats['neg']}"
     )
     if stats["neg"]:
-        print(
-            "[!] negatives exist — the model's clamp makes this impossible. "
-            "The forward pass diverged from the certified path. STOP and diff."
-        )
+        if predictor.model.architecture == "rdah":
+            # RDAH is UNCLAMPED (official semantics): slightly negative
+            # ground predictions are expected, not a divergence.
+            print(
+                f"[i] {stats['neg']} negative pixels — expected for the "
+                "unclamped RDAH backend (official nDSM regression; ground "
+                "can dip below 0). CalibrationNet clamps at 0, RDAH does not."
+            )
+        else:
+            print(
+                "[!] negatives exist — the model's clamp makes this impossible. "
+                "The forward pass diverged from the certified path. STOP and diff."
+            )
 
     anchored = None
     if _cancelled():
@@ -792,8 +865,12 @@ def run_inference(
         )
     elif not georef:
         print(
-            "[i] AGL is RELATIVE to ground (Track-1 rDSM) — not an absolute "
-            "DSM. Anchor with --anchor-dem/--ground-elev for Track 2."
+            "[i] Input raster is not georeferenced — the prediction is a "
+            "RELATIVE height map ("
+            f"{predictor.model.height_type}"
+            "). Absolute georeferenced DSM cannot be emitted without "
+            "external geospatial reference; anchor with --anchor-dem/"
+            "--ground-elev for Track 2. No CRS was invented."
         )
 
     if _cancelled():
@@ -852,6 +929,22 @@ def run_inference(
         outputs=outputs,
         elapsed_sec=time.perf_counter() - t0,
     )
+    # Height semantics (RDAH integration): which backend produced the
+    # heights and what they MEAN. "nDSM"/"AGL" are both above-ground
+    # height in metres — neither is absolute terrain elevation. When
+    # anchoring ran, DSM = heights + ground datum (ANCHORED, not learned).
+    payload["meta"]["model_architecture"] = predictor.model.architecture
+    payload["meta"]["height_type"] = predictor.model.height_type
+    if anchored is not None:
+        payload["meta"]["height_semantics"] = (
+            f"{predictor.model.height_type} + ground datum = absolute DSM "
+            f"({ANCHORED_LABEL})"
+        )
+    else:
+        payload["meta"]["height_semantics"] = (
+            f"{predictor.model.height_type} (above-ground height in metres, "
+            "relative — NOT absolute terrain elevation)"
+        )
     if pp_report_dict is not None:
         payload["postprocess"] = {
             "method": pp_report_dict["method"],
