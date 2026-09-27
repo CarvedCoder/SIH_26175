@@ -1,7 +1,7 @@
 """Persistence layer (SQLAlchemy 2.x over Supabase/PostgreSQL).
 
 The relational database is the single source of truth for scene, job and
-result-artifact metadata. Object bytes live in MinIO (S3 API) and are
+result-artifact metadata. Object bytes live in RustFS (S3 API) and are
 referenced here by object KEY, never by local filesystem paths.
 """
 

@@ -27,15 +27,16 @@ dependencies = [
     "psycopg[binary]>=3.1",
     # Supabase JWT verification
     "pyjwt[crypto]>=2.8",
-    # S3/MinIO object storage
+    # S3-compatible object storage (RustFS)
     "boto3>=1.34",
-    "psycopg2>=2.9.13",
+    "psycopg2-binary>=2.9.13",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "httpx>=0.27", # FastAPI TestClient transport
+    "pybind11>=2.12", # build-time only: compiles native/ (dw_native)
 ]
 
 [tool.uv]

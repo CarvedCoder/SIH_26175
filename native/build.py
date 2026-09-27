@@ -94,7 +94,9 @@ def build_with_cmake(test: bool) -> bool:
     subprocess.run(
         [
             "cmake", "-S", str(NATIVE_DIR), "-B", str(BUILD_DIR),
-            "-DPYTHON_EXECUTABLE=" + sys.executable,
+            # FindPython3 honors Python3_EXECUTABLE; PYTHON_EXECUTABLE is the
+            # legacy FindPythonInterp spelling cmake ignores in this project.
+            "-DPython3_EXECUTABLE=" + sys.executable,
         ],
         check=True,
     )

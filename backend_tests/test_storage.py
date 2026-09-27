@@ -1,7 +1,7 @@
 """Object-storage service tests (local backend + S3 semantics).
 
 Covers: key construction safety, upload/download round-trip and presigned
-URL generation/expiry against a FAKE S3 client (no network, no MinIO
+URL generation/expiry against a FAKE S3 client (no network, no RustFS
 process required).
 """
 
@@ -84,7 +84,7 @@ class FakeS3Client:
     def generate_presigned_url(self, ClientMethod, Params, ExpiresIn):
         self.presign_calls.append({"params": Params, "expires_in": ExpiresIn})
         return (
-            f"https://fake-minio/depthwizard/{Params['Key']}"
+            f"https://fake-s3/depthwizard/{Params['Key']}"
             f"?X-Amz-Expires={ExpiresIn}"
         )
 
@@ -144,7 +144,7 @@ def test_s3_presigned_url_carries_configured_ttl(s3_service, tmp_path, monkeypat
         assert "X-Amz-Expires=42" in url
         assert fake.presign_calls[0]["expires_in"] == 42
         # the URL must never contain credentials
-        assert "MINIO_SECRET" not in url and "secret" not in url
+        assert "S3_SECRET" not in url and "secret" not in url
     finally:
         config_module.get_settings.cache_clear()
 
@@ -195,3 +195,42 @@ def test_s3_delete_scene_objects(s3_service, tmp_path):
     removed = service.delete_scene_objects("user-abc", scene_id)
     assert removed == 2
     assert not fake.objects
+
+
+def test_s3_presign_uses_public_endpoint(monkeypatch):
+    """Presigned URLs are signed against S3_PUBLIC_ENDPOINT (the host the
+    BROWSER reaches) while data operations keep the internal endpoint —
+    SigV4 covers the Host header, so rewriting after signing is not an
+    option and the presign client must target the public host."""
+    import backend.app.core.config as config_module
+
+    monkeypatch.setenv("S3_ENDPOINT", "rustfs:9000")
+    monkeypatch.setenv("S3_PUBLIC_ENDPOINT", "http://localhost:9000")
+    config_module.get_settings.cache_clear()
+    try:
+        backend = S3Storage()
+        assert backend._get_client().meta.endpoint_url == "http://rustfs:9000"
+        assert (
+            backend._get_presign_client().meta.endpoint_url
+            == "http://localhost:9000"
+        )
+    finally:
+        config_module.get_settings.cache_clear()
+
+
+def test_s3_presign_falls_back_to_internal_endpoint(monkeypatch):
+    """No S3_PUBLIC_ENDPOINT (host-side dev): presign against the internal
+    endpoint — the same host the browser uses in that setup."""
+    import backend.app.core.config as config_module
+
+    monkeypatch.setenv("S3_ENDPOINT", "localhost:9000")
+    monkeypatch.delenv("S3_PUBLIC_ENDPOINT", raising=False)
+    config_module.get_settings.cache_clear()
+    try:
+        backend = S3Storage()
+        assert (
+            backend._get_presign_client().meta.endpoint_url
+            == backend._get_client().meta.endpoint_url
+        )
+    finally:
+        config_module.get_settings.cache_clear()

@@ -1,8 +1,8 @@
-# DepthWizard Infrastructure Migration — Supabase Auth · PostgreSQL · MinIO
+# DepthWizard Infrastructure Migration — Supabase Auth · PostgreSQL · RustFS
 
 This document describes the infrastructure migration: Supabase owns
 authentication, PostgreSQL (Supabase-hosted in production) owns relational
-persistence, MinIO (S3 API) owns object storage, and the DepthWizard ML
+persistence, RustFS (S3 API) owns object storage, and the DepthWizard ML
 inference pipeline is untouched.
 
 ## From a clean machine
@@ -14,7 +14,7 @@ python scripts/start.py     # venv, deps, docker infra, backend, frontend
 
 The startup script is idempotent: containers are reused, dependencies are
 only installed when missing/out of sync, and Ctrl+C stops the child servers
-cleanly (PostgreSQL/MinIO are left running; `docker compose stop` stops them).
+cleanly (PostgreSQL/RustFS are left running; `docker compose stop` stops them).
 
 ## What changed (source of truth)
 
@@ -22,7 +22,7 @@ cleanly (PostgreSQL/MinIO are left running; `docker compose stop` stops them).
 |--------------------|-------------------------------------|-------|
 | Authentication     | static `X-API-Key` (or disabled)    | **Supabase JWT** (`Authorization: Bearer`), verified in `backend/app/core/auth.py`; legacy API-key mode and explicit local-dev disabled mode retained |
 | Scene/job metadata | `scene.json` files + JSON job files | **SQL tables** (`scenes`, `jobs`) via SQLAlchemy 2 (`backend/app/db/`) |
-| Object storage     | local filesystem only               | **MinIO/S3** durable store (`backend/app/storage/`); local disk remains the processing workspace + read-through cache |
+| Object storage     | local filesystem only               | **RustFS/S3** durable store (`backend/app/storage/`); local disk remains the processing workspace + read-through cache |
 | Result delivery    | `FileResponse` streams              | **short-lived presigned URLs** (307 redirect on file routes; absolute presigned URLs inside JSON payloads) or direct streams with the local backend |
 
 ## Authentication flow
@@ -52,7 +52,7 @@ cleanly (PostgreSQL/MinIO are left running; `docker compose stop` stops them).
   still serves results. File routes redirect (307) to a presigned GET URL
   generated **only after** the ownership check; JSON payload URLs are
   absolute presigned URLs so `<img>`/three.js loaders work without headers.
-* TTL: `STORAGE_SIGNED_URL_TTL` (default 300 s). MinIO credentials never
+* TTL: `STORAGE_SIGNED_URL_TTL` (default 300 s). S3 credentials never
   reach the browser; the bucket is never public; keys are built only from
   validated scene ids + the verified owner id.
 
@@ -76,7 +76,7 @@ cleanly (PostgreSQL/MinIO are left running; `docker compose stop` stops them).
 ## Environment variables
 
 See `.env.example` for the full annotated list (Supabase, DATABASE_URL,
-MINIO_*, STORAGE_SIGNED_URL_TTL, DW_* inference knobs, VITE_* frontend).
+S3_*, STORAGE_SIGNED_URL_TTL, DW_* inference knobs, VITE_* frontend).
 
 ## Supabase setup
 

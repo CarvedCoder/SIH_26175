@@ -5,7 +5,7 @@ The application layer depends ONLY on these interfaces. Implementations:
     JobRepository    -> infrastructure.persistence.file_job_repository.FileJobRepository
                         (PostgresJobRepository is the planned durable upgrade)
     ArtifactStore    -> infrastructure.storage.local_artifact_store.LocalArtifactStore
-                        (S3ArtifactStore / MinIO: same protocol, tranche 2)
+                        (S3ArtifactStore / RustFS: same protocol, tranche 2)
 
 Implementations must satisfy the contract tests in
 backend_tests/test_statelessness.py / test_artifact_store.py so the
@@ -131,7 +131,7 @@ class ArtifactStore(Protocol):
       * keys are validated (relative, no traversal, canonical);
       * writes are atomic — a reader never observes a partial artifact;
       * the store may be local (development) or object storage
-        (S3/MinIO, production) — identical behavior per the contract
+        (S3/RustFS, production) — identical behavior per the contract
         tests.
     """
 

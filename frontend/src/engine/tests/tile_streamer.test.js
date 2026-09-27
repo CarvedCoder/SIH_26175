@@ -190,7 +190,7 @@ test('7. Chunk UVs are GLOBAL raster UVs (single shared drape texture)', () => {
         const uLocalExpect = (pos.getX(vi) + 100) / 200; // worldMinX=-100, width 200
         const vLocalExpect = (pos.getZ(vi) - 0) / 100;   // worldMinZ=0,  depth 100
         const expectU = uMin + uLocalExpect * (uMax - uMin);
-        const expectV = 1 - (vMin + vLocalExpect * (vMax - vMin));
+        const expectV = (vMin + vLocalExpect * (vMax - vMin));
         assert.ok(Math.abs(u - expectU) < 1e-6, `u mismatch at ${ix},${iz}`);
         assert.ok(Math.abs(v - expectV) < 1e-6, `v mismatch at ${ix},${iz}`);
       }

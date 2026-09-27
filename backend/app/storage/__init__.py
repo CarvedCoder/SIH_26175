@@ -1,6 +1,6 @@
-"""Object-storage abstraction (S3/MinIO + local fallback).
+"""Object-storage abstraction (S3/RustFS + local fallback).
 
-The durable object store is MinIO accessed through the standard S3 API
+The durable object store is RustFS accessed through the standard S3 API
 (boto3). The local filesystem remains the processing workspace: the ML
 pipeline keeps writing files locally, and the service uploads final
 artifacts to the object store after validation (spec section 7 — the

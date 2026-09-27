@@ -1,7 +1,7 @@
 """ArtifactStore contract tests.
 
 Pins the behavior ANY ArtifactStore implementation must satisfy, so the
-LocalArtifactStore (development) and a future S3/MinIO implementation
+LocalArtifactStore (development) and a future S3/RustFS implementation
 (production) are interchangeable behind the same protocol
 (backend/app/domain/protocols.py).
 """

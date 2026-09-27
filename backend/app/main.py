@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
         "DepthWizard API %s starting; auth=%s; storage=%s; cors_origins=%s; worker_mode=%s",
         settings.version,
         auth_mode(),
-        "minio/s3" if storage_service.is_object_store else "local",
+        "s3" if storage_service.is_object_store else "local",
         ",".join(settings.cors_origins),
         get_settings().worker_mode,
     )

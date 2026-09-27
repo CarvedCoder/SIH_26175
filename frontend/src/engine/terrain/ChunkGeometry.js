@@ -123,7 +123,7 @@ export function buildChunkGeometry(options) {
       // WebGL: the geometry's north row — iz = 0, v = vMin — maps to uv.y = 1
       // so an sRGB texture uploaded with flipY = true aligns north-up.)
       uvs[p2] = uMin + (ix / wSegs) * (uMax - uMin);
-      uvs[p2 + 1] = 1.0 - (vMin + (iz / hSegs) * (vMax - vMin));
+      uvs[p2 + 1] = vMin + (iz / hSegs) * (vMax - vMin);
 
       // Metric Normal derivation using central differences in meters
       // (hX[iz][ix] = u - stepU/2, hX[iz][ix+1] = u + stepU/2,

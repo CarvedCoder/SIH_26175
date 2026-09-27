@@ -12,7 +12,7 @@ maps SCENE ARTIFACT KEYS to storage:
 The keys are exactly the on-disk relative layout, so the LocalArtifactStore
 serves the SAME files the path-convention code did — behavior identical,
 addressing now canonical and traversal-validated. Swapping in an
-S3/MinIO ArtifactStore later changes this module, not its consumers.
+S3/RustFS ArtifactStore later changes this module, not its consumers.
 
 Until the S3 store exists, consumers receive local Paths (needed by
 rasterio and FastAPI FileResponse) via ``store.path_for(key)``.

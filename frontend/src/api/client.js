@@ -131,9 +131,9 @@ export async function downloadArtifact(url, filename) {
  * fundamentally different things, decided at RUNTIME by the backend's
  * storage config (see backend `storage/service.py::presign_artifact`):
  *
- *   1. A short-lived MinIO/S3 presigned URL (absolute, a DIFFERENT origin
+ *   1. A short-lived S3 (RustFS) presigned URL (absolute, a DIFFERENT origin
  *      from our API). It already carries its own signature in the query
- *      string. It MUST NOT receive the Supabase JWT: MinIO rejects the
+ *      string. It MUST NOT receive the Supabase JWT: the store rejects the
  *      request (400) when an unexpected Authorization header is present,
  *      and Chrome reports that as a CORS failure because the 400 response
  *      has no CORS headers on it.

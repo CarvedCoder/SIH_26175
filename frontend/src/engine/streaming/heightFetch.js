@@ -6,11 +6,11 @@
  * paths never pull in api/client.js and its Vite path aliases.
  *
  * decodeHeightmap is a storage-asset fetch, not an authenticated API call:
- * resolvedUrl may resolve to a presigned MinIO URL or the legacy same-origin
+ * resolvedUrl may resolve to a presigned S3/RustFS URL or the legacy same-origin
  * backend route, and assetFetch() is what tells those apart safely. There is
  * deliberately no way to pass arbitrary auth headers into this function —
  * that was the leak: a caller could (and did) hand it the Supabase JWT
- * provider, which then rode along to MinIO and got rejected.
+ * provider, which then rode along to the object store and got rejected.
  */
 
 import { assetFetch } from '../../api/client.js';

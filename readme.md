@@ -53,34 +53,22 @@ The API is then at `http://localhost:8000/api/v1` with docs at `/docs`.
 
 ## Docker (the canonical backend)
 
-You need to get a minio free lisence to start the server as of now (get the lisence through https://www.min.io/pricing)
-Store it under .secrets/minio.license/minio.license.txt
-then run
-
-```bash
-
-mkdir -p ~/aistor-binaries
-curl --progress-bar -L \
-  https://dl.min.io/aistor/mc/release/darwin-arm64/mc \
-  -o ~/aistor-binaries/mc
-chmod +x ~/aistor-binaries/mc
-export PATH="$HOME/aistor-binaries:$PATH" # works on linux and mac systems only
-
-mc alias set depthwizard \
-  http://localhost:9000 \
-  "$MINIO_ACCESS_KEY" \
-  "$MINIO_SECRET_KEY" # put actual data from .env in here
-
-mc license update depthwizard .secrets/minio.license/minio.license.txt
-
-mc license info depthwizard # verification
-
-```
+Object storage is **RustFS** — a self-hosted, S3-compatible server with **no
+license mechanism** and no per-device activation. Credentials come from `.env`
+(`S3_ACCESS_KEY` / `S3_SECRET_KEY`); the `depthwizard` bucket is created
+automatically by the backend on startup.
 
 ```bash
 docker compose up --build
-# backend -> http://localhost:8000  (health: /api/v1/health, docs: /docs)
+# backend  -> http://localhost:8000  (health: /api/v1/health, docs: /docs)
+# RustFS S3 API  -> http://localhost:9000
+# RustFS console -> http://localhost:9001  (sign in with S3_ACCESS_KEY/S3_SECRET_KEY)
 ```
+
+Objects persist in the named Docker volume `rustfs_data` and survive
+container restarts. Inside the compose network the backend talks to
+`http://rustfs:9000`; presigned URLs handed to the browser use
+`S3_PUBLIC_ENDPOINT` (default `http://localhost:9000`).
 
 The image runs `uvicorn backend.app.main:app` as a non-root user, installs
 dependencies from `pyproject.toml` + `uv.lock` (`--frozen`), and mounts

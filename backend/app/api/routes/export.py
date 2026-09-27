@@ -49,7 +49,7 @@ async def export_scene(scene_id: str, export_type: str):
             recoverable=False,
         ) from exc
 
-    # S3/MinIO backend: deliver via a short-lived presigned URL (the
+    # S3/RustFS backend: deliver via a short-lived presigned URL (the
     # ownership guard above has already passed); local backend streams.
     if storage_service.is_object_store:
         with session_scope() as session:

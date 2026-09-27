@@ -40,7 +40,7 @@ _EXTRA_ALLOWED_FILES = {
 def _get_result_file(scene_id: str, result_name: str):
     """Return a generated result file for a scene.
 
-    Delivery: with the S3/MinIO backend the client receives a 307 redirect
+    Delivery: with the S3/RustFS backend the client receives a 307 redirect
     to a SHORT-LIVED presigned URL (generated only after the ownership
     guard passed; no credentials are exposed). With the local development
     backend the file is streamed directly."""

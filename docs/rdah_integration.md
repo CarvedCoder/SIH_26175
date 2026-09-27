@@ -54,7 +54,7 @@ benchmark) that require the local RTX 4050 — exact commands in §9/§10.
 | `configs/infer.yaml` | Default backend switched to `rdah` + pretrained Track1 checkpoint |
 | `model.py` | Docstring runbook updated (train/evaluate/infer/bench for both backends) |
 
-**Untouched (per spec)**: frontend, backend/app API routes, database, MinIO,
+**Untouched (per spec)**: frontend, backend/app API routes, database, object storage,
 post-processing internals, experiments, GAMUS dataset/target generation,
 anchoring semantics, tiling/mosaic, splits, metrics.
 

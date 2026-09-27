@@ -30,7 +30,7 @@ tranche 3.
 |---|---|---|
 | `Job` entity | `backend/app/domain/entities.py` | canonical record for API schema + persistence |
 | `JobRepository` | `backend/app/domain/protocols.py` | `FileJobRepository` (JSON per scene dir); Postgres planned |
-| `ArtifactStore` | `backend/app/domain/protocols.py` | `LocalArtifactStore`; S3/MinIO planned (tranche 2) |
+| `ArtifactStore` | `backend/app/domain/protocols.py` | `LocalArtifactStore`; S3/RustFS planned (tranche 2) |
 | `JobService` | `backend/app/application/jobs/service.py` | adds the worker-side lease heartbeat |
 | `JobManager` | `backend/app/jobs/manager.py` | compatibility facade over `JobService` (old import path keeps working) |
 
@@ -78,7 +78,7 @@ inference run even without heartbeats).
 ```text
 Load balancer → N stateless API containers
                  └─ shared durable store: job docs (Postgres in tranche 2+)
-                    + shared artifact store (S3/MinIO in tranche 2)
+                    + shared artifact store (S3/RustFS in tranche 2)
                  └─ queue → M GPU workers (same image, worker entrypoint)
 ```
 
@@ -115,7 +115,7 @@ split removes the last process-local piece (in-process job execution).
 
 * **Storage seam exists, services not yet rewired**: business logic still
   addresses artifacts via `core/paths.py` (safe, local). Next tranche
-  moves reads/writes onto `ArtifactStore` so S3/MinIO becomes
+  moves reads/writes onto `ArtifactStore` so S3/RustFS becomes
   configuration.
 * **Last-writer-wins job mutations**: per-file read-modify-write without
   cross-process transactions; the DB-backed repository is the upgrade.

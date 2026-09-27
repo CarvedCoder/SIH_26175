@@ -27,13 +27,13 @@ namespace dw {
 // TerrainService._fill_invalid). Surviving all-invalid regions get the
 // global mean of finite samples (0.0 if none). Returns the number of
 // iterations performed.
-long fill_invalid(float* data, long rows, long cols);
+long fill_invalid(float *data, long rows, long cols);
 
 // Clamp-and-stretch: out = clamp((in - lo) / (hi - lo), 0, 1).
 // Non-finite inputs map to 0.
-void stretch_to_01(const float* in, float* out, long count, float lo, float hi);
+void stretch_to_01(const float *in, float *out, long count, float lo, float hi);
 
 // out = (uint8) lround(clamp(in, 0, 1) * 255.0f)
-void quantize_u8(const float* in, std::uint8_t* out, long count);
+void quantize_u8(const float *in, std::uint8_t *out, long count);
 
-}  // namespace dw
+} // namespace dw

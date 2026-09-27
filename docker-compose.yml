@@ -1,26 +1,24 @@
 services:
-  minio:
-    image: quay.io/minio/aistor/minio:latest
+  rustfs:
+    image: rustfs/rustfs:latest
 
-    command:
-      - server
-      - /data
-      - --console-address
-      - :9001
-      - --license
-      - /minio.license
-
+    # RustFS — self-hosted S3-compatible object storage (drop-in MinIO
+    # replacement). S3 API on 9000, web console on 9001. No license
+    # mechanism; credentials come from .env (S3_ACCESS_KEY/S3_SECRET_KEY).
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
-      MINIO_API_CORS_ALLOW_ORIGIN: "http://localhost:5173,http://127.0.0.1:5173"
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY}
+      RUSTFS_CONSOLE_ENABLE: "true"
+      # Browser origins allowed to fetch presigned URLs cross-origin
+      # (the frontend fetches height/preview artifacts directly from here).
+      RUSTFS_CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
 
     healthcheck:
       test:
         - CMD
-        - mc
-        - ready
-        - local
+        - curl
+        - -f
+        - http://localhost:9000/health
       timeout: 5s
       interval: 10s
       retries: 6
@@ -31,8 +29,7 @@ services:
       - "127.0.0.1:9001:9001"
 
     volumes:
-      - minio_data:/data
-      - ./.secrets/minio.license:/minio.license:ro
+      - rustfs_data:/data
 
     restart: unless-stopped
 
@@ -45,13 +42,18 @@ services:
     env_file: .env
 
     environment:
-      # Inside the compose network MinIO is the minio host, not
-      # localhost (the .env default is for host-side dev).
-      STORAGE_BACKEND: minio
-      MINIO_ENDPOINT: minio:9000
-      MINIO_SECURE: "false"
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      # Inside the compose network RustFS is the rustfs host, NOT
+      # localhost (the .env default is for host-side dev). S3_PUBLIC_ENDPOINT
+      # is what presigned URLs embed — that host must be reachable from the
+      # BROWSER, which runs on the host.
+      STORAGE_BACKEND: s3
+      S3_ENDPOINT: rustfs:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      S3_SECURE: "false"
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET:-depthwizard}
+      S3_REGION: ${S3_REGION:-us-east-1}
       # Browser talks to the backend from the host at :5173.
       DW_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       DW_DEVICE: auto
@@ -72,59 +74,7 @@ services:
       - ./data:/app/data
 
     depends_on:
-      minio:
-        condition: service_healthy
-
-    restart: unless-stopped
-
-  frontend:
-    build: ./frontend
-
-    ports:
-      - "127.0.0.1:5173:5173"
-
-    depends_on:
-      - backend
-
-    restart: unless-stopped
-
-  backend:
-    build: .
-
-    # Canonical backend (backend.app.main:app). .env is the canonical
-    # config (Supabase auth, DW_* inference knobs); the entries under
-    # `environment:` override it for in-compose networking and CORS.
-    env_file: .env
-
-    environment:
-      # Inside the compose network MinIO is the `minio` host, not
-      # localhost (the .env default is for host-side dev).
-      STORAGE_BACKEND: minio
-      MINIO_ENDPOINT: minio:9000
-      MINIO_SECURE: "false"
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
-      # Browser talks to the backend from the host at :5173.
-      DW_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
-      DW_DEVICE: auto
-      # Supabase's direct db.* host is IPv6-only; Docker's default bridge
-      # network has no IPv6, so the container cannot resolve/connect to it
-      # (backend crash-looped on startup → uploads 5xx). Containers run on
-      # the bound-mounted SQLite DB instead; host-side runs keep the
-      # Supabase DATABASE_URL from .env.
-      DATABASE_URL: sqlite:////app/data/depthwizard.db
-
-    ports:
-      - "127.0.0.1:8000:8000"
-
-    volumes:
-      # Trained checkpoint (outputs/calib_net/gamus_rgb_grad/best.pt)
-      # plus service outputs and scene data persist on the host.
-      - ./outputs:/app/outputs
-      - ./data:/app/data
-
-    depends_on:
-      minio:
+      rustfs:
         condition: service_healthy
 
     restart: unless-stopped
@@ -141,4 +91,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  minio_data:
+  rustfs_data:

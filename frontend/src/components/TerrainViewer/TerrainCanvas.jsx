@@ -35,7 +35,7 @@ import { overviewToHeightfield } from '../../engine/streaming/PatchHeightfield.j
  * streaming keeps full source resolution at every LOD.
  * Per-tile textures are streamed when the raster is large enough for the
  * single global texture to be a memory/quality concern (§17). */
-const HEIGHT_STREAM_THRESHOLD_PX = 2048;
+const HEIGHT_STREAM_THRESHOLD_PX = 4096;
 const OVERVIEW_SIZE_PX = 1024;
 
 /** Build tile URL callbacks from the backend tile_config (fractional-quadtree
@@ -71,7 +71,7 @@ async function fetchOverviewHeightfield(urlFn, rasterWidth, rasterHeight) {
 
 /** Load a result-texture URL into a THREE texture via fetch (TextureLoader
  * cannot send headers anyway). `url` is a storage-asset URL — it may
- * resolve to a presigned MinIO URL or the legacy backend file route — so
+ * resolve to a presigned S3/RustFS URL or the legacy backend file route — so
  * this goes through assetFetch(), which decides per-request whether the
  * JWT belongs on it, rather than always attaching it.
  *
@@ -91,7 +91,7 @@ async function loadAuthTexture(url, { rawData = false } = {}) {
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
   tex.generateMipmaps = true;
-  tex.flipY = true;
+  tex.flipY = false;
   tex.needsUpdate = true;
   return tex;
 }
@@ -297,7 +297,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
         confTex.minFilter = THREE.LinearFilter;
         confTex.magFilter = THREE.LinearFilter;
         confTex.generateMipmaps = false;
-        confTex.flipY = true;
+        confTex.flipY = false;
         confTex.needsUpdate = true;
       }
 

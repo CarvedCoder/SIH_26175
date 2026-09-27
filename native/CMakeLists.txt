@@ -29,6 +29,8 @@ endif()
 
 pybind11_add_module(dw_native src/bindings.cpp src/raster.cpp)
 
+target_include_directories(dw_native PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
 # -O3 + native SIMD where the build host supports it; fall back to plain
 # -O3 (baseline x86-64 still auto-vectorizes SSE2) when the flag is
 # rejected by the compiler.

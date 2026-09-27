@@ -78,7 +78,7 @@ frontend/                  React/Vite frontend (Vite dev server :5173;
 tools/make_fake_dataset.py synthetic DFC2019 mini-dataset (smoke tests)
 tools/make_fake_gamus.py   synthetic GAMUS-shaped HDF5 mini-dataset
 tools/e2e_bridge_check.py  CLI + service contract check (all-green)
-docker-compose.yml         minio + backend + frontend, pre-wired
+docker-compose.yml         rustfs + backend + frontend, pre-wired
 docs/                      design docs + rendered frontend evidence
                            (docs/screenshots/)
 ```
@@ -242,7 +242,7 @@ Rendered evidence lives in `docs/screenshots/`.
 docker compose up --build
 #   backend  → http://localhost:8000  (health: /api/v1/health, docs: /docs)
 #   frontend → http://localhost:5173
-#   minio    → http://localhost:9000 (console :9001)
+#   rustfs   → http://localhost:9000 (console :9001)
 ```
 
 ## 5. The connection (how "everything is wired")

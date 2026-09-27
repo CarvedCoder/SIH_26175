@@ -1,6 +1,6 @@
 """Local-filesystem ArtifactStore — the development/test implementation.
 
-Production swaps in an S3/MinIO implementation of the same
+Production swaps in an S3/RustFS implementation of the same
 ``domain.protocols.ArtifactStore`` protocol; the contract tests
 (backend_tests/test_artifact_store.py) pin the behavior both must
 satisfy. Business logic only ever sees artifact KEYS — never paths,

@@ -94,13 +94,16 @@ class ProcessingService:
         rdah: the released pretrained Track1 checkpoint. With
         ``allow_download`` (inference paths only — NEVER health probes) a
         missing checkpoint is auto-downloaded + MD5-verified on first use
-        (depthwizard/rdah.py). DW_CKPT may point at a different RDAH
-        checkpoint; a DW_CKPT that is NOT an RDAH checkpoint is a loud
-        error, never a silent swap.
-        calibration_net: DW_CKPT, else the repo default below (mirrored in
-        docker-compose), else the tiny tracked flagship at the repo root.
+        (depthwizard/rdah.py). DW_CKPT_RDAH (or the generic DW_CKPT) may
+        point at a different RDAH checkpoint — e.g. a fine-tuned one; an
+        override that is NOT an RDAH checkpoint is a loud error, never a
+        silent swap.
+        calibration_net: DW_CKPT_CALIB, else DW_CKPT, else the repo default
+        below (mirrored in docker-compose), else the tiny tracked flagship
+        at the repo root.
         auto (legacy clients and old job records): follow the checkpoint —
-        DW_CKPT's detected architecture when set, else the RDAH default.
+        the generic DW_CKPT's detected architecture when set, else the RDAH
+        default.
         """
 
         env_checkpoint = self.settings.checkpoint
@@ -114,20 +117,21 @@ class ProcessingService:
                 architecture = "rdah"
 
         if architecture == "rdah":
+            env_checkpoint = self.settings.ckpt_rdah or env_checkpoint
             if env_checkpoint:
                 env_path = Path(env_checkpoint)
                 if not env_path.exists():
                     raise FileNotFoundError(
-                        "DW_CKPT points at a missing checkpoint: "
-                        f"{env_path}"
+                        "the configured RDAH checkpoint override points at "
+                        f"a missing file: {env_path}"
                     )
                 from depthwizard.tifops import detect_architecture
 
                 if detect_architecture(str(env_path)) != "rdah":
                     raise ValueError(
-                        "DW_CKPT points at a non-RDAH checkpoint but "
-                        "architecture 'rdah' was requested — unset DW_CKPT "
-                        "or request calibration_net."
+                        "the configured RDAH checkpoint override "
+                        f"({env_path}) is not an RDAH checkpoint — check "
+                        "DW_CKPT_RDAH / DW_CKPT."
                     )
                 return self._verify_checkpoint_sha(env_path), "rdah"
             default = (
@@ -146,6 +150,7 @@ class ProcessingService:
                 )
             return default, "rdah"
 
+        env_checkpoint = self.settings.ckpt_calib or self.settings.checkpoint
         if env_checkpoint:
             checkpoint = Path(env_checkpoint)
         else:

@@ -34,7 +34,7 @@ bounded, and they fall into four groups:
    `terrain_service`, `export_service`, and `processing_service` all
    build raw `Path`s from scene ids and open files directly
    (`result_service.py:9`, `terrain_service.py:9,26,49,309,388`). There
-   is no `ArtifactStore` seam, so pointing the system at S3/MinIO
+   is no `ArtifactStore` seam, so pointing the system at S3/RustFS
    requires touching every consumer. (Local-disk works; horizontal scale
    with shared volumes only half-works — `paths.py` hard-codes
    `PROJECT_ROOT`.)
@@ -189,7 +189,7 @@ Tranche 3b — **delivered** (storage addressing + durable claims):
 12. ✅ All backend services (result/terrain/export/validation/processing)
     address artifacts via `scene_artifacts.py` key builders +
     `ArtifactStore.path_for` (keys mirror the on-disk layout; an
-    S3/MinIO store now only changes that module). Local Paths still flow
+    S3/RustFS store now only changes that module). Local Paths still flow
     to rasterio/FileResponse until the object-store implementation lands.
 13. ✅ `SqliteJobRepository` — DB-backed JobRepository (stdlib SQLite,
     WAL): `claim_queued` runs inside BEGIN IMMEDIATE, so claims are

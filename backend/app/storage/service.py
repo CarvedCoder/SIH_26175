@@ -5,7 +5,7 @@ Design (migration spec sections 5/7):
     * the ML pipeline keeps writing to LOCAL directories (untouched
       inference code);
     * after a job completes, every generated artifact is uploaded to
-      MinIO and the DB stores its object KEY (never a filesystem path);
+      the object store and the DB stores its object KEY (never a filesystem path);
     * on read, a missing local artifact is transparently re-downloaded
       from the object store (read-through cache), so a backend restart
       on a fresh machine still serves results;

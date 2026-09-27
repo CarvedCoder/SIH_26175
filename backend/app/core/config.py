@@ -77,16 +77,28 @@ class Settings:
         )
 
         # --- Object storage ---------------------------------------------------
-        # MinIO (S3 API) is the durable object store; the local filesystem
+        # RustFS (S3 API) is the durable object store; the local filesystem
         # remains the processing workspace + read-through cache. "local"
-        # keeps the pre-migration behavior (no object store).
-        self.storage_backend: str = os.environ.get("STORAGE_BACKEND", "minio")
-        self.minio_endpoint: str = os.environ.get("MINIO_ENDPOINT", "localhost:9000")
-        self.minio_access_key: str = os.environ.get("MINIO_ACCESS_KEY", "")
-        self.minio_secret_key: str = os.environ.get("MINIO_SECRET_KEY", "")
-        self.minio_bucket: str = os.environ.get("MINIO_BUCKET", "depthwizard")
-        self.minio_region: str | None = os.environ.get("MINIO_REGION") or None
-        self.minio_secure: bool = os.environ.get("MINIO_SECURE", "false") == "true"
+        # keeps the pre-migration behavior (no object store). The legacy
+        # value "minio" is accepted as an alias of "s3" (the S3 client code
+        # is server-agnostic — any S3-compatible endpoint works).
+        self.storage_backend: str = os.environ.get("STORAGE_BACKEND", "s3").lower()
+        # S3_ENDPOINT is what the BACKEND talks to (inside Docker:
+        # rustfs:9000; host-side dev: localhost:9000). Accepts either
+        # "host:port" (scheme chosen via S3_SECURE) or a full URL.
+        self.s3_endpoint: str = os.environ.get("S3_ENDPOINT", "localhost:9000")
+        # S3_PUBLIC_ENDPOINT is what PRESIGNED URLs embed — the host the
+        # BROWSER must reach. Unset => presign against S3_ENDPOINT (correct
+        # for host-side dev where they are the same; wrong inside Docker,
+        # where the browser cannot resolve the internal service name).
+        self.s3_public_endpoint: str | None = (
+            os.environ.get("S3_PUBLIC_ENDPOINT") or None
+        )
+        self.s3_access_key: str = os.environ.get("S3_ACCESS_KEY", "")
+        self.s3_secret_key: str = os.environ.get("S3_SECRET_KEY", "")
+        self.s3_bucket: str = os.environ.get("S3_BUCKET", "depthwizard")
+        self.s3_region: str | None = os.environ.get("S3_REGION") or None
+        self.s3_secure: bool = os.environ.get("S3_SECURE", "false") == "true"
         self.storage_signed_url_ttl: int = _int_env("STORAGE_SIGNED_URL_TTL", 300)
 
         # --- Upload limits ------------------------------------------------
@@ -118,6 +130,12 @@ class Settings:
         # DW_NO_LIVE=1 disables the live DAv2 fallback (offline honesty).
         self.live_backbone: bool = os.environ.get("DW_NO_LIVE") != "1"
         self.checkpoint: str | None = os.environ.get("DW_CKPT") or None
+        # Per-backend checkpoint overrides (RDAH integration): these WIN over
+        # the generic DW_CKPT for their backend, so the webapp backend switch
+        # can serve a fine-tuned RDAH net AND a CalibrationNet checkpoint at
+        # the same time (a generic DW_CKPT only fits one architecture).
+        self.ckpt_rdah: str | None = os.environ.get("DW_CKPT_RDAH") or None
+        self.ckpt_calib: str | None = os.environ.get("DW_CKPT_CALIB") or None
         self.checkpoint_sha256: str | None = (
             os.environ.get("DW_CKPT_SHA256") or None
         )

@@ -7,12 +7,17 @@ Usage:
 Local stack:
     - Python dependencies via uv
     - Frontend dependencies via npm
+    - Native C++ acceleration built (native/ — non-fatal, pure-Python
+      fallback when the toolchain is unavailable)
+    - Model assets pre-fetched (released RDAH checkpoint unless
+      DW_CKPT_RDAH overrides it; Depth Anything V2 weights unless
+      DW_NO_LIVE=1) so the first processing job never stalls
     - PostgreSQL via DATABASE_URL
         * Supabase/external PostgreSQL: no Docker PostgreSQL started
         * localhost PostgreSQL: optionally managed by Docker Compose
-    - MinIO:
-        * local Docker MinIO when MINIO_ENDPOINT points to localhost
-        * external MinIO when MINIO_ENDPOINT points elsewhere
+    - Object storage (RustFS, S3-compatible):
+        * local Docker RustFS when S3_ENDPOINT points to localhost
+        * external S3 endpoint when S3_ENDPOINT points elsewhere
     - FastAPI backend
     - Vite frontend
 
@@ -340,6 +345,109 @@ def ensure_frontend_deps() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Native acceleration + model assets (build once, then serve)
+# ---------------------------------------------------------------------------
+
+
+def build_native_extension() -> None:
+    """Compile the C++ SIMD raster kernels (native/ -> dw_native) so the
+    serving stack uses the fast path for tile serving / layer PNGs.
+
+    NEVER fatal: the backend has a documented pure-Python fallback with
+    identical outputs (backend/app/services/native_accel.py). A failed
+    build only means slower serving, so it logs a warning and continues.
+    """
+    # pybind11 is a build-time-only dependency; `uv sync` (no extras) can
+    # strip it from the venv, so reinstall on demand before compiling.
+    try:
+        import pybind11  # noqa: F401
+    except ImportError:
+        uv = shutil.which("uv")
+        if uv is None:
+            log("WARNING: pybind11 missing and uv not found — skipping native build")
+            return
+        log("installing build-time dependency pybind11…")
+        run([uv, "pip", "install", "--python", sys.executable, "pybind11"])
+
+    log("building native acceleration (native/ -> dw_native)…")
+
+    result = run(
+        [sys.executable, str(ROOT / "native" / "build.py")],
+        cwd=ROOT,
+    )
+
+    if result.returncode != 0:
+        log(
+            "native extension build failed — continuing with the "
+            "pure-Python fallback (identical outputs, slower serving)"
+        )
+        return
+
+    log("native acceleration ready")
+
+
+def prefetch_model_assets() -> None:
+    """Pre-download model weights so the FIRST processing job never stalls
+    inside an HTTP request. All steps are idempotent (cached artifacts are
+    detected and skipped) and non-fatal (an offline machine still gets a
+    working stack — the downloads just happen lazily on first use).
+
+      * RDAH-Net checkpoint: the released Track1 model is fetched +
+        MD5-verified (depthwizard/rdah.py) unless DW_CKPT_RDAH points at a
+        local fine-tune, in which case only its presence is checked;
+      * Depth Anything V2 backbone: warmed when live inference is enabled.
+    """
+    # The project is run from the source tree (package = false): the backend
+    # gets ROOT on sys.path via `python -m uvicorn`, this script does not.
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+
+    rdah_override = os.environ.get("DW_CKPT_RDAH")
+    if rdah_override:
+        if (ROOT / rdah_override).is_file() or Path(rdah_override).is_file():
+            log(f"RDAH checkpoint override present: {rdah_override}")
+        else:
+            log(
+                f"WARNING: DW_CKPT_RDAH={rdah_override} does not exist — "
+                "RDAH jobs will fail until it does"
+            )
+    else:
+        try:
+            from depthwizard.rdah import ensure_rdah_checkpoint
+
+            path = ensure_rdah_checkpoint(
+                str(ROOT / "checkpoints" / "rdah" / "rdah_track1_best_model.pth")
+            )
+            log(f"RDAH checkpoint ready: {path}")
+        except Exception as exc:
+            log(
+                "WARNING: could not fetch the released RDAH checkpoint "
+                f"({exc}) — it will be downloaded on the first RDAH job"
+            )
+
+    if os.environ.get("DW_NO_LIVE") == "1":
+        log("live DAv2 disabled (DW_NO_LIVE=1) — backbone not warmed")
+        return
+
+    backbone_id = os.environ.get(
+        "DW_BACKBONE", "depth-anything/Depth-Anything-V2-Base-hf"
+    )
+    try:
+        from depthwizard.backbone import get_backbone
+
+        backbone = get_backbone(model_id=backbone_id, device="cpu")
+        if not backbone.loaded:
+            log(f"fetching {backbone_id} weights (first run only)…")
+        backbone.load()
+        log(f"Depth Anything V2 backbone ready: {backbone_id}")
+    except Exception as exc:
+        log(
+            f"WARNING: could not pre-fetch {backbone_id} ({exc}) — "
+            "weights will download on the first live inference"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
@@ -352,19 +460,19 @@ def validate_config() -> None:
     if not database_url:
         missing.append("DATABASE_URL")
 
-    storage_backend = os.environ.get("STORAGE_BACKEND", "minio").lower()
+    storage_backend = os.environ.get("STORAGE_BACKEND", "s3").lower()
 
-    if storage_backend == "minio":
-        minio_endpoint = os.environ.get("MINIO_ENDPOINT")
+    if storage_backend in ("s3", "minio"):  # "minio": legacy alias
+        s3_endpoint = os.environ.get("S3_ENDPOINT")
 
-        if not minio_endpoint:
-            missing.append("MINIO_ENDPOINT")
+        if not s3_endpoint:
+            missing.append("S3_ENDPOINT")
 
-        if not os.environ.get("MINIO_ACCESS_KEY"):
-            missing.append("MINIO_ACCESS_KEY")
+        if not os.environ.get("S3_ACCESS_KEY"):
+            missing.append("S3_ACCESS_KEY")
 
-        if not os.environ.get("MINIO_SECRET_KEY"):
-            missing.append("MINIO_SECRET_KEY")
+        if not os.environ.get("S3_SECRET_KEY"):
+            missing.append("S3_SECRET_KEY")
 
     if missing:
         fail(
@@ -388,18 +496,18 @@ def validate_config() -> None:
 
     log(f"storage backend: {storage_backend}")
 
-    if storage_backend == "minio":
-        endpoint = os.environ["MINIO_ENDPOINT"]
+    if storage_backend in ("s3", "minio"):
+        endpoint = os.environ["S3_ENDPOINT"]
         try:
-            minio_host, minio_port = parse_host_port(endpoint)
+            s3_host, s3_port = parse_host_port(endpoint)
         except ValueError as exc:
-            fail(f"invalid MINIO_ENDPOINT: {exc}")
+            fail(f"invalid S3_ENDPOINT: {exc}")
             return
 
         log(
-            f"MinIO configured: "
-            f"{'local' if is_local_host(minio_host) else 'external'} "
-            f"({minio_host}:{minio_port})"
+            f"S3 object storage configured: "
+            f"{'local' if is_local_host(s3_host) else 'external'} "
+            f"({s3_host}:{s3_port})"
         )
 
     log("configuration OK")
@@ -458,48 +566,50 @@ def start_local_postgres() -> None:
     log("local PostgreSQL container started")
 
 
-def start_minio() -> None:
-    """Start local MinIO only when MINIO_ENDPOINT points to localhost."""
-    storage_backend = os.environ.get("STORAGE_BACKEND", "minio").lower()
+def start_storage() -> None:
+    """Start local RustFS only when S3_ENDPOINT points to localhost."""
+    storage_backend = os.environ.get("STORAGE_BACKEND", "s3").lower()
 
-    if storage_backend != "minio":
-        log("MinIO disabled — STORAGE_BACKEND is not 'minio'")
+    if storage_backend not in ("s3", "minio"):  # "minio": legacy alias
+        log("object storage disabled — STORAGE_BACKEND is not 's3'")
         return
 
-    endpoint = os.environ["MINIO_ENDPOINT"]
+    endpoint = os.environ["S3_ENDPOINT"]
 
     host, port = parse_host_port(endpoint)
 
     if not is_local_host(host):
-        log(f"using external MinIO at {host}:{port} — Docker MinIO will not be started")
+        log(f"using external S3 storage at {host}:{port} — Docker RustFS will not be started")
 
         if not wait_for_port(host, port, timeout=15):
             fail(
-                f"external MinIO is not reachable at {host}:{port}. "
-                "Check MINIO_ENDPOINT and network connectivity."
+                f"external S3 storage is not reachable at {host}:{port}. "
+                "Check S3_ENDPOINT and network connectivity."
             )
 
-        log("external MinIO is reachable")
+        log("external S3 storage is reachable")
         return
 
     docker = docker_command()
 
-    log("starting local MinIO via docker compose…")
+    log("starting local RustFS via docker compose…")
 
     result = run(
-        [docker, "compose", "up", "-d", "minio"],
+        [docker, "compose", "up", "-d", "rustfs"],
         cwd=ROOT,
         capture_output=True,
         text=True,
     )
 
     if result.returncode != 0:
-        fail("Docker MinIO startup failed:\n" + result.stderr.strip())
+        fail("Docker RustFS startup failed:\n" + result.stderr.strip())
 
+    # Readiness, not just ordering: the backend's startup bucket creation
+    # must not race a still-initializing object store.
     if not wait_for_port(host, port, timeout=30):
-        fail(f"MinIO did not become reachable at {host}:{port} within 30 seconds")
+        fail(f"RustFS did not become reachable at {host}:{port} within 30 seconds")
 
-    log("MinIO is ready")
+    log("RustFS is ready")
 
     global infrastructure_started
     infrastructure_started = True
@@ -517,8 +627,8 @@ def start_infra() -> None:
     else:
         check_external_database()
 
-    # MinIO
-    start_minio()
+    # Object storage (RustFS)
+    start_storage()
 
 
 # ---------------------------------------------------------------------------
@@ -655,6 +765,8 @@ def main() -> None:
     ensure_python_env()
     ensure_venv_interpreter()
     ensure_frontend_deps()
+    build_native_extension()
+    prefetch_model_assets()
     validate_config()
     start_infra()
     start_backend()
@@ -665,7 +777,7 @@ def main() -> None:
 
     storage_backend = os.environ.get(
         "STORAGE_BACKEND",
-        "minio",
+        "s3",
     ).lower()
 
     print(
