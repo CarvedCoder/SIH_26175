@@ -47,6 +47,15 @@ TILE = 1024  # training tile size; crop/resize/tiles all target it
 MAX_GRID_SIDE = 512  # webapp mesh grid cap (stride-downsampled)
 
 
+class InferenceCancelled(RuntimeError):
+    """Raised between tiles/stages when a cooperative cancel hook fires.
+
+    The service catches this and marks the job cancelled; the CLI never
+    passes a hook, so CLI behavior is unchanged.
+    """
+
+
+
 # ---------------------------------------------------------------------------
 # Image input
 # ---------------------------------------------------------------------------
@@ -403,7 +412,8 @@ class DepthWizardPredictor:
 
     # ------------------------------------------------------------------
     def predict(
-        self, rgb_u8: np.ndarray, raw_dn: np.ndarray, mode: str = "auto"
+        self, rgb_u8: np.ndarray, raw_dn: np.ndarray, mode: str = "auto",
+        should_cancel: Callable[[], bool] | None = None,
     ) -> np.ndarray:
         """AGL metres [H,W] float32. Modes: auto|crop|resize|tiles.
 
@@ -422,10 +432,13 @@ class DepthWizardPredictor:
                  normalized PER WINDOW (the training recipe), weighted-
                  stitched (depthwizard.tiling) — seam-free, full coverage.
         """
-        return self._predict_impl(rgb_u8, raw_dn, mode, want_semantics=False)
+        return self._predict_impl(
+            rgb_u8, raw_dn, mode, want_semantics=False, should_cancel=should_cancel
+        )
 
     def predict_with_semantics(
-        self, rgb_u8: np.ndarray, raw_dn: np.ndarray, mode: str = "auto"
+        self, rgb_u8: np.ndarray, raw_dn: np.ndarray, mode: str = "auto",
+        should_cancel: Callable[[], bool] | None = None,
     ) -> dict:
         """Like predict(), but ALSO returns predicted semantic probabilities.
 
@@ -434,8 +447,13 @@ class DepthWizardPredictor:
         (never GT) and is None for checkpoints without sem_aux_head — the
         post-processing stage degrades honestly in that case. Composition:
         {"pred", "sem_probs"} -> PostProcessConfig -> refine_agl.
+
+        ``should_cancel`` is a cooperative hook polled between tiles; when it
+        returns True, InferenceCancelled is raised (never silently ignored).
         """
-        return self._predict_impl(rgb_u8, raw_dn, mode, want_semantics=True)
+        return self._predict_impl(
+            rgb_u8, raw_dn, mode, want_semantics=True, should_cancel=should_cancel
+        )
 
     def _predict_impl(
         self,
@@ -443,6 +461,7 @@ class DepthWizardPredictor:
         raw_dn: np.ndarray,
         mode: str = "auto",
         want_semantics: bool = False,
+        should_cancel: Callable[[], bool] | None = None,
     ):
         from .imgio import validate_rgb_u8
 
@@ -500,6 +519,10 @@ class DepthWizardPredictor:
             sem_stitchers: list[OverlapStitcher] | None = []
             print(f"[i] tiles: {len(windows)} windows of {TILE} (overlap {cfg.overlap})")
             for window in windows:
+                if should_cancel is not None and should_cancel():
+                    raise InferenceCancelled(
+                        "cancelled between tiles"
+                    )
                 tile_dn = _window_tile(raw_dn, window, TILE)
                 tile_rgb = _window_tile(rgb_u8, window, TILE)
                 # Per-window normalization — the EXACT training contract
@@ -611,6 +634,7 @@ def run_inference(
     postprocess: str = "none",
     postprocess_params: dict | None = None,
     tta: bool = False,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> dict:
     """Full inference run -> scene payload dict (see build_scene_payload).
 
@@ -620,6 +644,9 @@ def run_inference(
         postprocess_params    optional {field: value} overrides for
                               PostProcessConfig (e.g. wls_lambda=2.0)
         tta=True              flip/rotate ensemble inside the refinement
+        should_cancel         cooperative cancel hook — polled between tiles
+                              and at every stage boundary; True raises
+                              InferenceCancelled (service-backed cancellation)
 
     Order is FROZEN: AGL_raw -> refine -> (anchor) -> write. The raw AGL is
     always preserved (agl_raw.npy) and the anchored DSM is built from the
@@ -643,6 +670,12 @@ def run_inference(
         f"georeferenced={georef} ({crs})"
     )
 
+    def _cancelled() -> bool:
+        return bool(should_cancel is not None and should_cancel())
+
+    if _cancelled():
+        raise InferenceCancelled("cancelled before inference started")
+
     resolution = predictor.resolve_dn(rgb_u8, stem=input_path.stem, dn_path=dn_path)
     print(f"[i] Dn source: {resolution.source}")
 
@@ -658,7 +691,7 @@ def run_inference(
 
     if pp_active or has_sem_head:
         out = predictor.predict_with_semantics(
-            rgb_u8, resolution.raw, mode=mode
+            rgb_u8, resolution.raw, mode=mode, should_cancel=should_cancel
         )
         if pp_active:
             from .postprocess import config_from_preset, refine_agl
@@ -720,7 +753,12 @@ def run_inference(
             dsm = out["pred"]
             sem_probs = out.get("sem_probs")
     else:
-        dsm = predictor.predict(rgb_u8, resolution.raw, mode=mode)
+        dsm = predictor.predict(
+            rgb_u8, resolution.raw, mode=mode, should_cancel=should_cancel
+        )
+
+    if _cancelled():
+        raise InferenceCancelled("cancelled after depth inference")
 
     stats = compute_stats(dsm)
     print(
@@ -735,6 +773,8 @@ def run_inference(
         )
 
     anchored = None
+    if _cancelled():
+        raise InferenceCancelled("cancelled before anchoring")
     if anchor_dem is not None or ground_elev is not None:
         tile_profile = {
             "crs": crs,
@@ -756,6 +796,8 @@ def run_inference(
             "DSM. Anchor with --anchor-dem/--ground-elev for Track 2."
         )
 
+    if _cancelled():
+        raise InferenceCancelled("cancelled before writing outputs")
     outputs: dict[str, str | None] = {}
     if write_files:
         outputs = write_outputs(
