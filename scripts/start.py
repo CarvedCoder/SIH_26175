@@ -482,17 +482,24 @@ def validate_config() -> None:
         )
 
     # Validate DATABASE_URL without printing credentials.
-    try:
-        db_host, db_port = parse_host_port(database_url)
-    except ValueError as exc:
-        fail(f"invalid DATABASE_URL: {exc}")
-        return
+    if database_url.strip().startswith("sqlite"):
+        # Zero-config local dev: the SQLite file is created by the backend
+        # on startup (backend/app/db/database.py); no host/port to parse
+        # and no database infrastructure to start.
+        log(f"database configured: SQLite (local file: "
+            f"{database_url.split('sqlite:///')[-1]})")
+    else:
+        try:
+            db_host, db_port = parse_host_port(database_url)
+        except ValueError as exc:
+            fail(f"invalid DATABASE_URL: {exc}")
+            return
 
-    log(
-        f"database configured: "
-        f"{'local' if is_local_host(db_host) else 'external'} "
-        f"PostgreSQL ({db_host}:{db_port})"
-    )
+        log(
+            f"database configured: "
+            f"{'local' if is_local_host(db_host) else 'external'} "
+            f"PostgreSQL ({db_host}:{db_port})"
+        )
 
     log(f"storage backend: {storage_backend}")
 
@@ -619,13 +626,18 @@ def start_infra() -> None:
     """Start/check only infrastructure actually required by .env."""
     database_url = os.environ["DATABASE_URL"]
 
-    db_host, _ = parse_host_port(database_url)
-
-    # PostgreSQL
-    if is_local_host(db_host):
-        start_local_postgres()
+    if database_url.strip().startswith("sqlite"):
+        # local dev default: the file is created by the backend on startup;
+        # nothing to start or check here.
+        log("database: SQLite (local file) — no database infrastructure needed")
     else:
-        check_external_database()
+        db_host, _ = parse_host_port(database_url)
+
+        # PostgreSQL
+        if is_local_host(db_host):
+            start_local_postgres()
+        else:
+            check_external_database()
 
     # Object storage (RustFS)
     start_storage()
@@ -773,7 +785,11 @@ def main() -> None:
     start_frontend()
 
     database_url = os.environ["DATABASE_URL"]
-    db_host, db_port = parse_host_port(database_url)
+    if database_url.strip().startswith("sqlite"):
+        db_summary = f"sqlite     {database_url.split('sqlite:///')[-1]}"
+    else:
+        db_host, db_port = parse_host_port(database_url)
+        db_summary = f"postgres   {db_host}:{db_port}"
 
     storage_backend = os.environ.get(
         "STORAGE_BACKEND",
@@ -786,7 +802,7 @@ def main() -> None:
         f"          frontend  http://localhost:{frontend_port()}\n"
         f"          backend   http://localhost:{backend_port()} "
         f"(docs: /docs)\n"
-        f"          postgres  {db_host}:{db_port}\n"
+        f"          {db_summary}\n"
         f"          storage   {storage_backend}\n"
         "Press Ctrl+C to stop.\n",
         flush=True,

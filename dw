@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# DepthWizard master CLI wrapper (Linux/macOS).
+# Finds any usable Python 3 and runs scripts/dw.py — stdlib only, so this
+# works before the project's dependencies (or .venv) exist.
+set -u
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+
+PY=""
+for candidate in python3 python python3.12 python3.13; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' 2>/dev/null; then
+      PY="$candidate"
+      break
+    fi
+  fi
+done
+
+if [ -z "$PY" ]; then
+  echo "DepthWizard CLI needs Python >= 3.8 on PATH (the project itself needs 3.12+)."
+  echo "Install it first:  https://www.python.org/downloads/"
+  exit 3
+fi
+
+exec "$PY" "$DIR/scripts/dw.py" "$@"

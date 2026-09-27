@@ -16,14 +16,128 @@ ground anchoring to an absolute DSM.
 | `model.py`                                 | CLI shim (`python model.py train/evaluate/infer/depth/...`)                                                                                         |
 | `model_tests/`, `tests/`, `backend_tests/` | ML core, DEM pipeline, and backend API test suites                                                                                                  |
 
-## Quick start (backend)
+## Quick start (the master CLI)
 
 ```bash
-# 1) install (uv manages the lockfile; Python >= 3.12)
+git clone <repository>
+cd SIH_26175
+
+./dw setup      # detects prerequisites, asks before installing/downloading,
+                # creates .env (local SQLite), syncs deps, starts RustFS,
+                # verifies the depthwizard bucket + checkpoints
+./dw start      # preflight, then launches backend + frontend (Ctrl+C stops)
+```
+
+Then open:
+
+```text
+Frontend        http://localhost:5173
+Backend         http://localhost:8010
+API docs        http://localhost:8010/docs
+RustFS console  http://localhost:9001   (S3 API: http://localhost:9000)
+```
+
+`dw setup` works from a fresh clone: it only asks for confirmation before
+installing anything or downloading model weights, never uses sudo/admin
+rights, and configures the zero-config local default
+(`DATABASE_URL=sqlite:///data/depthwizard.db` — no Supabase/external
+PostgreSQL required to run the demo). Checkpoints download automatically
+(RDAH ~65 MB, MD5-verified; DAv2 weights ~0.3-1.3 GB on first use, only
+after you confirm).
+
+### All CLI commands
+
+| Command          | What it does                                                              |
+| ---------------- | ------------------------------------------------------------------------- |
+| `./dw doctor`    | read-only diagnostics (add `--verbose`)                                   |
+| `./dw setup`     | install/configure/verify everything needed to run (idempotent, resumable) |
+| `./dw start`     | preflight, then hand over to `scripts/start.py` (Ctrl+C stops all)        |
+| `./dw test`      | config + RustFS roundtrip + backend tests (`--full` adds ML tests + a real inference on the demo tile) |
+| `./dw status`    | component status table + URLs                                             |
+| `./dw logs`      | `rustfs` \| `backend` \| `frontend` \| all                                |
+| `./dw stop`      | stop dev processes (deletes nothing)                                      |
+| `./dw restart`   | stop + start                                                              |
+| `./dw clean`     | `--cache` \| `--deps` \| `--data` \| `--all` (destructive: confirmed)     |
+
+Windows: use `dw.cmd` with the same commands.
+
+### What `dw setup` automates — and what it needs from you
+
+**Automatically installed/configured (with a confirmation prompt first):**
+uv (user-level, no admin rights), Python dependencies via `uv sync`
+(python deps only; torch wheels ~2–4 GB on a truly fresh machine, cached
+afterwards), frontend deps via `npm ci`, `.env` bootstrap with the
+zero-config SQLite default, RustFS container + `depthwizard` bucket
+creation, RDAH-Net checkpoint (~65 MB, figshare, MD5-verified on arrival).
+
+**Confirmed separately (large downloads — never silent):**
+
+| Asset | Size | Destination |
+| ----- | ---- | ----------- |
+| Depth Anything V2 weights | 0.3–1.3 GB | `~/.cache/huggingface/hub/` |
+| RDAH-Net released checkpoint | ~65 MB | `checkpoints/rdah/` |
+| RustFS Docker image | ~60 MB | Docker |
+| torch/CUDA wheels (first sync only) | ~2–4 GB | `.venv` (via uv cache) |
+
+**Requires manual installation (admin rights — this script never uses
+sudo/apt/brew/choco):** Python ≥ 3.12, Node.js + npm, Docker Desktop /
+Docker Engine. If any are missing, `dw setup` prints exact per-platform
+instructions and stops; after installing them, re-run `./dw setup` — it is
+idempotent and resumes where it left off.
+
+**Run without confirmation:** add `--yes` (e.g. `./dw setup --yes`). It
+accepts normal install/download confirmations but never bypasses
+destructive confirmations (typing `delete`).
+
+### `dw` local defaults
+
+| Thing | Default |
+| ----- | ------- |
+| Database | `DATABASE_URL=sqlite:///data/depthwizard.db` (created on first start; no Supabase/PostgreSQL needed for the demo) |
+| Object storage | RustFS (S3 API `http://localhost:9000`, console `http://localhost:9001`), bucket `depthwizard` auto-created |
+| Presigned URLs | signed against `S3_PUBLIC_ENDPOINT` (browser-facing) while data ops use `S3_ENDPOINT` (internal) |
+| Backend | `http://localhost:8010` (host dev, `DW_PORT`), port 8000 in docker-compose |
+| Frontend | `http://localhost:5173` |
+
+### `dw` exit codes
+
+`0` success · `1` general failure · `2` invalid configuration ·
+`3` missing prerequisite · `4` test failure · `5` cancelled
+
+### `dw test`
+
+```bash
+./dw test        # config + RustFS roundtrip (write/read/delete/presign)
+                 # + pytest backend_tests (+ live backend/frontend checks
+                 #   when the stack is running)
+./dw test --full # + pytest model_tests + a real inference pass on the
+                 #   demo tile (needs the checkpoints; slow on CPU)
+```
+
+### Troubleshooting
+
+- `dw doctor` is always safe to run — it changes nothing and tells you
+  exactly which prerequisite is missing.
+- A `STOPPED` RustFS after a reboot: `docker compose start rustfs`, or just
+  `./dw start` (it brings storage up before launching the app).
+- Port already in use: `dw start` detects a running backend and refuses to
+  launch duplicates — use `./dw status`, `./dw stop` first.
+- `dw stop` / `dw clean --data` never touch RustFS objects, model
+  checkpoints, or model weights.
+
+## Advanced / manual setup
+
+Prefer to drive each piece yourself? Everything the CLI automates can be run
+by hand.
+
+Backend (uv manages the lockfile; Python >= 3.12):
+
+```bash
+# 1) install
 uv sync --extra dev
 
 # 2) provide a trained checkpoint (default resolution order):
-#    $DW_CKPT  else  outputs/calib_net/gamus_rgb_grad/best.pt
+#    $DW_CKPT  else  outputs/calib_net/postproc_flagship/best.pt  else  ./best.pt
 #    Train one: python model.py train --use-rgb --out-tag gamus_rgb_grad
 #    model_loaded in /api/v1/health reports honestly whether it exists.
 
