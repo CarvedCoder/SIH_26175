@@ -22,6 +22,8 @@ import Home from './pages/Home.jsx';
 import Processing from './pages/Processing.jsx';
 import ResultDashboard from './pages/ResultDashboard.jsx';
 import TerrainWorkspace from './pages/TerrainWorkspace.jsx';
+import RecentProjectsPage from './pages/RecentProjectsPage.jsx';
+import HelpPage from './pages/HelpPage.jsx';
 
 function FailedPage() {
   const { state } = useApp();
@@ -75,7 +77,7 @@ function AppContent() {
   /* 1. Landing View: Hero with WebGL Halftone visualizer & Top Nav */
   if (view === 'landing') {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
         <Navbar
           user={user}
           onOpenAuth={() => setView('auth')}
@@ -107,7 +109,7 @@ function AppContent() {
     );
   }
 
-  /* 3. Main Workspace: How it is now */
+  /* 3. Main application views: workflow pages + standalone Recent / Help pages */
   return (
     <div
       style={{
@@ -117,7 +119,13 @@ function AppContent() {
         fontFamily: 'var(--dw-font-ui)',
       }}
     >
-      <AppRoutes />
+      {view === 'recent' ? (
+        <RecentProjectsPage />
+      ) : view === 'help' ? (
+        <HelpPage />
+      ) : (
+        <AppRoutes />
+      )}
     </div>
   );
 }

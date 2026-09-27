@@ -51,13 +51,13 @@ export default function PartialResultBanner({
   let categoryLabel = '';
 
   if (isGeoTiff && isAbsolute) {
-    categoryLabel = 'Calibrated Pipeline (§38)';
+    categoryLabel = 'Calibrated Pipeline';
     items = [
       { text: 'Absolute DSM available', status: 'pass' },
       { text: 'Metric analysis enabled', status: 'pass' },
     ];
   } else if (isGeoTiff && !isAbsolute) {
-    categoryLabel = 'Georeferenced (No Ground Truth) (§38)';
+    categoryLabel = 'Georeferenced (No Ground Truth)';
     items = [
       { text: 'Georeferencing detected', status: 'pass' },
       { text: 'Reference elevation unavailable', status: 'warn' },
@@ -65,14 +65,14 @@ export default function PartialResultBanner({
     ];
   } else if (format.toUpperCase().includes('TIF')) {
     // GeoTIFF container without usable georeferencing
-    categoryLabel = 'Non-Georeferenced Raster Pipeline (§38)';
+    categoryLabel = 'Non-Georeferenced Raster Pipeline';
     items = [
       { text: 'Georeferencing unavailable', status: 'warn' },
       { text: 'Absolute elevation unavailable', status: 'neutral' },
       { text: 'Relative DSM available', status: 'pass' },
     ];
   } else {
-    categoryLabel = 'Monocular Optical Pipeline (§38)';
+    categoryLabel = 'Monocular Optical Pipeline';
     items = [
       { text: 'Absolute elevation unavailable', status: 'neutral' },
       { text: 'Relative DSM available', status: 'pass' },

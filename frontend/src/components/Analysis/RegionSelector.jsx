@@ -147,7 +147,7 @@ export default function RegionSelector({
           top: 16,
           left: '50%',
           transform: 'translateX(-50%)',
-          background: 'rgba(13, 17, 23, 0.94)',
+          background: 'rgba(16, 16, 18, 0.94)',
           border: '1px solid var(--dw-accent)',
           borderRadius: 'var(--dw-radius-sm)',
           padding: '8px 16px',
@@ -188,7 +188,7 @@ export default function RegionSelector({
               y={renderBox.y}
               width={renderBox.w}
               height={renderBox.h}
-              fill="rgba(59, 130, 246, 0.10)"
+              fill="rgba(250, 250, 250, 0.10)"
               stroke="var(--dw-accent)"
               strokeWidth="1.5"
               strokeDasharray="5 3"

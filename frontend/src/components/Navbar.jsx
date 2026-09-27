@@ -54,7 +54,7 @@ export default function Navbar({
               {onOpenApp && (
                 <button
                   onClick={onOpenApp}
-                  className="text-sm font-medium px-4 py-2 rounded-full bg-blue-600 text-white hover:bg-blue-500 transition-all duration-300 shadow-sm cursor-pointer focus:outline-none flex items-center gap-1.5"
+                  className="text-sm font-medium px-4 py-2 rounded-full bg-slate-100 text-slate-950 hover:bg-white transition-all duration-300 shadow-sm cursor-pointer focus:outline-none flex items-center gap-1.5"
                 >
                   <span>Launch Workspace</span>
                   <ArrowRight className="w-3.5 h-3.5" />

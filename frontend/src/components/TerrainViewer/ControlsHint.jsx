@@ -9,7 +9,7 @@
  *     WASD (Move), Space / Ctrl (Altitude), Shift (Boost), Mouse (Look), Esc (Unlock)
  *
  * Design matches DESIGN.md:
- *   - Dark translucent background (rgba(13, 17, 23, 0.92)) with 1px var(--dw-rim)
+ *   - Dark translucent background (rgba(16, 16, 18, 0.92)) with 1px var(--dw-rim)
  *   - Geist monospace for keycaps (<kbd>) and UI sans for descriptions
  *   - Collapsible with persistent preference in localStorage
  */
@@ -102,10 +102,10 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
     >
       <div
         style={{
-          background: 'rgba(13, 17, 23, 0.90)',
+          background: 'rgba(16, 16, 18, 0.90)',
           backdropFilter: 'blur(10px)',
           WebkitBackdropFilter: 'blur(10px)',
-          border: '1px solid var(--dw-rim, #222c3e)',
+          border: '1px solid var(--dw-rim, #27272a)',
           borderRadius: 6,
           boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
           overflow: 'hidden',
@@ -126,13 +126,13 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
             padding: '6px 10px',
             cursor: 'pointer',
             userSelect: 'none',
-            borderBottom: collapsed ? 'none' : '1px solid var(--dw-rim, #222c3e)',
+            borderBottom: collapsed ? 'none' : '1px solid var(--dw-rim, #27272a)',
             background: 'rgba(255, 255, 255, 0.02)',
           }}
           title={collapsed ? 'Expand Controls' : 'Collapse Controls'}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Keyboard size={13} color="var(--dw-accent, #3b82f6)" />
+            <Keyboard size={13} color="var(--dw-accent, #fafafa)" />
             <span
               style={{
                 fontFamily: 'var(--dw-font-ui, sans-serif)',
@@ -140,7 +140,7 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
                 fontWeight: 600,
                 letterSpacing: '0.06em',
                 textTransform: 'uppercase',
-                color: 'var(--dw-fg, #e2e8f0)',
+                color: 'var(--dw-fg, #fafafa)',
               }}
             >
               Controls
@@ -149,8 +149,8 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
               style={{
                 fontSize: 10,
                 fontFamily: 'var(--dw-font-data, monospace)',
-                color: 'var(--dw-accent, #3b82f6)',
-                background: 'rgba(59, 130, 246, 0.12)',
+                color: 'var(--dw-accent, #fafafa)',
+                background: 'var(--dw-accent-soft)',
                 padding: '1px 6px',
                 borderRadius: 3,
                 letterSpacing: '0.04em',
@@ -170,7 +170,7 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
             style={{
               background: 'none',
               border: 'none',
-              color: 'var(--dw-fg-ghost, #94a3b8)',
+              color: 'var(--dw-fg-ghost, #71717a)',
               display: 'flex',
               alignItems: 'center',
               cursor: 'pointer',
@@ -208,7 +208,7 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
                     fontWeight: 600,
                     color: '#f8fafc',
                     background: 'rgba(30, 41, 59, 0.85)',
-                    border: '1px solid rgba(148, 163, 184, 0.25)',
+                    border: '1px solid rgba(161, 161, 170, 0.25)',
                     borderRadius: 3,
                     padding: '2px 6px',
                     boxShadow: '0 1px 2px rgba(0, 0, 0, 0.3)',
@@ -221,7 +221,7 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
                   style={{
                     fontFamily: 'var(--dw-font-ui, sans-serif)',
                     fontSize: 11,
-                    color: 'var(--dw-fg-muted, #94a3b8)',
+                    color: 'var(--dw-fg-muted, #a1a1aa)',
                     letterSpacing: '0.02em',
                   }}
                 >
@@ -230,7 +230,7 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
                 {idx < modeConfig.controls.length - 1 && (
                   <span
                     style={{
-                      color: 'rgba(148, 163, 184, 0.3)',
+                      color: 'rgba(161, 161, 170, 0.3)',
                       fontSize: 10,
                       marginLeft: 4,
                     }}

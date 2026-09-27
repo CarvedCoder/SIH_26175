@@ -16,14 +16,32 @@ export default function Processing() {
   const { state } = useApp();
   const { cancel } = useProcessing(); // mounts polling
   const [confirming, setConfirming] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState(null);
+  const [cancelRequested, setCancelRequested] = useState(false);
+
+  // The poll reflects the backend's cancel flag — once the job record is
+  // flagged (or our own request succeeded), the cancel controls give way
+  // to the "waiting for checkpoint" notice.
+  const cancelling =
+    cancelRequested || state.job?.cancel_requested === true;
 
   const handleCancel = useCallback(async () => {
     if (!confirming) {
       setConfirming(true);
+      setCancelError(null);
       return;
     }
-    setConfirming(false);
-    await cancel();
+    setCancelBusy(true);
+    setCancelError(null);
+    const res = await cancel();
+    setCancelBusy(false);
+    if (res.ok) {
+      setCancelRequested(true);
+      setConfirming(false);
+    } else {
+      setCancelError(res.error ?? 'Could not cancel — try again.');
+    }
   }, [confirming, cancel]);
 
   const scene = state.scene;
@@ -59,49 +77,101 @@ export default function Processing() {
 
         <ProcessingStatus />
 
-        {/* Cancel */}
-        {confirming ? (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 14, color: 'var(--dw-fg)' }}>
-              Cancel processing?
+        {/* Cancel — request, confirm, and cancellation-pending states */}
+        {cancelling ? (
+          <div
+            role="status"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '10px 14px',
+              background: 'rgba(245, 158, 11, 0.08)',
+              border: '1px solid rgba(245, 158, 11, 0.25)',
+              borderRadius: 'var(--dw-radius-sm)',
+              maxWidth: 520,
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: 'var(--dw-live)',
+                flexShrink: 0,
+              }}
+            />
+            <span style={{
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 13.5,
+              color: 'var(--dw-fg)',
+              lineHeight: 1.5,
+            }}>
+              Cancellation requested — processing stops at the next checkpoint.
+              Large images can take a moment to wind down; you will return to
+              the upload screen automatically.
             </span>
-            <button
-              onClick={handleCancel}
-              style={{
-                background: 'none',
-                border: '1px solid var(--dw-fault)',
-                borderRadius: 'var(--dw-radius-sm)',
-                padding: '6px 14px',
-                fontFamily: 'var(--dw-font-ui)',
-                fontSize: 13,
-                fontWeight: 500,
-                color: 'var(--dw-fault)',
-                cursor: 'pointer',
-                outline: 'none',
-              }}
-              onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-fault)'; e.currentTarget.style.outlineOffset = '2px'; }}
-              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
-            >
-              Confirm cancel
-            </button>
-            <button
-              onClick={() => setConfirming(false)}
-              style={{
-                background: 'none',
-                border: '1px solid var(--dw-rim)',
-                borderRadius: 'var(--dw-radius-sm)',
-                padding: '6px 14px',
-                fontFamily: 'var(--dw-font-ui)',
-                fontSize: 13,
-                color: 'var(--dw-fg-muted)',
-                cursor: 'pointer',
-                outline: 'none',
-              }}
-              onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; e.currentTarget.style.outlineOffset = '2px'; }}
-              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
-            >
-              Keep processing
-            </button>
+          </div>
+        ) : confirming ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 14, color: 'var(--dw-fg)' }}>
+                Cancel processing?
+              </span>
+              <button
+                onClick={handleCancel}
+                disabled={cancelBusy}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--dw-fault)',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  padding: '6px 14px',
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: 'var(--dw-fault)',
+                  cursor: cancelBusy ? 'wait' : 'pointer',
+                  opacity: cancelBusy ? 0.6 : 1,
+                  outline: 'none',
+                }}
+                onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-fault)'; e.currentTarget.style.outlineOffset = '2px'; }}
+                onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+              >
+                {cancelBusy ? 'Cancelling…' : 'Confirm cancel'}
+              </button>
+              <button
+                onClick={() => setConfirming(false)}
+                disabled={cancelBusy}
+                style={{
+                  background: 'none',
+                  border: '1px solid var(--dw-rim)',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  padding: '6px 14px',
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 13,
+                  color: 'var(--dw-fg-muted)',
+                  cursor: cancelBusy ? 'wait' : 'pointer',
+                  outline: 'none',
+                }}
+                onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; e.currentTarget.style.outlineOffset = '2px'; }}
+                onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+              >
+                Keep processing
+              </button>
+            </div>
+            {cancelError && (
+              <span
+                role="alert"
+                style={{
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 12.5,
+                  color: 'var(--dw-fault)',
+                }}
+              >
+                {cancelError}
+              </span>
+            )}
           </div>
         ) : (
           <button

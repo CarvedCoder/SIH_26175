@@ -105,9 +105,9 @@ export default function Joystick({ onMove, onVertical }) {
           onPointerCancel={() => pressVertical(0)}
           style={{
             width: 44, height: 36, borderRadius: 8,
-            background: vertical === 1 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(16, 22, 32, 0.75)',
-            border: '1px solid rgba(148, 163, 184, 0.35)',
-            color: '#cbd5e1', fontSize: 16, cursor: 'pointer',
+            background: vertical === 1 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(24, 24, 27, 0.75)',
+            border: '1px solid rgba(161, 161, 170, 0.35)',
+            color: '#d4d4d8', fontSize: 16, cursor: 'pointer',
             ...controlStyle,
           }}
         >▲</button>
@@ -120,9 +120,9 @@ export default function Joystick({ onMove, onVertical }) {
           onPointerCancel={() => pressVertical(0)}
           style={{
             width: 44, height: 36, borderRadius: 8,
-            background: vertical === -1 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(16, 22, 32, 0.75)',
-            border: '1px solid rgba(148, 163, 184, 0.35)',
-            color: '#cbd5e1', fontSize: 16, cursor: 'pointer',
+            background: vertical === -1 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(24, 24, 27, 0.75)',
+            border: '1px solid rgba(161, 161, 170, 0.35)',
+            color: '#d4d4d8', fontSize: 16, cursor: 'pointer',
             ...controlStyle,
           }}
         >▼</button>
@@ -141,8 +141,8 @@ export default function Joystick({ onMove, onVertical }) {
           width: PAD_RADIUS * 2 + 24,
           height: PAD_RADIUS * 2 + 24,
           borderRadius: '50%',
-          background: 'rgba(16, 22, 32, 0.75)',
-          border: '1px solid rgba(148, 163, 184, 0.35)',
+          background: 'rgba(24, 24, 27, 0.75)',
+          border: '1px solid rgba(161, 161, 170, 0.35)',
           position: 'relative',
           ...controlStyle,
         }}
@@ -150,11 +150,11 @@ export default function Joystick({ onMove, onVertical }) {
         {/* cross-hair guides */}
         <div style={{
           position: 'absolute', left: '50%', top: 8, bottom: 8, width: 1,
-          background: 'rgba(148, 163, 184, 0.2)', transform: 'translateX(-0.5px)',
+          background: 'rgba(161, 161, 170, 0.2)', transform: 'translateX(-0.5px)',
         }} />
         <div style={{
           position: 'absolute', top: '50%', left: 8, right: 8, height: 1,
-          background: 'rgba(148, 163, 184, 0.2)', transform: 'translateY(-0.5px)',
+          background: 'rgba(161, 161, 170, 0.2)', transform: 'translateY(-0.5px)',
         }} />
         {/* knob */}
         <div style={{

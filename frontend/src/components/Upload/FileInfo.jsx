@@ -71,7 +71,6 @@ export default function FileInfo() {
       aria-label="Image information"
       style={{
         width: '100%',
-        maxWidth: 580,
         background: 'var(--dw-surface)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius)',

@@ -154,7 +154,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
     (selectedClass != null ? SEMANTIC_CLASSES[selectedClass] : null);
   const currentConfidence = hoveredInfo?.confidence ?? 0;
   const IconComponent = currentClass ? CLASS_ICONS[currentClass] ?? Layers : Layers;
-  const classColor = currentClass ? SEMANTIC_COLORS_HEX[currentClass] : '#38bdf8';
+  const classColor = currentClass ? SEMANTIC_COLORS_HEX[currentClass] : '#a1a1aa';
 
   return (
     <div
@@ -165,11 +165,11 @@ const SemanticInspector = forwardRef(function SemanticInspector(
         left: 20,
         zIndex: 30,
         width: 310,
-        background: 'rgba(9, 14, 26, 0.94)',
-        border: '1px solid rgba(56, 189, 248, 0.28)',
+        background: 'rgba(9, 9, 11, 0.94)',
+        border: '1px solid rgba(250, 250, 250, 0.14)',
         borderRadius: 12,
         padding: '14px 16px',
-        color: '#e2e8f0',
+        color: '#e4e4e7',
         fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
         backdropFilter: 'blur(12px)',
         boxShadow: '0 12px 36px rgba(0, 0, 0, 0.6)',
@@ -183,20 +183,20 @@ const SemanticInspector = forwardRef(function SemanticInspector(
               width: 24,
               height: 24,
               borderRadius: 6,
-              background: 'rgba(56, 189, 248, 0.15)',
+              background: 'rgba(250, 250, 250, 0.08)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#38bdf8',
+              color: '#a1a1aa',
             }}
           >
             <Layers size={14} />
           </div>
           <div>
-            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#f8fafc' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#fafafa' }}>
               Semantic Inspect
             </span>
-            <span style={{ display: 'block', fontSize: 10, color: '#94a3b8' }}>
+            <span style={{ display: 'block', fontSize: 10, color: '#a1a1aa' }}>
               Hover terrain to isolate classes
             </span>
           </div>
@@ -213,7 +213,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
                 borderRadius: 4,
                 background: 'rgba(255,255,255,0.08)',
                 border: '1px solid rgba(255,255,255,0.15)',
-                color: '#cbd5e1',
+                color: '#d4d4d8',
                 cursor: 'pointer',
               }}
             >
@@ -226,7 +226,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
               style={{
                 background: 'none',
                 border: 'none',
-                color: '#94a3b8',
+                color: '#a1a1aa',
                 cursor: 'pointer',
                 padding: 4,
                 borderRadius: 4,
@@ -241,7 +241,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
       {/* Hovered Target Badge */}
       <div
         style={{
-          background: 'rgba(15, 23, 42, 0.8)',
+          background: 'rgba(24, 24, 27, 0.8)',
           border: `1px solid ${classColor}40`,
           borderRadius: 8,
           padding: '10px 12px',
@@ -260,7 +260,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
                 boxShadow: `0 0 8px ${classColor}80`,
               }}
             />
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#f8fafc', textTransform: 'capitalize' }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#fafafa', textTransform: 'capitalize' }}>
               {currentClass ? SEMANTIC_CLASS_LABELS[currentClass] : 'Move cursor over terrain'}
             </span>
           </div>
@@ -289,18 +289,18 @@ const SemanticInspector = forwardRef(function SemanticInspector(
               paddingTop: 8,
               borderTop: '1px dashed rgba(255,255,255,0.1)',
               fontSize: 11,
-              color: '#cbd5e1',
+              color: '#d4d4d8',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#a1a1aa' }}>
               <span>Semantic building region:</span>
-              <span style={{ fontFamily: 'ui-monospace, monospace', color: '#e2e8f0' }}>
+              <span style={{ fontFamily: 'ui-monospace, monospace', color: '#e4e4e7' }}>
                 {hoveredInfo.buildingRegion.pixelCount} px
               </span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', marginTop: 2 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#a1a1aa', marginTop: 2 }}>
               <span>Span:</span>
-              <span style={{ fontFamily: 'ui-monospace, monospace', color: '#e2e8f0' }}>
+              <span style={{ fontFamily: 'ui-monospace, monospace', color: '#e4e4e7' }}>
                 {hoveredInfo.buildingRegion.bounds.width} × {hoveredInfo.buildingRegion.bounds.height} px
               </span>
             </div>
@@ -310,7 +310,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
 
       {/* Class Selector / Quick Filter Toggles */}
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#71717a', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>
           Semantic Classes (Click to isolate in 3D)
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
@@ -332,7 +332,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
                   borderRadius: 6,
                   background: isTarget ? `${color}25` : 'rgba(255,255,255,0.03)',
                   border: `1px solid ${isTarget ? color : 'rgba(255,255,255,0.08)'}`,
-                  color: isTarget ? '#ffffff' : '#94a3b8',
+                  color: isTarget ? '#ffffff' : '#a1a1aa',
                   fontSize: 11,
                   cursor: 'pointer',
                   textAlign: 'left',
@@ -352,7 +352,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
                   {clsName}
                 </span>
                 {frac != null && (
-                  <span style={{ fontSize: 9.5, fontFamily: 'ui-monospace, monospace', color: '#64748b' }}>
+                  <span style={{ fontSize: 9.5, fontFamily: 'ui-monospace, monospace', color: '#71717a' }}>
                     {Math.round(frac * 100)}%
                   </span>
                 )}
@@ -368,7 +368,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
           paddingTop: 8,
           borderTop: '1px solid rgba(255,255,255,0.08)',
           fontSize: 10,
-          color: '#64748b',
+          color: '#71717a',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -376,7 +376,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
       >
         <span>Model: {semanticData?.meta?.model || 'CalibrationNet (6-class)'}</span>
         {hoveredInfo?.elevation != null && (
-          <span style={{ fontFamily: 'ui-monospace, monospace', color: '#94a3b8' }}>
+          <span style={{ fontFamily: 'ui-monospace, monospace', color: '#a1a1aa' }}>
             Elev: {hoveredInfo.elevation.toFixed(1)}m
           </span>
         )}

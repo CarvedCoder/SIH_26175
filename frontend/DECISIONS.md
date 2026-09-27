@@ -78,10 +78,10 @@ The brief pins the world: **scientific / geospatial / mission-control** (spec §
 Key choices not re-derived each time:
 
 - **Dark mode only.** Use scene: field operations, disaster assessment, reconnaissance. No light/dark toggle.
-- **Accent: instrument blue `#3b82f6`.** One accent colour for active states. Fault/confirm/live are status-only.
+- **Accent: instrument ivory `#fafafa`.** Interactive states are luminance, not hue — white borders, white fills, dark text on primary surfaces. Fault/confirm/live are the only chrome hues, status-only.
 - **Face: Geist Variable.** Already installed. Precision tooling register. Data values in system monospace.
 - **No cards for panels.** Lists with labelled fields. Thin `--dw-rim` borders, no shadows.
-- **Minimap is the signature.** 200×200 canvas overlay; camera position in amber; FOV cone in translucent blue.
+- **Minimap is the signature.** 200×200 canvas overlay; camera position in amber; FOV cone in translucent white.
 - **Terrain is primary.** 70–80% of usable screen. Panels collapse, toolbar is 48px, header is 48px.
 
 ---
