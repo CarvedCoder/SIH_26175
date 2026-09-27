@@ -38,7 +38,7 @@ from backend.app.infrastructure.storage.scene_artifacts import (
     scene_output_dir_key,
 )
 from backend.app.jobs.manager import job_manager
-from depthwizard.inference import run_inference
+from depthwizard.inference import InferenceCancelled, run_inference
 
 # Reference-raster discovery conventions (see _find_reference_raster).
 _REFERENCE_BASENAMES = ("reference.tif", "reference_dem.tif", "ref_dem.tif")
@@ -362,6 +362,50 @@ class ProcessingService:
         job = self.jobs.get_job(job_id)
         return bool(job and job.cancel_requested)
 
+    def _progress_bridge(self, job_id: str):
+        """Convert depthwizard run_inference progress callbacks into
+        durable job updates. Also the COOPERATIVE CANCELLATION point:
+        every emission checks the job's cancel_requested flag and raises
+        InferenceCancelled to abort at the next tile boundary.
+
+        Throttled: the store is written only on a stage change, a
+        >=1.5pt progress jump, or every 2s at most — per-tile emissions
+        must not turn into per-tile disk writes."""
+        import time as _time
+
+        state = {"stage": None, "progress": -1.0, "t": 0.0}
+
+        def bridge(stage: str, progress: float, message: str | None = None):
+            if self._check_cancelled(job_id):
+                raise InferenceCancelled(
+                    f"job {job_id} cancelled during {stage}"
+                )
+            now = _time.monotonic()
+            if progress < state["progress"]:
+                return
+            due = (
+                stage != state["stage"]
+                or progress >= state["progress"] + 1.5
+                or (now - state["t"]) >= 2.0
+            )
+            if not due:
+                return
+            state.update(stage=stage, progress=progress, t=now)
+            try:
+                self.jobs.update_job(
+                    job_id,
+                    status="processing",
+                    stage=stage,
+                    progress=round(progress, 1),
+                    message=message,
+                )
+            except Exception:
+                logger.warning(
+                    "progress update failed for job %s", job_id
+                )
+
+        return bridge
+
     # -- processing -----------------------------------------------------------
 
     def process_scene(
@@ -385,14 +429,17 @@ class ProcessingService:
         self.jobs.update_job(
             job_id,
             status="processing",
-            stage="depth_inference",
-            progress=5.0,
+            stage="validating",
+            progress=2.0,
+            message="Validating scene input",
         )
 
         if self._check_cancelled(job_id):
             self._discard_outputs(output_dir)
             self.jobs.update_job(job_id, status="cancelled", stage="cancelled")
             return {"cancelled": True}
+
+        progress_cb = self._progress_bridge(job_id)
 
         # Durable lease heartbeat: while this worker runs, the job's lease
         # is renewed so OTHER instances never finalize it as interrupted.
@@ -406,15 +453,24 @@ class ProcessingService:
                 )
                 return {"cancelled": True}
 
-            payload = run_inference(
-                input_path=input_path,
-                ckpt_path=checkpoint,
-                out_dir=output_dir,
-                mode=mode,
-                ground_elev=ground_elev,
-                write_files=True,
-                **self._inference_kwargs(),
-            )
+            try:
+                payload = run_inference(
+                    input_path=input_path,
+                    ckpt_path=checkpoint,
+                    out_dir=output_dir,
+                    mode=mode,
+                    ground_elev=ground_elev,
+                    write_files=True,
+                    progress_cb=progress_cb,
+                    **self._inference_kwargs(),
+                )
+            except InferenceCancelled:
+                self._discard_outputs(output_dir)
+                self.jobs.update_job(
+                    job_id, status="cancelled", stage="cancelled"
+                )
+                logger.info("job cancelled mid-inference: %s", job_id)
+                return {"cancelled": True}
 
         if self._check_cancelled(job_id):
             self._discard_outputs(output_dir)
@@ -424,8 +480,22 @@ class ProcessingService:
         # Live validation: if the scene carries a ground-truth reference
         # raster, produce reference.npy / validation.json / error_map.png
         # NOW — get_validation only reports what actually exists on disk.
+        self.jobs.update_job(
+            job_id,
+            status="processing",
+            stage="validation",
+            progress=92.0,
+            message="Validating result",
+        )
         self._write_validation_artifacts(scene_id, input_path, output_dir)
 
+        self.jobs.update_job(
+            job_id,
+            status="processing",
+            stage="finalizing",
+            progress=96.0,
+            message="Publishing artifacts",
+        )
         self._publish_artifacts(scene_id, output_dir)
 
         self.jobs.update_job(
@@ -461,7 +531,11 @@ class ProcessingService:
         checkpoint = self._resolve_checkpoint()
 
         self.jobs.update_job(
-            job_id, status="processing", stage="depth_inference", progress=5.0
+            job_id,
+            status="processing",
+            stage="preprocessing",
+            progress=4.0,
+            message="Preparing refine crop",
         )
 
         import rasterio
@@ -473,6 +547,8 @@ class ProcessingService:
             raise ValueError(
                 "refinement bbox exceeds the scene raster dimensions."
             )
+
+        progress_cb = self._progress_bridge(job_id)
 
         with self.jobs.lease_heartbeat(job_id), _INFERENCE_SEMAPHORE:
             if self._check_cancelled(job_id):
@@ -503,14 +579,22 @@ class ProcessingService:
                 with rasterio.open(crop_path, "w", **profile) as dst:
                     dst.write(data)
 
-            payload = run_inference(
-                input_path=crop_path,
-                ckpt_path=checkpoint,
-                out_dir=output_dir,
-                mode="tiles",
-                write_files=True,
-                **self._inference_kwargs(),
-            )
+            try:
+                payload = run_inference(
+                    input_path=crop_path,
+                    ckpt_path=checkpoint,
+                    out_dir=output_dir,
+                    mode="tiles",
+                    write_files=True,
+                    progress_cb=progress_cb,
+                    **self._inference_kwargs(),
+                )
+            except InferenceCancelled:
+                self.jobs.update_job(
+                    job_id, status="cancelled", stage="cancelled"
+                )
+                logger.info("refine job cancelled mid-inference: %s", job_id)
+                return {"cancelled": True}
 
         # Persist the refined product explicitly; run_inference wrote the
         # full-scene-shaped outputs — copy the dsm.npy to the refined name.
@@ -519,6 +603,13 @@ class ProcessingService:
         if dsm_npy.is_file():
             refined_npy.write_bytes(dsm_npy.read_bytes())
 
+        self.jobs.update_job(
+            job_id,
+            status="processing",
+            stage="finalizing",
+            progress=96.0,
+            message="Publishing artifacts",
+        )
         self._publish_artifacts(scene_id, output_dir)
 
         self.jobs.update_job(

@@ -13,7 +13,7 @@ import { getJobStatus, cancelJob } from '../api/processing.js';
 import { getResults } from '../api/results.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
-const POLL_MS = 2500;
+const POLL_MS = 1500;
 
 export function useProcessing() {
   const { state, actions } = useApp();

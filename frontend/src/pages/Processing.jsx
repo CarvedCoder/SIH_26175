@@ -27,6 +27,10 @@ export default function Processing() {
   }, [confirming, cancel]);
 
   const scene = state.scene;
+  // The backend honours cancel at the next cooperative checkpoint —
+  // reflect that in-flight state instead of offering the button again.
+  const cancelling =
+    state.job?.cancel_requested === true && state.job?.status === 'processing';
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -60,7 +64,41 @@ export default function Processing() {
         <ProcessingStatus />
 
         {/* Cancel */}
-        {confirming ? (
+        {cancelling ? (
+          <div
+            role="status"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                border: '2px solid var(--dw-rim)',
+                borderTopColor: 'var(--dw-fault)',
+                animation: 'dw-cancel-spin 0.9s linear infinite',
+              }}
+            />
+            <span style={{
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 14,
+              fontWeight: 500,
+              color: 'var(--dw-fault)',
+            }}>
+              Cancelling — stopping at the next tile boundary…
+            </span>
+            <style>{`
+              @keyframes dw-cancel-spin {
+                to { transform: rotate(360deg); }
+              }
+            `}</style>
+          </div>
+        ) : confirming ? (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 14, color: 'var(--dw-fg)' }}>
               Cancel processing?

@@ -81,13 +81,14 @@ test('ChunkGeometry: UVs are global; v flipped (v=1 at north row), u increases e
     addSkirt: false,
   });
   const uv = geo.attributes.uv;
-  // Vertex 0 = (ix=0, iz=0) = NW corner of the tile: u=0, v=1
+  // Vertex 0 = (ix=0, iz=0) = NW corner of the tile: u=0, v=0
+  // (direct image-row convention: uv.y = raster row, top row = 0 = north)
   assert.equal(uv.array[0], 0);
-  assert.equal(uv.array[1], 1);
-  // Last surface vertex = (ix=8, iz=8) = SE corner: u=1, v=0
+  assert.equal(uv.array[1], 0);
+  // Last surface vertex = (ix=8, iz=8) = SE corner: u=1, v=1
   const last = 8 * (8 + 1) + 8;
   assert.equal(uv.array[last * 2], 1);
-  assert.equal(uv.array[last * 2 + 1], 0);
+  assert.equal(uv.array[last * 2 + 1], 1);
 });
 
 test('ChunkGeometry: triangle count = surface quads + skirt quads, indices valid', () => {

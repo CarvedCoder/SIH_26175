@@ -28,7 +28,7 @@ import { useValidation } from '../hooks/useValidation.js';
 import { useApp } from '../store/appStore.jsx';
 import { getDepth, getDsm, getScene } from '../api/results.js';
 import { getRouteHeatmap } from '../api/route.js';
-import { resolveAssetUrl } from '../api/client.js';
+import { resolveAssetUrl, assetFetch } from '../api/client.js';
 
 /**
  * @typedef {'idle'|'loading'|'done'|'error'} FetchState
@@ -50,6 +50,12 @@ export default function ResultDashboard() {
   // reconstructed scene object whose georef/CRS/dimensions may be guesses.
   const [sceneDetail, setSceneDetail] = useState(null);
   const [showExport, setShowExport] = useState(false);
+  // RGB source image as a same-origin blob URL. The results/rgb endpoint is
+  // JWT-protected (and 307-redirects to a presigned URL under object
+  // storage) — a bare <img> can neither attach the Bearer header nor is it
+  // guaranteed the redirect target, so the image is fetched through
+  // assetFetch and handed to the card as an object URL.
+  const [rgbObjectUrl, setRgbObjectUrl] = useState(null);
 
   // Capability flags from ResultsMeta. A resumed session may carry a
   // reconstructed results object, so prefer the backend's authoritative
@@ -96,6 +102,25 @@ export default function ResultDashboard() {
     return () => { cancelled = true; };
   }, [scene?.scene_id, isAbsolute]);
 
+  // Authenticated RGB source fetch (see rgbObjectUrl note above).
+  useEffect(() => {
+    if (!scene?.scene_id) return undefined;
+    let cancelled = false;
+    let objectUrl = null;
+    assetFetch(resolveAssetUrl(`/api/v1/scenes/${scene.scene_id}/results/rgb`))
+      .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(String(res.status)))))
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setRgbObjectUrl(objectUrl);
+      })
+      .catch(() => { /* card keeps its unavailable fallback */ });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [scene?.scene_id]);
+
   /** Units label from D10: 'm' for absolute, 'scene units' for relative */
   const elevUnits = 'm'; // world scale is metres (1 m/pixel documented fallback)
 
@@ -107,6 +132,7 @@ export default function ResultDashboard() {
    */
   const rgbUrl  = resolveAssetUrl(
     results?.preview_url
+      ?? rgbObjectUrl
       ?? (scene?.scene_id ? `/api/v1/scenes/${scene.scene_id}/results/preview` : null)
   );
   const depthUrl = resolveAssetUrl(depthData?.url ?? null);

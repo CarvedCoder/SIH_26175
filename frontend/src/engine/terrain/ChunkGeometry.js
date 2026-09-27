@@ -119,11 +119,15 @@ export function buildChunkGeometry(options) {
       const p2 = vertIdx * 2;
       // GLOBAL raster UVs [0, 1] baked into the geometry: every tile samples
       // the single full-resolution drape texture directly, and the shared
-      // terrain material needs no per-tile offset/scale. (v flipped for
-      // WebGL: the geometry's north row — iz = 0, v = vMin — maps to uv.y = 1
-      // so an sRGB texture uploaded with flipY = true aligns north-up.)
+      // terrain material needs no per-tile offset/scale.
+      // UV convention (matches every texture upload path): uv.y maps
+      // DIRECTLY to source-image rows — uv.y = 0 samples the image's TOP
+      // row (north) because WebGL ignores UNPACK_FLIP_Y_WEBGL for
+      // ImageBitmap and typed-array uploads, so flipY is set false
+      // everywhere and no 1-v flip happens here. North row (iz = 0,
+      // v = vMin) must sample the image's north (top) row.
       uvs[p2] = uMin + (ix / wSegs) * (uMax - uMin);
-      uvs[p2 + 1] = 1.0 - (vMin + (iz / hSegs) * (vMax - vMin));
+      uvs[p2 + 1] = vMin + (iz / hSegs) * (vMax - vMin);
 
       // Metric Normal derivation using central differences in meters
       // (hX[iz][ix] = u - stepU/2, hX[iz][ix+1] = u + stepU/2,

@@ -176,8 +176,9 @@ test('7. Chunk UVs are GLOBAL raster UVs (single shared drape texture)', () => {
   const pos = geo.getAttribute('position');
   const wSegs = 4;
 
-  // Vertex UVs are already GLOBAL raster UVs (v flipped for WebGL) — the
-  // shared material samples the drape texture directly, no offset/scale.
+  // Vertex UVs are already GLOBAL raster UVs (direct image-row convention:
+  // uv.y = raster row fraction, top row = 0 = north — NO v flip; the
+  // shared material samples the drape texture directly, no offset/scale).
     for (let iz = 0; iz <= wSegs; iz++) {
       for (let ix = 0; ix <= wSegs; ix++) {
         const vi = iz * (wSegs + 1) + ix;
@@ -185,12 +186,11 @@ test('7. Chunk UVs are GLOBAL raster UVs (single shared drape texture)', () => {
         const v = uv.getY(vi);
 
         // Geometry maps tile world bounds onto this tile's global UV window;
-        // reconstruct the expected global UV from the vertex position. vUv is
-        // texture-space (v flipped): vUv = 1 - v_global.
+        // reconstruct the expected global UV from the vertex position.
         const uLocalExpect = (pos.getX(vi) + 100) / 200; // worldMinX=-100, width 200
         const vLocalExpect = (pos.getZ(vi) - 0) / 100;   // worldMinZ=0,  depth 100
         const expectU = uMin + uLocalExpect * (uMax - uMin);
-        const expectV = 1 - (vMin + vLocalExpect * (vMax - vMin));
+        const expectV = vMin + vLocalExpect * (vMax - vMin);
         assert.ok(Math.abs(u - expectU) < 1e-6, `u mismatch at ${ix},${iz}`);
         assert.ok(Math.abs(v - expectV) < 1e-6, `v mismatch at ${ix},${iz}`);
       }

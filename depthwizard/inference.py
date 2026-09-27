@@ -324,6 +324,9 @@ class DepthWizardPredictor:
         self._predict_fn = make_predict_fn(self.model, self.device)
         self._predict_full_fn = make_full_predict_fn(self.model, self.device)
         self._backbone = None
+        # Optional progress callback (stage, percent 0-100, message) set by
+        # run_inference; every per-tile loop reports through it.
+        self.progress_cb = None
 
     @property
     def model_tag(self) -> str:
@@ -343,10 +346,18 @@ class DepthWizardPredictor:
         h, w = rgb_u8.shape[:2]
         cfg = TilingConfig(tile_size=TILE)
         stitcher = OverlapStitcher(h, w, cfg)
-        for window in iter_tile_windows(h, w, cfg):
+        windows = list(iter_tile_windows(h, w, cfg))
+        n_windows = max(len(windows), 1)
+        for i, window in enumerate(windows, 1):
             tile_rgb = _window_tile(rgb_u8, window, TILE)
             raw_tile = self._backbone.raw_depth(tile_rgb)
             stitcher.add_tile(window, raw_tile)
+            _emit_progress(
+                self.progress_cb,
+                "depth_inference",
+                8 + 7 * i / n_windows,
+                f"Backbone tile {i} / {n_windows}",
+            )
         out = stitcher.finalize()
         if np.isnan(out).any():
             raise RuntimeError("backbone returned NaN raw depth in a covered window")
@@ -468,6 +479,10 @@ class DepthWizardPredictor:
         if mode in ("crop", "resize"):
             small = (h < TILE) or (w < TILE)
             if mode == "resize" or small:
+                _emit_progress(
+                    self.progress_cb, "depth_inference", 30,
+                    "Letterboxed forward pass",
+                )
                 rgb_canvas, (y0, x0, h2, w2) = letterbox_to_tile(rgb_u8)
                 dn_canvas, _ = letterbox_to_tile(raw_dn)
                 dn_n, stats = minmax_normalize_with_stats(dn_canvas)
@@ -495,11 +510,18 @@ class DepthWizardPredictor:
 
         if mode == "tiles":
             cfg = TilingConfig(tile_size=TILE)
-            windows = iter_tile_windows(h, w, cfg)
+            windows = list(iter_tile_windows(h, w, cfg))
+            n_windows = max(len(windows), 1)
             stitcher = OverlapStitcher(h, w, cfg)
             sem_stitchers: list[OverlapStitcher] | None = []
             print(f"[i] tiles: {len(windows)} windows of {TILE} (overlap {cfg.overlap})")
-            for window in windows:
+            for i, window in enumerate(windows, 1):
+                _emit_progress(
+                    self.progress_cb,
+                    "depth_inference",
+                    15 + 47 * i / n_windows,
+                    f"Tile {i} / {n_windows}",
+                )
                 tile_dn = _window_tile(raw_dn, window, TILE)
                 tile_rgb = _window_tile(rgb_u8, window, TILE)
                 # Per-window normalization — the EXACT training contract
@@ -577,6 +599,33 @@ class DepthWizardPredictor:
 
 
 # ---------------------------------------------------------------------------
+# Progress reporting (stage, percent, message) — consumed by the backend
+# service to drive live job updates; a no-op for the CLI.
+# ---------------------------------------------------------------------------
+
+class InferenceCancelled(Exception):
+    """Raised through progress_cb for cooperative cancellation.
+
+    The backend service checks the job's cancel_requested flag on every
+    progress emission; when set it raises this to abort the run at the
+    next tile boundary instead of waiting for the whole inference."""
+
+
+def _emit_progress(cb, stage: str, pct: float, msg: str | None = None) -> None:
+    """Best-effort progress emission — a listener failure must never
+    break the certified inference path. InferenceCancelled propagates:
+    it IS the cancellation signal, not a listener bug."""
+    if cb is None:
+        return
+    try:
+        cb(stage, float(pct), msg)
+    except InferenceCancelled:
+        raise
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Output writing
 # ---------------------------------------------------------------------------
 
@@ -611,8 +660,15 @@ def run_inference(
     postprocess: str = "none",
     postprocess_params: dict | None = None,
     tta: bool = False,
+    progress_cb=None,
 ) -> dict:
     """Full inference run -> scene payload dict (see build_scene_payload).
+
+    progress_cb: optional callable (stage, percent 0-100, message) fired at
+        real pipeline boundaries and around every per-tile forward. Stages
+        match backend.app.schemas.job.JobStage: preprocessing |
+        depth_inference | calibration | dsm_generation. A listener error is
+        swallowed — progress reporting can never fail the run.
 
     Post-processing (task Sec. 19 API):
         postprocess="none"    raw AGL passthrough — byte-identical legacy path
@@ -628,6 +684,8 @@ def run_inference(
     t0 = time.perf_counter()
     input_path = Path(input_path)
 
+    _emit_progress(progress_cb, "preprocessing", 4, "Loading model")
+
     predictor = DepthWizardPredictor(
         ckpt_path=ckpt_path,
         device=device,
@@ -635,7 +693,9 @@ def run_inference(
         live_backbone=live_backbone,
         backbone_id=backbone_id,
     )
+    predictor.progress_cb = progress_cb
 
+    _emit_progress(progress_cb, "preprocessing", 6, f"Reading {input_path.name}")
     rgb_u8, profile = read_image(input_path)
     georef, crs, tf = georef_state(profile)
     print(
@@ -645,6 +705,9 @@ def run_inference(
 
     resolution = predictor.resolve_dn(rgb_u8, stem=input_path.stem, dn_path=dn_path)
     print(f"[i] Dn source: {resolution.source}")
+    _emit_progress(
+        progress_cb, "preprocessing", 15, f"Relative depth: {resolution.source}"
+    )
 
     pp_active = postprocess not in (None, "", "none")
     pp_report_dict: dict | None = None
@@ -690,6 +753,9 @@ def run_inference(
 
             gsd = pixel_size_metres(crs, tf) if georef else None
 
+            _emit_progress(
+                progress_cb, "calibration", 65, "Refining structures"
+            )
             dsm, pp_report = refine_agl(
                 agl_raw,
                 rgb_u8,
@@ -723,6 +789,7 @@ def run_inference(
         dsm = predictor.predict(rgb_u8, resolution.raw, mode=mode)
 
     stats = compute_stats(dsm)
+    _emit_progress(progress_cb, "calibration", 76, "Calibrating scale")
     print(
         f"[stats] DSM (m): min {stats['min']:.2f}  mean {stats['mean']:.2f}  "
         f"median {stats['median']:.2f}  max {stats['max']:.2f}  "
@@ -758,6 +825,9 @@ def run_inference(
 
     outputs: dict[str, str | None] = {}
     if write_files:
+        _emit_progress(
+            progress_cb, "dsm_generation", 80, "Writing DSM outputs"
+        )
         outputs = write_outputs(
             Path(out_dir),
             dsm,
@@ -796,6 +866,7 @@ def run_inference(
                 "[semantic] checkpoint has sem_aux_head but predict_with_semantics "
                 "returned None — semantic artifacts NOT generated"
             )
+        _emit_progress(progress_cb, "dsm_generation", 90, "DSM written")
 
     payload = build_scene_payload(
         dsm,
