@@ -67,13 +67,24 @@ export function useProcessing() {
     return stop;
   }, [state.jobId, state.status, poll, stop]);
 
+  /**
+   * Request job cancellation. Returns { ok, error? } — the caller surfaces
+   * failures (network / 404 / 403) instead of this hook swallowing them.
+   * Success does NOT mean the job has stopped: the backend flags the job and
+   * ends it at the next cooperative checkpoint; the poll reports the flag via
+   * state.job.cancel_requested and finally status 'cancelled'.
+   */
   const cancel = useCallback(async () => {
-    if (!state.jobId) return;
+    if (!state.jobId) return { ok: false, error: 'No active job to cancel.' };
     try {
       await cancelJob(state.jobId);
-      // poll will pick up the 'cancelled' status on the next cycle
+      return { ok: true };
     } catch (err) {
       console.warn('[useProcessing] cancel error', err);
+      return {
+        ok: false,
+        error: err?.message ?? 'Could not reach the server to cancel.',
+      };
     }
   }, [state.jobId]);
 

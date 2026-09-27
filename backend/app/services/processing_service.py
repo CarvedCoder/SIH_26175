@@ -38,7 +38,7 @@ from backend.app.infrastructure.storage.scene_artifacts import (
     scene_output_dir_key,
 )
 from backend.app.jobs.manager import job_manager
-from depthwizard.inference import run_inference
+from depthwizard.inference import InferenceCancelled, run_inference
 
 # Reference-raster discovery conventions (see _find_reference_raster).
 _REFERENCE_BASENAMES = ("reference.tif", "reference_dem.tif", "ref_dem.tif")
@@ -406,15 +406,26 @@ class ProcessingService:
                 )
                 return {"cancelled": True}
 
-            payload = run_inference(
-                input_path=input_path,
-                ckpt_path=checkpoint,
-                out_dir=output_dir,
-                mode=mode,
-                ground_elev=ground_elev,
-                write_files=True,
-                **self._inference_kwargs(),
-            )
+            try:
+                payload = run_inference(
+                    input_path=input_path,
+                    ckpt_path=checkpoint,
+                    out_dir=output_dir,
+                    mode=mode,
+                    ground_elev=ground_elev,
+                    write_files=True,
+                    should_cancel=lambda: self._check_cancelled(job_id),
+                    **self._inference_kwargs(),
+                )
+            except InferenceCancelled:
+                # Cooperative cancel fired inside the pipeline (between tiles
+                # or at a stage boundary) — drop partial outputs, mark the
+                # job cancelled. The next poll transitions the UI back.
+                self._discard_outputs(output_dir)
+                self.jobs.update_job(
+                    job_id, status="cancelled", stage="cancelled"
+                )
+                return {"cancelled": True}
 
         if self._check_cancelled(job_id):
             self._discard_outputs(output_dir)
@@ -503,14 +514,21 @@ class ProcessingService:
                 with rasterio.open(crop_path, "w", **profile) as dst:
                     dst.write(data)
 
-            payload = run_inference(
-                input_path=crop_path,
-                ckpt_path=checkpoint,
-                out_dir=output_dir,
-                mode="tiles",
-                write_files=True,
-                **self._inference_kwargs(),
-            )
+            try:
+                payload = run_inference(
+                    input_path=crop_path,
+                    ckpt_path=checkpoint,
+                    out_dir=output_dir,
+                    mode="tiles",
+                    write_files=True,
+                    should_cancel=lambda: self._check_cancelled(job_id),
+                    **self._inference_kwargs(),
+                )
+            except InferenceCancelled:
+                self.jobs.update_job(
+                    job_id, status="cancelled", stage="cancelled"
+                )
+                return {"cancelled": True}
 
         # Persist the refined product explicitly; run_inference wrote the
         # full-scene-shaped outputs — copy the dsm.npy to the refined name.
