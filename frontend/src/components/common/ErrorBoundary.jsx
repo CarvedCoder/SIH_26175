@@ -226,7 +226,7 @@ Timestamp: ${new Date().toISOString()}`;
                   fontFamily: 'var(--dw-font-ui)',
                   fontSize: 13,
                   fontWeight: 600,
-                  color: '#fff',
+                  color: 'var(--dw-fg-invert)',
                   cursor: 'pointer',
                   outline: 'none',
                 }}

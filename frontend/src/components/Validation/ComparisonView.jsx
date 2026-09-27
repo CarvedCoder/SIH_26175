@@ -97,7 +97,7 @@ export default function ComparisonView({
             color: 'var(--dw-fg-ghost)',
             fontWeight: 600,
           }}>
-            Comparison Mode (§16, §17)
+            Comparison Mode
           </span>
         </div>
 
@@ -280,7 +280,7 @@ export default function ComparisonView({
             fontSize: 12,
             color: 'var(--dw-fg-muted)',
           }}>
-            <span style={{ color: '#60a5fa' }}>{minErr > 0 ? `+${minErr}` : minErr} {errUnits}</span>
+            <span style={{ color: 'var(--dw-fg)' }}>{minErr > 0 ? `+${minErr}` : minErr} {errUnits}</span>
             <span style={{ color: 'var(--dw-fg-ghost)' }}>0.0 {errUnits}</span>
             <span style={{ color: '#f87171' }}>{maxErr > 0 ? `+${maxErr}` : maxErr} {errUnits}</span>
           </div>

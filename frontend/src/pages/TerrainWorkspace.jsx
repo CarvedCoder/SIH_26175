@@ -980,7 +980,7 @@ export default function TerrainWorkspace() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              background: 'rgba(7,9,14,0.7)',
+              background: 'rgba(9,9,11,0.7)',
               gap: 12,
             }}
           >

@@ -19,6 +19,7 @@
 import { useState } from 'react';
 import { useApp, AppState } from '../../store/appStore.jsx';
 import {
+  ArrowRight,
   Clock,
   FolderOpen,
   Mountain,
@@ -54,17 +55,28 @@ function formatRelativeTime(timestamp) {
  *   onSelectProject?: (project: any) => void,
  *   compact?: boolean,
  *   onClose?: () => void,
+ *   limit?: number,
+ *   onViewAll?: () => void,
  * }} props
+ *
+ * `limit` caps the rendered list to the N most recent entries — used on the
+ * dashboard sidebar so a long history cannot stretch the layout. When entries
+ * are hidden and `onViewAll` is provided, a "View all history" footer links
+ * to the full Recent Projects page.
  */
 export default function RecentProjects({
   onSelectProject,
   compact = false,
   onClose,
+  limit,
+  onViewAll,
 }) {
   const { state, actions } = useApp();
   const [hoveredId, setHoveredId] = useState(null);
 
   const projects = state.recentScenes ?? [];
+  const visible = limit != null ? projects.slice(0, limit) : projects;
+  const hiddenCount = projects.length - visible.length;
 
   const handleResume = (project, targetStatus = null) => {
     actions.resumeSession(project, targetStatus);
@@ -111,7 +123,7 @@ export default function RecentProjects({
             color: 'var(--dw-fg-muted)',
             fontWeight: 600,
           }}>
-            RECENT PROJECTS (§28)
+            RECENT PROJECTS
           </span>
           <span style={{
             fontFamily: 'var(--dw-font-data)',
@@ -186,12 +198,13 @@ export default function RecentProjects({
           </span>
         </div>
       ) : (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-        }}>
-          {projects.map((proj) => {
+        <>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}>
+            {visible.map((proj) => {
             const isAbsolute = proj.elevation_mode === 'absolute' || proj.processing_path === 'absolute_dsm';
             const modeLabel = isAbsolute ? 'Absolute DSM' : 'Relative DSM';
             const isHovered = hoveredId === proj.scene_id;
@@ -218,14 +231,14 @@ export default function RecentProjects({
                   justifyContent: 'space-between',
                   padding: compact ? '10px 12px' : '12px 16px',
                   background: isCurrent
-                    ? 'rgba(59,130,246,0.06)'
+                    ? 'var(--dw-accent-soft)'
                     : isHovered
                     ? 'var(--dw-surface)'
                     : 'var(--dw-panel)',
                   border: isCurrent
                     ? '1px solid var(--dw-accent)'
                     : isHovered
-                    ? '1px solid rgba(59,130,246,0.5)'
+                    ? '1px solid var(--dw-rim-strong)'
                     : '1px solid var(--dw-rim)',
                   borderRadius: 'var(--dw-radius-sm)',
                   cursor: 'pointer',
@@ -255,7 +268,7 @@ export default function RecentProjects({
                     height: 8,
                     borderRadius: '50%',
                     background: isAbsolute ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
-                    boxShadow: isAbsolute ? '0 0 0 2px rgba(59,130,246,0.2)' : 'none',
+                    boxShadow: isAbsolute ? '0 0 0 2px rgba(250,250,250,0.28)' : 'none',
                   }} aria-hidden="true" />
 
                   <div style={{
@@ -283,7 +296,7 @@ export default function RecentProjects({
                           fontSize: 10.5,
                           color: 'var(--dw-accent)',
                           padding: '1px 5px',
-                          border: '1px solid rgba(59,130,246,0.4)',
+                          border: '1px solid var(--dw-rim-strong)',
                           borderRadius: 2,
                         }}>
                           ACTIVE
@@ -395,7 +408,56 @@ export default function RecentProjects({
               </div>
             );
           })}
-        </div>
+          </div>
+
+          {/* Truncated list — link to the full Recent Projects page */}
+          {hiddenCount > 0 && onViewAll && (
+            <button
+              onClick={onViewAll}
+              style={{
+                height: 36,
+                width: '100%',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                background: 'none',
+                border: '1px solid var(--dw-rim)',
+                borderRadius: 'var(--dw-radius-sm)',
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 13,
+                fontWeight: 500,
+                color: 'var(--dw-fg-muted)',
+                cursor: 'pointer',
+                outline: 'none',
+                transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'var(--dw-surface)';
+                e.currentTarget.style.borderColor = 'var(--dw-rim-strong)';
+                e.currentTarget.style.color = 'var(--dw-fg)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'none';
+                e.currentTarget.style.borderColor = 'var(--dw-rim)';
+                e.currentTarget.style.color = 'var(--dw-fg-muted)';
+              }}
+              onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; e.currentTarget.style.outlineOffset = '1px'; }}
+              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+              aria-label={`View all ${projects.length} recent projects`}
+            >
+              View all history
+              <span style={{
+                fontFamily: 'var(--dw-font-data)',
+                fontSize: 11,
+                color: 'var(--dw-fg-ghost)',
+              }}>
+                (+{hiddenCount})
+              </span>
+              <ArrowRight size={13} strokeWidth={1.5} aria-hidden="true" />
+            </button>
+          )}
+        </>
       )}
     </section>
   );

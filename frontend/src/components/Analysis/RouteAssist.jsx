@@ -89,9 +89,9 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
         width: 320,
         padding: 14,
         borderRadius: 12,
-        background: 'rgba(2, 8, 20, 0.92)',
-        border: '1px solid rgba(90, 140, 255, 0.25)',
-        color: '#dbe7ff',
+        background: 'rgba(9, 9, 11, 0.92)',
+        border: '1px solid rgba(250, 250, 250, 0.14)',
+        color: '#e4e4e7',
         fontFamily: 'ui-monospace, monospace',
         fontSize: 12,
         backdropFilter: 'blur(8px)',
@@ -99,7 +99,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
     >
       {/* header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <Route size={15} style={{ color: '#5b8cff' }} />
+        <Route size={15} style={{ color: '#fafafa' }} />
         <span style={{ fontWeight: 700, letterSpacing: 1 }}>ROUTE ASSIST</span>
         <button
           onClick={() => {
@@ -111,9 +111,9 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
           style={{
             marginLeft: 'auto',
             background: 'none',
-            border: '1px solid rgba(90,140,255,0.3)',
+            border: '1px solid rgba(250,250,250,0.18)',
             borderRadius: 6,
-            color: '#8fb0ff',
+            color: '#d4d4d8',
             cursor: 'pointer',
             padding: '2px 6px',
             display: 'flex',
@@ -128,7 +128,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
 
       {/* vehicle fleet selection */}
       <div style={{ marginBottom: 10 }}>
-        <div style={{ color: '#7f92b8', marginBottom: 4, fontSize: 10, letterSpacing: 1 }}>
+        <div style={{ color: '#71717a', marginBottom: 4, fontSize: 10, letterSpacing: 1 }}>
           FLEET
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -143,9 +143,9 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   borderRadius: 999,
                   fontSize: 11,
                   cursor: 'pointer',
-                  border: `1px solid ${on ? '#5b8cff' : 'rgba(90,140,255,0.2)'}`,
-                  background: on ? 'rgba(91,140,255,0.18)' : 'transparent',
-                  color: on ? '#cfe0ff' : '#7f92b8',
+                  border: `1px solid ${on ? '#fafafa' : 'rgba(250,250,250,0.10)'}`,
+                  background: on ? 'rgba(250,250,250,0.10)' : 'transparent',
+                  color: on ? '#fafafa' : '#71717a',
                 }}
               >
                 {v.label}
@@ -157,21 +157,21 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
 
       {/* picking phase hint */}
       {phase === 'pick-start' && (
-        <div style={{ color: '#8fb0ff' }}>Click the START point on the terrain…</div>
+        <div style={{ color: '#d4d4d8' }}>Click the START point on the terrain…</div>
       )}
       {phase === 'pick-end' && (
-        <div style={{ color: '#8fb0ff' }}>
+        <div style={{ color: '#d4d4d8' }}>
           Click the DESTINATION point…
           {vehicles.includes('rescue_chopper') && (
-            <span style={{ color: '#6d7f9f' }}>
+            <span style={{ color: '#71717a' }}>
               {' '}the chopper will look for a landing zone near it.
             </span>
           )}
         </div>
       )}
-      {phase === 'assessing' && <div style={{ color: '#8fb0ff' }}>Assessing routes…</div>}
+      {phase === 'assessing' && <div style={{ color: '#d4d4d8' }}>Assessing routes…</div>}
       {error && (
-        <div style={{ color: '#ff9c9c', display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div style={{ color: '#f87171', display: 'flex', gap: 6, alignItems: 'center' }}>
           <AlertTriangle size={13} /> {error}
         </div>
       )}
@@ -202,11 +202,11 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
               >
                 {meta.glyph} {meta.label}
               </span>
-              <span style={{ marginLeft: 'auto', color: '#9fb4dd' }}>{v.vehicle_label}</span>
+              <span style={{ marginLeft: 'auto', color: '#a1a1aa' }}>{v.vehicle_label}</span>
             </div>
 
             {v.reasons?.map((r, i) => (
-              <div key={i} style={{ marginTop: 4, color: '#a9bcdc' }}>
+              <div key={i} style={{ marginTop: 4, color: '#a1a1aa' }}>
                 • {r}
               </div>
             ))}
@@ -218,19 +218,19 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   display: 'grid',
                   gridTemplateColumns: '1fr 1fr',
                   gap: '2px 10px',
-                  color: '#8ea6d4',
+                  color: '#a1a1aa',
                 }}
               >
                 {v.path_length_m != null && (
                   <>
                     <span>Length</span>
-                    <span style={{ color: '#cfe0ff' }}>{fmtDistance(v.path_length_m)}</span>
+                    <span style={{ color: '#fafafa' }}>{fmtDistance(v.path_length_m)}</span>
                   </>
                 )}
                 {v.landing_zone?.distance_to_goal_m != null && (
                   <>
                     <span>LZ→target</span>
-                    <span style={{ color: '#cfe0ff' }}>
+                    <span style={{ color: '#fafafa' }}>
                       {fmtDistance(v.landing_zone.distance_to_goal_m)}
                     </span>
                   </>
@@ -238,19 +238,19 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                 {v.estimated_travel_seconds != null && (
                   <>
                     <span>Est. travel</span>
-                    <span style={{ color: '#cfe0ff' }}>{fmtTime(v.estimated_travel_seconds)}</span>
+                    <span style={{ color: '#fafafa' }}>{fmtTime(v.estimated_travel_seconds)}</span>
                   </>
                 )}
                 {v.max_slope_on_path_deg != null && (
                   <>
                     <span>Max slope</span>
-                    <span style={{ color: '#cfe0ff' }}>{v.max_slope_on_path_deg}°</span>
+                    <span style={{ color: '#fafafa' }}>{v.max_slope_on_path_deg}°</span>
                   </>
                 )}
                 {v.max_step_on_path_m != null && (
                   <>
                     <span>Max step</span>
-                    <span style={{ color: '#cfe0ff' }}>{v.max_step_on_path_m} m</span>
+                    <span style={{ color: '#fafafa' }}>{v.max_step_on_path_m} m</span>
                   </>
                 )}
               </div>
@@ -263,17 +263,17 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   marginTop: 8,
                   padding: '6px 8px',
                   borderRadius: 6,
-                  background: 'rgba(15, 23, 42, 0.75)',
-                  border: '1px solid rgba(148, 163, 184, 0.25)',
+                  background: 'rgba(24, 24, 27, 0.75)',
+                  border: '1px solid rgba(161, 161, 170, 0.25)',
                 }}
               >
-                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#94a3b8', letterSpacing: 0.8, marginBottom: 5 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#a1a1aa', letterSpacing: 0.8, marginBottom: 5 }}>
                   ROUTE SEMANTICS
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                   {v.road_fraction != null && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
-                      <span style={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ color: '#d4d4d8', display: 'flex', alignItems: 'center', gap: 5 }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#9B9B9B' }} /> Road
                       </span>
                       <span style={{ color: '#ffffff', fontWeight: 600 }}>{Math.round(v.road_fraction * 100)}%</span>
@@ -281,7 +281,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   )}
                   {v.ground_fraction != null && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
-                      <span style={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ color: '#d4d4d8', display: 'flex', alignItems: 'center', gap: 5 }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#D2B48C' }} /> Ground
                       </span>
                       <span style={{ color: '#ffffff', fontWeight: 600 }}>{Math.round(v.ground_fraction * 100)}%</span>
@@ -289,7 +289,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   )}
                   {v.vegetation_fraction != null && (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
-                      <span style={{ color: '#cbd5e1', display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ color: '#d4d4d8', display: 'flex', alignItems: 'center', gap: 5 }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#2ECC71' }} /> Vegetation
                       </span>
                       <span style={{ color: '#ffffff', fontWeight: 600 }}>{Math.round(v.vegetation_fraction * 100)}%</span>
@@ -318,13 +318,13 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   borderRadius: 6,
                   border: '1px dashed rgba(91,140,255,0.45)',
                   background: 'rgba(91,140,255,0.08)',
-                  color: '#8fb0ff',
+                  color: '#d4d4d8',
                 }}
               >
                 <div style={{ fontWeight: 700, letterSpacing: 1, fontSize: 10 }}>
                   ⛉ LANDING ZONE (pix {v.landing_zone.pixel?.x}, {v.landing_zone.pixel?.y})
                 </div>
-                <div style={{ marginTop: 2, color: '#a9bcdc' }}>
+                <div style={{ marginTop: 2, color: '#a1a1aa' }}>
                   Slope {v.landing_zone.slope_deg}° ·
                   {' '}{v.landing_zone.distance_to_goal_m != null
                     ? `${fmtDistance(v.landing_zone.distance_to_goal_m)} from target`
@@ -348,8 +348,8 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
           style={{
             marginTop: 10,
             paddingTop: 8,
-            borderTop: '1px solid rgba(90,140,255,0.15)',
-            color: '#6d7f9f',
+            borderTop: '1px solid rgba(250,250,250,0.10)',
+            color: '#71717a',
             fontSize: 10,
             lineHeight: 1.5,
           }}

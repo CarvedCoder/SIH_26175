@@ -380,7 +380,7 @@ export default function DetailMode({
         <div style={{
           padding: '10px 12px',
           background: 'var(--dw-surface)',
-          border: '1px solid rgba(59, 130, 246, 0.3)',
+          border: '1px solid var(--dw-rim-strong)',
           borderRadius: 'var(--dw-radius-sm)',
           display: 'flex',
           alignItems: 'center',

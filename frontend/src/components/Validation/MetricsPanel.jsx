@@ -147,8 +147,8 @@ export default function MetricsPanel({
           fontFamily: 'var(--dw-font-data)',
           fontSize: 11,
           color: 'var(--dw-accent)',
-          background: 'rgba(59, 130, 246, 0.08)',
-          border: '1px solid rgba(59, 130, 246, 0.25)',
+          background: 'var(--dw-accent-soft)',
+          border: '1px solid var(--dw-rim-strong)',
           padding: '2px 8px',
           borderRadius: 'var(--dw-radius-sm)',
         }}>
