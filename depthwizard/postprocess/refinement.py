@@ -54,6 +54,7 @@ class PostProcessReport:
     calibration: Dict[str, float]  # mean/median/std raw vs refined + deltas
     spike_count: int = 0
     planar_stats: Dict[str, Any] = field(default_factory=dict)
+    shape_stats: Dict[str, Any] = field(default_factory=dict)
     wls_iterations: int = 0
     wls_converged: bool = True
     tta_augmentations: tuple = ()
@@ -70,6 +71,7 @@ class PostProcessReport:
             "calibration": self.calibration,
             "spike_count": self.spike_count,
             "planar_stats": self.planar_stats,
+            "shape_stats": self.shape_stats,
             "wls_iterations": self.wls_iterations,
             "wls_converged": self.wls_converged,
             "tta_augmentations": list(self.tta_augmentations),
@@ -362,7 +364,58 @@ def refine_agl(
     else:  # pragma: no cover — config validates the method name
         raise ValueError(f"unhandled method '{method}'")
 
-    # ---- stage 4.5: post-refinement spike cleanup --------------------------
+    # ---- stage 4.6: semantic structural shaping (rendering quality) --------
+    # Predicted-building plateaus + predicted-vegetation canopy domes.
+    # Skipped with an explicit note when no semantics are available — the
+    # stage never guesses regions.
+    shape_stats: Dict[str, Any] = {}
+    if config.semantic_shape and spatial_wanted:
+        if sem_probs is not None:
+            from .semantic import building_mask_from_probs
+            from .shaping import flatten_buildings, shape_tree_canopies, vegetation_mask_from_probs
+
+            bmask = building_mask_from_probs(sem_probs)
+            out, b_stats = flatten_buildings(
+                out.astype(np.float32), bmask, valid=valid,
+                min_area=config.shape_min_building_area,
+                max_residual=config.shape_building_max_residual,
+                min_inlier_frac=config.shape_building_min_inlier_frac,
+            )
+            vmask = vegetation_mask_from_probs(sem_probs)
+            out, v_stats = shape_tree_canopies(
+                out.astype(np.float32), vmask, valid=valid,
+                min_area=config.shape_min_veg_area,
+                min_tree_height=config.shape_min_tree_height,
+                peak_window=config.shape_peak_window,
+                peak_percentile=config.shape_peak_percentile,
+                max_crowns=config.shape_max_crowns,
+            )
+            shape_stats = {**b_stats, **v_stats}
+            n_shaped = (
+                b_stats["building_pixels_replaced"]
+                + v_stats["veg_pixels_replaced"]
+            )
+            if n_shaped > 0:
+                notes.append(
+                    "semantic_shape: buildings flattened to plateau planes "
+                    f"({b_stats['building_flattened']}/"
+                    f"{b_stats['building_components']} footprints), "
+                    f"vegetation domed to canopy shapes "
+                    f"({v_stats['veg_crowns_domed']}/{v_stats['veg_crowns']} "
+                    "crowns)"
+                )
+            else:
+                notes.append(
+                    "semantic_shape: no region passed the shape guards — "
+                    "heights left as refined"
+                )
+        else:
+            notes.append(
+                "semantic_shape enabled but no sem_probs — skipped (no "
+                "fabricated building/vegetation regions)"
+            )
+
+    # ---- stage 4.7: post-refinement spike cleanup --------------------------
     if config.spike_removal and config.spike_post_refine and spatial_wanted:
         from .spike_removal import remove_spikes
 
@@ -413,6 +466,7 @@ def refine_agl(
         calibration=calib,
         spike_count=int(spike_mask.sum()),
         planar_stats=planar_stats,
+        shape_stats=shape_stats,
         wls_iterations=wls_iters,
         wls_converged=wls_conv,
         tta_augmentations=tta_augs,

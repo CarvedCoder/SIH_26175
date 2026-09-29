@@ -14,7 +14,7 @@
  * DESIGN.md:
  *   - Monospace data font for values
  *   - UI font for labels
- *   - Background: --dw-panel (rgba(16,16,18,0.92)) with 1px --dw-rim
+ *   - Background: --dw-panel (var(--dw-glass)) with 1px --dw-rim
  *   - No box shadows
  *   - Instrument-needle feel
  *
@@ -179,7 +179,7 @@ export default function ElevationProbe({ terrainRef, enabled = true, onProbe, se
         top: mousePos.y + 16,
         pointerEvents: 'none',
         zIndex: 20,
-        background: 'rgba(16,16,18,0.92)',
+        background: 'var(--dw-glass)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius-sm)',
         padding: '8px 12px',

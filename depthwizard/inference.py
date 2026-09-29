@@ -472,6 +472,7 @@ class DepthWizardPredictor:
     def predict_with_semantics(
         self, rgb_u8: np.ndarray, raw_dn: np.ndarray, mode: str = "auto",
         should_cancel: Callable[[], bool] | None = None,
+        on_progress: Callable[[float], None] | None = None,
     ) -> dict:
         """Like predict(), but ALSO returns predicted semantic probabilities.
 
@@ -483,9 +484,12 @@ class DepthWizardPredictor:
 
         ``should_cancel`` is a cooperative hook polled between tiles; when it
         returns True, InferenceCancelled is raised (never silently ignored).
+        ``on_progress`` receives the completed-tile FRACTION in [0, 1] after
+        each tile (single-forward modes report 0.0 before, 1.0 after).
         """
         return self._predict_impl(
-            rgb_u8, raw_dn, mode, want_semantics=True, should_cancel=should_cancel
+            rgb_u8, raw_dn, mode, want_semantics=True, should_cancel=should_cancel,
+            on_progress=on_progress,
         )
 
     def _predict_impl(
@@ -495,6 +499,7 @@ class DepthWizardPredictor:
         mode: str = "auto",
         want_semantics: bool = False,
         should_cancel: Callable[[], bool] | None = None,
+        on_progress: Callable[[float], None] | None = None,
     ):
         from .imgio import validate_rgb_u8
 
@@ -517,15 +522,24 @@ class DepthWizardPredictor:
                 None,
             )
 
+        def _done(frac: float) -> None:
+            if on_progress is not None:
+                try:
+                    on_progress(frac)
+                except Exception:  # noqa: BLE001 — progress must not kill a job
+                    pass
+
         if mode in ("crop", "resize"):
             small = (h < TILE) or (w < TILE)
             if mode == "resize" or small:
                 rgb_canvas, (y0, x0, h2, w2) = letterbox_to_tile(rgb_u8)
                 dn_canvas, _ = letterbox_to_tile(raw_dn)
                 dn_n, stats = minmax_normalize_with_stats(dn_canvas)
+                _done(0.0)
                 pred, sem = _forward(
                     dn_n, rgb_canvas, stats
                 )
+                _done(1.0)
                 # keep only the real content, then map back to the source grid
                 core = pred[y0 : y0 + h2, x0 : x0 + w2]
                 out = _resize_bilinear(core, h, w)
@@ -551,7 +565,8 @@ class DepthWizardPredictor:
             stitcher = OverlapStitcher(h, w, cfg)
             sem_stitchers: list[OverlapStitcher] | None = []
             print(f"[i] tiles: {len(windows)} windows of {TILE} (overlap {cfg.overlap})")
-            for window in windows:
+            n_windows = max(1, len(windows))
+            for i, window in enumerate(windows):
                 if should_cancel is not None and should_cancel():
                     raise InferenceCancelled(
                         "cancelled between tiles"
@@ -565,6 +580,7 @@ class DepthWizardPredictor:
                 dn_n, stats = minmax_normalize_with_stats(tile_dn)
                 pred, sem = _forward(dn_n, tile_rgb, stats)
                 stitcher.add_tile(window, pred)
+                _done((i + 1) / n_windows)
                 if want_semantics and sem is not None:
                     if not sem_stitchers:
                         sem_stitchers = [
@@ -690,6 +706,7 @@ def run_inference(
     postprocess_params: dict | None = None,
     tta: bool = False,
     should_cancel: Callable[[], bool] | None = None,
+    on_progress: Callable[[str, float], None] | None = None,
     architecture: str | None = None,
     depth_scale: float = 40.0,
 ) -> dict:
@@ -737,11 +754,28 @@ def run_inference(
     def _cancelled() -> bool:
         return bool(should_cancel is not None and should_cancel())
 
+    def _report(stage: str, pct: float) -> None:
+        """Optional progress hook: (stage_key, overall percent 0-100).
+
+        Stage keys mirror the serving layer's pipeline vocabulary
+        (preprocessing, depth_estimation, refinement, dsm_generation,
+        validation); callers persist them for live UI progress. The hook
+        must never break inference — caller-side, exceptions are wrapped.
+        """
+        if on_progress is None:
+            return
+        try:
+            on_progress(stage, float(pct))
+        except Exception:  # noqa: BLE001 — progress reporting must not kill a job
+            pass
+
     if _cancelled():
         raise InferenceCancelled("cancelled before inference started")
 
+    _report("preprocessing", 3.0)
     resolution = predictor.resolve_dn(rgb_u8, stem=input_path.stem, dn_path=dn_path)
     print(f"[i] Dn source: {resolution.source}")
+    _report("preprocessing", 7.0)
 
     pp_active = postprocess not in (None, "", "none")
     pp_report_dict: dict | None = None
@@ -754,9 +788,14 @@ def run_inference(
     has_sem_head = bool(getattr(predictor.model, 'sem_aux_head', False))
 
     if pp_active or has_sem_head:
+        _report("depth_inference", 10.0)
         out = predictor.predict_with_semantics(
-            rgb_u8, resolution.raw, mode=mode, should_cancel=should_cancel
+            rgb_u8, resolution.raw, mode=mode, should_cancel=should_cancel,
+            on_progress=lambda frac: _report(
+                "depth_estimation", 10.0 + 45.0 * float(frac)
+            ),
         )
+        _report("depth_inference", 55.0)
         if pp_active:
             from .postprocess import config_from_preset, refine_agl
 
@@ -787,6 +826,7 @@ def run_inference(
 
             gsd = pixel_size_metres(crs, tf) if georef else None
 
+            _report("refinement", 58.0)
             dsm, pp_report = refine_agl(
                 agl_raw,
                 rgb_u8,
@@ -796,6 +836,7 @@ def run_inference(
                 tta_predict_fn=tta_fn,
                 gsd=gsd,
             )
+            _report("refinement", 76.0)
             pp_report_dict = pp_report.to_dict()
             print(
                 f"[postprocess] method={pp_report.method}  "
@@ -817,9 +858,11 @@ def run_inference(
             dsm = out["pred"]
             sem_probs = out.get("sem_probs")
     else:
+        _report("depth_inference", 10.0)
         dsm = predictor.predict(
             rgb_u8, resolution.raw, mode=mode, should_cancel=should_cancel
         )
+        _report("depth_inference", 55.0)
 
     if _cancelled():
         raise InferenceCancelled("cancelled after depth inference")
@@ -875,6 +918,7 @@ def run_inference(
 
     if _cancelled():
         raise InferenceCancelled("cancelled before writing outputs")
+    _report("dsm_generation", 80.0)
     outputs: dict[str, str | None] = {}
     if write_files:
         outputs = write_outputs(
@@ -889,6 +933,8 @@ def run_inference(
         for k, v in outputs.items():
             if v:
                 print(f"[out] {v}")
+
+        _report("validation", 90.0)
 
         # ---- Semantic artifact generation --------------------------------
         if sem_probs is not None:

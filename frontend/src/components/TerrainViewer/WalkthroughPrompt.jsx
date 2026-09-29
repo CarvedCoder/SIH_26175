@@ -7,7 +7,7 @@
  * Escape releases the lock.
  *
  * Matches the ControlsHint / CameraHUD panel idiom:
- *   - rgba(16,16,18,0.9) panel, 1px var(--dw-rim), blur backdrop
+ *   - var(--dw-glass) panel, 1px var(--dw-rim), blur backdrop
  *   - Data face for the key summary, UI face for the instruction
  */
 

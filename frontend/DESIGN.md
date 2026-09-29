@@ -16,28 +16,30 @@ The signature element is the **minimap as live mirror**: the uploaded photograph
 
 | Role | Name | Value | Usage |
 |------|------|-------|-------|
-| Ground | `--dw-void` | `#09090b` | Page / canvas background |
-| Panel | `--dw-panel` | `#101012` | Side panels, bottom toolbar, header |
-| Surface | `--dw-surface` | `#18181b` | Cards, input fields, popovers |
-| Hover | `--dw-hover` | `#1f1f23` | One-step hover lightening on surfaces |
-| Rim | `--dw-rim` | `#27272a` | Thin 1px borders, dividers |
-| Rim / Strong | `--dw-rim-strong` | `#3f3f46` | Hover borders, secondary control outlines |
-| Text / Primary | `--dw-fg` | `#fafafa` | Body copy, panel labels |
-| Text / Secondary | `--dw-fg-muted` | `#a1a1aa` | Metadata, secondary labels |
-| Text / Tertiary | `--dw-fg-ghost` | `#71717a` | Disabled, placeholder |
-| Text / Inverted | `--dw-fg-invert` | `#09090b` | Text on ivory primary surfaces |
-| Accent / Instrument | `--dw-accent` | `#fafafa` | Active states, selected elements, progress indicators |
-| Accent / Wash | `--dw-accent-soft` | `rgba(250,250,250,0.10)` | Subtle active backgrounds, hover fills |
-| Accent / Confirm | `--dw-confirm` | `#22c55e` | Processing complete, validation pass |
-| Accent / Live | `--dw-live` | `#f59e0b` | Active processing stage, warnings |
-| Accent / Fault | `--dw-fault` | `#ef4444` | Errors, failed stages |
-| Terrain / Probe | `--dw-probe` | `#fafafa` | Elevation probe crosshair, measurement markers |
-| Minimap / Cone | `--dw-fov` | `rgba(250,250,250,0.16)` | FOV cone fill on minimap |
-| Minimap / Marker | `--dw-marker` | `#f59e0b` | Camera position dot |
+| Ground | `--dw-void` | `#0c1220` | Page / canvas background |
+| Panel | `--dw-panel` | `#111a2c` | Side panels, bottom toolbar, header |
+| Surface | `--dw-surface` | `#17223a` | Cards, input fields, popovers |
+| Hover | `--dw-hover` | `#1d2b47` | One-step hover lightening on surfaces |
+| Rim | `--dw-rim` | `#2a3a58` | Thin 1px borders, dividers |
+| Rim / Strong | `--dw-rim-strong` | `#43587c` | Hover borders, secondary control outlines |
+| Glass | `--dw-glass` | `rgba(15,23,41,0.92)` | Translucent in-viewport bars over terrain |
+| Text / Primary | `--dw-fg` | `#eef2f9` | Body copy, panel labels |
+| Text / Secondary | `--dw-fg-muted` | `#9db0cc` | Metadata, secondary labels |
+| Text / Tertiary | `--dw-fg-ghost` | `#64748b` | Disabled, placeholder |
+| Text / Inverted | `--dw-fg-invert` | `#071224` | Text on sky primary surfaces |
+| Accent / Instrument | `--dw-accent` | `#4cc3ff` | Active states, selected elements, progress indicators |
+| Accent / Strong | `--dw-accent-strong` | `#7dd3fc` | Hover on accent surfaces |
+| Accent / Wash | `--dw-accent-soft` | `rgba(76,195,255,0.12)` | Subtle active backgrounds, hover fills |
+| Accent / Confirm | `--dw-confirm` | `#34d399` | Processing complete, validation pass |
+| Accent / Live | `--dw-live` | `#fbbf24` | Active processing stage, warnings |
+| Accent / Fault | `--dw-fault` | `#f87171` | Errors, failed stages |
+| Terrain / Probe | `--dw-probe` | `#e2e8f0` | Elevation probe crosshair, measurement markers |
+| Minimap / Cone | `--dw-fov` | `rgba(76,195,255,0.16)` | FOV cone fill on minimap |
+| Minimap / Marker | `--dw-marker` | `#fbbf24` | Camera position dot |
 
-Colour strategy: **Monochrome ivory (restrained)**. Neutral graphite surfaces carry the UI with no hue; interactive states are luminance, not colour — the ivory accent (`--dw-accent`) is a white-filled button, a white border, a white marker. Primary actions invert: ivory surface, near-black text (`--dw-fg-invert`). Fault, confirm, and live are the only hues in the chrome, reserved strictly for status; the remaining colour on screen belongs to the data itself (imagery, colormaps, semantic classes).
+Colour strategy: **Slate instrument (single-hue accent)**. Deep navy-slate surfaces carry the UI — softer than pure black, cool enough to read as mission-control hardware rather than a consumer dark theme. Interactive states use the sky instrument accent (`--dw-accent`): a sky-filled primary button, a sky border, a sky progress bar — always paired with `--dw-fg-invert` (deep navy) text so labels stay legible on every fill. Status hues (confirm/live/fault) remain reserved strictly for status; the remaining colour on screen belongs to the data itself (imagery, colormaps, semantic classes).
 
-Data colormaps are exempt from the monochrome rule: the diverging error map keeps its blue→grey→red ramp, viridis keeps its purples, semantic classes keep their assignment hexes — legends must stay truthful to the GLSL they mirror.
+Data colormaps are exempt from the accent rule: the diverging error map keeps its blue→grey→red ramp, viridis keeps its purples, semantic classes keep their assignment hexes — legends must stay truthful to the GLSL they mirror.
 
 ---
 

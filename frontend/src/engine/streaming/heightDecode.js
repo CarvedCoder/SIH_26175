@@ -14,28 +14,97 @@
  */
 
 /**
+ * Remove isolated height spikes from a decoded normalized heightfield,
+ * IN PLACE. This is a rendering-quality safety net for artifacts produced
+ * before the backend's spike-removal / semantic-shaping postprocess stage:
+ * a single pixel that stands strictly above (or below) ALL of its 8
+ * neighbours by more than `minDelta` is an isolated needle, not terrain —
+ * it is replaced by the median of those neighbours.
+ *
+ * The strict all-neighbours criterion is deliberately conservative: roof
+ * interiors (equal-height neighbours), building walls (neighbours on both
+ * sides) and genuine ridges never match, so real structures survive
+ * untouched. Spikes spanning 2+ connected pixels are handled by the
+ * backend pipeline; this pass only guarantees the worst 1-px needles are
+ * never rendered.
+ *
+ * @param {Float32Array} data - Normalized [0,1] heights, mutated in place
+ * @param {number} width
+ * @param {number} height
+ * @param {Object} [opts]
+ * @param {number} [opts.minDelta=0.02] - Minimum normalized elevation
+ *   delta to ALL neighbours for a pixel to count as an isolated spike
+ *   (0.02 of the scene's elevation span — e.g. ~1 m on a 50 m scene).
+ * @returns {Float32Array} The same (mutated) array, for chaining
+ */
+export function despikeHeightfield(data, width, height, opts = {}) {
+  const minDelta = Number.isFinite(opts.minDelta) ? opts.minDelta : 0.02;
+  if (width < 3 || height < 3) return data;
+
+  const nb = new Float64Array(8);
+  for (let y = 0; y < height; y++) {
+    const y0 = y > 0 ? y - 1 : 0;
+    const y1 = y < height - 1 ? y + 1 : height - 1;
+    for (let x = 0; x < width; x++) {
+      const x0 = x > 0 ? x - 1 : 0;
+      const x1 = x < width - 1 ? x + 1 : width - 1;
+
+      let n = 0;
+      let maxN = -Infinity;
+      let minN = Infinity;
+      for (let dy = y0; dy <= y1; dy++) {
+        for (let dx = x0; dx <= x1; dx++) {
+          if (dx === x && dy === y) continue;
+          const v = data[dy * width + dx];
+          nb[n++] = v;
+          if (v > maxN) maxN = v;
+          if (v < minN) minN = v;
+        }
+      }
+      if (n === 0) continue;
+
+      const v = data[y * width + x];
+      const isolatedPeak = v - maxN > minDelta;
+      const isolatedPit = minN - v > minDelta;
+      if (!isolatedPeak && !isolatedPit) continue;
+
+      // Median of the neighbours (average of the two central order stats)
+      const slice = nb.subarray(0, n).sort();
+      const med = n % 2 === 1 ? slice[n >> 1] : 0.5 * (slice[(n >> 1) - 1] + slice[n >> 1]);
+      data[y * width + x] = med;
+    }
+  }
+  return data;
+}
+
+/**
  * Decode raw heightmap/height-tile PNG bytes into { data, width, height }
- * with normalized [0, 1] elevation values.
+ * with normalized [0, 1] elevation values. The result is despiked — see
+ * despikeHeightfield.
  *
  * @param {ArrayBuffer} buf - Raw PNG bytes
  * @returns {Promise<{data: Float32Array, width: number, height: number}>}
  */
 export async function decodeHeightmapBytes(buf) {
+  let decoded;
   try {
-    const parsed = await decodeHeightPng16(buf);
-    if (parsed) return parsed;
+    decoded = await decodeHeightPng16(buf);
   } catch (err) {
     console.warn('[terrain] 16-bit heightmap decode failed, falling back to 8-bit canvas decode', err);
+    decoded = null;
   }
   // Non-PNG bodies (e.g. an auth error page) must fail fast with a clear
   // error — never enter the canvas fallback, which can hang on bad input.
-  if (!isPngBuffer(buf)) {
-    throw new Error(
-      `heightmap is not a PNG image (got ${buf.byteLength} bytes — ` +
-      'check authentication/storage delivery)'
-    );
+  if (!decoded) {
+    if (!isPngBuffer(buf)) {
+      throw new Error(
+        `heightmap is not a PNG image (got ${buf.byteLength} bytes — ` +
+        'check authentication/storage delivery)'
+      );
+    }
+    decoded = await decodeHeightViaCanvasBytes(buf);
   }
-  return decodeHeightViaCanvasBytes(buf);
+  return { data: despikeHeightfield(decoded.data, decoded.width, decoded.height), width: decoded.width, height: decoded.height };
 }
 
 /** Cheap signature check to reject JSON/error bodies before decoding. */

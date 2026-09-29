@@ -332,7 +332,7 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMe
           top: 12,
           left: leftOffset,
           zIndex: 12,
-          background: 'rgba(16,16,18,0.92)',
+          background: 'var(--dw-glass)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius-sm)',
           height: 34,

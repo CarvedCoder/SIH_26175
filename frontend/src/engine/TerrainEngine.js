@@ -22,7 +22,7 @@ import { LODManager } from './lod/LODManager.js';
 import { TerrainCollision } from './camera/TerrainCollision.js';
 import { SpatialModel } from './spatial/SpatialModel.js';
 import { TileStreamer } from './streaming/TileStreamer.js';
-import { decodeHeightPng16, decodeHeightViaCanvasBytes } from './streaming/heightDecode.js';
+import { decodeHeightPng16, decodeHeightViaCanvasBytes, despikeHeightfield } from './streaming/heightDecode.js';
 
 export class TerrainEngine {
   /**
@@ -164,9 +164,11 @@ export class TerrainEngine {
         const res = await fetch(config.url(z, x, y, size), { signal, headers });
         if (!res.ok) throw new Error(`height tile fetch failed: ${res.status}`);
         const buf = await res.arrayBuffer();
-        const decoded = await decodeHeightPng16(buf);
-        if (decoded) return decoded;
-        return decodeHeightViaCanvasBytes(buf);
+        const decoded = (await decodeHeightPng16(buf)) || (await decodeHeightViaCanvasBytes(buf));
+        // Rendering-quality safety net: kill isolated 1-px height needles
+        // in the streamed patch (mirrors the full-heightmap decode path).
+        despikeHeightfield(decoded.data, decoded.width, decoded.height);
+        return decoded;
       },
       maxCacheEntries: 96,
     });

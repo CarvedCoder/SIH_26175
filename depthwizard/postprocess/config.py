@@ -21,6 +21,13 @@ Method ladder (``method`` field):
 Post-processing ALWAYS runs on AGL in metres, BEFORE DEM anchoring:
     DSM_anchored = refine(AGL_raw) + DEM
 No normalization of the calibrated signal happens anywhere in this package.
+
+When predicted semantic probabilities are available, the optional
+``semantic_shape`` stage (shaping.py) runs after the core refinement:
+building footprints become clean best-fit plateaus and vegetation becomes
+smooth canopy domes — a rendering-quality pass that still operates only
+inside PREDICTED semantic regions.
+
 """
 
 from __future__ import annotations
@@ -118,6 +125,25 @@ class PostProcessConfig:
     planar_min_inlier_frac: float = 0.6  # fraction of component pixels that
     #   must lie within planar_inlier_tol of the plane
     planar_inlier_tol: float = 1.0  # inlier distance to plane (metres)
+
+    # ---- semantic structural shaping (rendering-quality stage) --------------
+    # Runs after core refinement ONLY when predicted sem_probs are supplied
+    # (checkpoint semantic auxiliary head). Reshapes predicted building
+    # footprints into clean best-fit plateaus (edge-detected shapes) and
+    # vegetation into smooth per-crown canopy domes — never touches GT or
+    # guessed regions; degrades to an explicit report note without
+    # semantics.
+    semantic_shape: bool = True
+    shape_min_building_area: int = 25  # px — smaller footprints left alone
+    shape_building_max_residual: float = 2.0  # m — plane RMSE guard per roof
+    shape_building_min_inlier_frac: float = 0.5  # mixed structures rejected
+    shape_min_veg_area: int = 12  # px — smaller vegetation blobs left alone
+    shape_min_tree_height: float = 1.0  # m — below this prominence, grass/
+    #   shrubs stay as refined (no dome forced onto ground cover)
+    shape_peak_window: int = 9  # px window for canopy-peak local maxima
+    shape_peak_percentile: float = 90.0  # robust crown-height percentile
+    shape_max_crowns: int = 4000  # per-crown geometry cap; above this the
+    #   stage degrades to gentle canopy smoothing (reported in stats)
 
     # ---- output guards ------------------------------------------------------
     clamp_min: float = 0.0  # same clamp the CalibrationNet applies to its

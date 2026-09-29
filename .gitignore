@@ -128,3 +128,8 @@ checkpoints/
 
 # Native extension build artifacts (rebuilt via: python native/build.py)
 native/build/
+
+rdah_best.pt
+
+# local fine-tuned RDAH weights (never commit)
+rdah_best.pt

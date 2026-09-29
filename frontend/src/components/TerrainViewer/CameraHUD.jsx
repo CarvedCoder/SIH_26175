@@ -126,7 +126,7 @@ function HUDContent({ terrainRef, elevationMode, rightOffset = 16 }) {
 function HUDFace({ label, value, unit }) {
   return (
     <div style={{
-      background: 'rgba(16,16,18,0.92)', // --dw-panel with alpha
+      background: 'var(--dw-glass)', // --dw-panel with alpha
       border: '1px solid var(--dw-rim)',
       borderRadius: 'var(--dw-radius-sm)',
       padding: '10px 14px',

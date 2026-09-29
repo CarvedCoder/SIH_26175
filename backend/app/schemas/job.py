@@ -31,6 +31,7 @@ class JobStage(str, Enum):
     PREPROCESSING = "preprocessing"
     DEPTH_INFERENCE = "depth_inference"
     CALIBRATION = "calibration"
+    REFINEMENT = "refinement"
     DSM_GENERATION = "dsm_generation"
     TERRAIN_GENERATION = "terrain_generation"
     VALIDATION = "validation"

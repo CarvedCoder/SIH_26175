@@ -53,7 +53,7 @@ function Segmented({ options, value, onChange, disabled, ariaLabel }) {
         gap: 2,
         height: 36,
         padding: 2,
-        background: 'rgba(16,16,18,0.92)',
+        background: 'var(--dw-glass)',
         border: '1px solid var(--dw-rim)',
         borderRadius: 'var(--dw-radius)',
         pointerEvents: 'auto',
@@ -75,7 +75,7 @@ function Segmented({ options, value, onChange, disabled, ariaLabel }) {
               cursor: disabled ? 'not-allowed' : 'pointer',
               opacity: disabled ? 0.45 : 1,
               background: active ? 'var(--dw-accent)' : 'transparent',
-              color: active ? '#fff' : 'var(--dw-fg-muted)',
+              color: active ? 'var(--dw-fg-invert)' : 'var(--dw-fg-muted)',
             }}
             onFocus={e => {
               e.currentTarget.style.outline = '2px solid var(--dw-accent)';
@@ -138,7 +138,7 @@ export default function ViewModeBar({
           gap: 2,
           height: 36,
           padding: 2,
-          background: 'rgba(16,16,18,0.92)',
+          background: 'var(--dw-glass)',
           border: '1px solid var(--dw-rim)',
           borderRadius: 'var(--dw-radius)',
           pointerEvents: 'auto',
@@ -158,7 +158,7 @@ export default function ViewModeBar({
                 cursor: disabled ? 'not-allowed' : 'pointer',
                 opacity: disabled ? 0.45 : 1,
                 background: active ? 'var(--dw-accent)' : 'transparent',
-                color: active ? '#fff' : 'var(--dw-fg-muted)',
+                color: active ? 'var(--dw-fg-invert)' : 'var(--dw-fg-muted)',
               }}
               onFocus={e => {
                 e.currentTarget.style.outline = '2px solid var(--dw-accent)';
@@ -211,7 +211,7 @@ export default function ViewModeBar({
             display: 'inline-flex',
             alignItems: 'center',
             gap: 7,
-            background: 'rgba(16,16,18,0.92)',
+            background: 'var(--dw-glass)',
             border: panelsHidden ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
             borderRadius: 'var(--dw-radius-sm)',
             fontFamily: 'var(--dw-font-ui)',
@@ -249,7 +249,7 @@ export default function ViewModeBar({
             display: 'inline-flex',
             alignItems: 'center',
             gap: 7,
-            background: analysisOpen ? 'var(--dw-surface)' : 'rgba(16,16,18,0.92)',
+            background: analysisOpen ? 'var(--dw-surface)' : 'var(--dw-glass)',
             border: analysisOpen ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
             borderRadius: 'var(--dw-radius-sm)',
             fontFamily: 'var(--dw-font-ui)',

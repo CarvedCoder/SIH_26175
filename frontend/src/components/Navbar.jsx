@@ -44,7 +44,7 @@ export default function Navbar({
               
               <button
                 onClick={onOpenAuth}
-                className="text-sm font-medium px-4 py-2 rounded-full bg-slate-100 text-slate-950 hover:bg-white transition-all duration-300 shadow-sm cursor-pointer focus:outline-none"
+                className="text-sm font-medium px-4 py-2 rounded-full bg-[var(--dw-accent)] text-[var(--dw-fg-invert)] hover:bg-[var(--dw-accent-strong)] transition-all duration-300 shadow-sm cursor-pointer focus:outline-none"
               >
                 Try Prototype
               </button>
@@ -54,14 +54,14 @@ export default function Navbar({
               {onOpenApp && (
                 <button
                   onClick={onOpenApp}
-                  className="text-sm font-medium px-4 py-2 rounded-full bg-slate-100 text-slate-950 hover:bg-white transition-all duration-300 shadow-sm cursor-pointer focus:outline-none flex items-center gap-1.5"
+                  className="text-sm font-medium px-4 py-2 rounded-full bg-[var(--dw-accent)] text-[var(--dw-fg-invert)] hover:bg-[var(--dw-accent-strong)] transition-all duration-300 shadow-sm cursor-pointer focus:outline-none flex items-center gap-1.5"
                 >
                   <span>Launch Workspace</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               )}
 
-              <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-slate-900/60 border border-slate-800/80" style={{ WebkitBackdropFilter: 'blur(12px)', backdropFilter: 'blur(12px)' }}>
+              <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-[var(--dw-glass)] border border-[var(--dw-rim)]" style={{ WebkitBackdropFilter: 'blur(12px)', backdropFilter: 'blur(12px)' }}>
                 <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-200 text-xs font-medium">
                   {getInitials(user.name)}
                 </div>

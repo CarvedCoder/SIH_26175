@@ -11,7 +11,7 @@ export default function LandingHero({ onOpenAuth, onOpenApp, user }) {
   };
 
   return (
-    <section className="relative w-full h-screen min-h-[640px] overflow-hidden flex flex-col justify-center items-center select-none bg-slate-950">
+    <section className="relative w-full h-screen min-h-[640px] overflow-hidden flex flex-col justify-center items-center select-none bg-[var(--dw-void)]">
 
       {/* Background Interactive Halftone WebGL Canvas */}
       <div className="absolute inset-0 z-0 pointer-events-auto">
@@ -39,8 +39,8 @@ export default function LandingHero({ onOpenAuth, onOpenApp, user }) {
       </div>
 
       {/* Subtle Dark Tint Overlay for Legibility */}
-      <div className="absolute inset-0 z-10 pointer-events-none bg-slate-950/25" />
-      <div className="absolute inset-0 z-10 pointer-events-none bg-gradient-to-t from-slate-950/60 via-transparent to-slate-950/30" />
+      <div className="absolute inset-0 z-10 pointer-events-none bg-[#0c1220]/25" />
+      <div className="absolute inset-0 z-10 pointer-events-none bg-gradient-to-t from-[#0c1220]/70 via-transparent to-[#0c1220]/35" />
 
       {/* Center Hero: Unboxed, Centered Typography (Google Earth Studio Style) */}
       <div className="relative z-20 max-w-4xl mx-auto px-6 text-center flex flex-col items-center pointer-events-none">
@@ -59,7 +59,7 @@ export default function LandingHero({ onOpenAuth, onOpenApp, user }) {
         <div className="mt-10 pointer-events-auto">
           <button
             onClick={handleAction}
-            className="group px-7 py-3.5 rounded-full bg-slate-100 hover:bg-white text-slate-950 font-medium text-sm transition-all duration-300 shadow-lg hover:shadow-xl flex items-center gap-2.5 cursor-pointer focus:outline-none"
+            className="group px-7 py-3.5 rounded-full bg-[var(--dw-accent)] hover:bg-[var(--dw-accent-strong)] text-[var(--dw-fg-invert)] font-medium text-sm transition-all duration-300 shadow-lg hover:shadow-xl flex items-center gap-2.5 cursor-pointer focus:outline-none"
           >
             <span>{user ? 'Open Workspace' : 'Try Prototype'}</span>
             <ArrowRight className="w-4 h-4 text-slate-700 group-hover:text-slate-950 transition-transform duration-300 group-hover:translate-x-0.5" />

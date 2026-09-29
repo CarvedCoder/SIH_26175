@@ -430,6 +430,43 @@ class ProcessingService:
         job = self.jobs.get_job(job_id)
         return bool(job and job.cancel_requested)
 
+    _PROGRESS_MIN_INTERVAL = 0.8  # s — persistence cadence for progress beats
+    _PROGRESS_MIN_STEP = 1.0  # pct — always report a jump this large
+
+    def _progress_reporter(self, job_id: str):
+        """Build a throttled on_progress callback for run_inference.
+
+        Stage keys mirror the inference pipeline (preprocessing,
+        depth_estimation, refinement, dsm_generation, validation); every
+        stage change is persisted immediately, percentage-only updates at
+        most every ~0.8 s. Job rows are durable storage, not a log — so
+        the callback WRITES state, never raises.
+        """
+        state = {"stage": None, "pct": 0.0, "t": 0.0}
+
+        def report(stage: str, pct: float) -> None:
+            import time as _time
+
+            pct = max(0.0, min(float(pct), 99.0))
+            now = _time.monotonic()
+            stage_changed = stage != state["stage"]
+            due = now - state["t"] >= self._PROGRESS_MIN_INTERVAL
+            jumped = pct - state["pct"] >= self._PROGRESS_MIN_STEP
+            if not (stage_changed or due or jumped):
+                return
+            state.update(stage=stage, pct=pct, t=now)
+            try:
+                self.jobs.update_job(
+                    job_id,
+                    status="processing",
+                    stage=stage,
+                    progress=round(pct, 1),
+                )
+            except Exception:  # noqa: BLE001 — reporting must not kill a job
+                logger.exception("progress update failed for job %s", job_id)
+
+        return report
+
     # -- processing -----------------------------------------------------------
 
     def process_scene(
@@ -485,6 +522,7 @@ class ProcessingService:
                     ground_elev=ground_elev,
                     write_files=True,
                     should_cancel=lambda: self._check_cancelled(job_id),
+                    on_progress=self._progress_reporter(job_id),
                     **self._inference_kwargs(),
                 )
             except InferenceCancelled:
@@ -594,6 +632,7 @@ class ProcessingService:
                     architecture=architecture,
                     write_files=True,
                     should_cancel=lambda: self._check_cancelled(job_id),
+                    on_progress=self._progress_reporter(job_id),
                     **self._inference_kwargs(),
                 )
             except InferenceCancelled:

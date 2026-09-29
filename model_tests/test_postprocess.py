@@ -1201,3 +1201,159 @@ def test_run_inference_anchor_uses_refined_agl(tmp_path):
     # and the refinement really happened before anchoring: the raw differs
     agl_raw = np.load(out / "agl_raw.npy")
     assert not np.array_equal(dsm, agl_raw)
+
+
+# ---------------------------------------------------------------------------
+# Semantic structural shaping (shaping.py) — rendering-quality stage
+# ---------------------------------------------------------------------------
+
+def _scene_masks(h=64, w=64):
+    yy, xx = np.mgrid[0:h, 0:w]
+    building = np.zeros((h, w), dtype=bool)
+    building[8:24, 8:24] = True
+    tree = (yy - 40) ** 2 + (xx - 44) ** 2 <= 100  # r = 10 disc
+    return building, tree
+
+
+def _scene_probs(building, tree):
+    probs = np.zeros((6,) + building.shape, dtype=np.float32)
+    probs[4] = 1.0          # ground everywhere by default
+    probs[0][building] = 1.0
+    probs[1][tree] = 1.0
+    probs[4][building | tree] = 0.0
+    return probs
+
+
+def _scene_agl(building, tree, seed=7):
+    rng = np.random.default_rng(seed)
+    agl = np.full(building.shape, 2.0, dtype=np.float32)
+    agl += rng.normal(0, 0.05, agl.shape).astype(np.float32)
+    agl[building] = (10.0 + rng.normal(0, 0.4, int(building.sum()))).astype(np.float32)
+    agl[tree] = (7.0 + rng.random(int(tree.sum()))).astype(np.float32)
+    return agl
+
+
+def test_clean_region_mask_drops_specks_and_fills_holes():
+    from depthwizard.postprocess.shaping import clean_region_mask
+
+    m = np.zeros((32, 32), dtype=bool)
+    m[8:20, 8:20] = True
+    m[12, 12] = False          # interior hole -> filled
+    m[2:4, 2:4] = True         # 4-px speck -> dropped (min_area 25)
+    valid = np.ones_like(m)
+    out = clean_region_mask(m, valid, min_area=25)
+    assert out[12, 12]         # hole filled
+    assert not out[2:4, 2:4].any()  # speck dropped
+    assert out[8:20, 8:20].all()
+
+
+def test_building_plateau_flattens_wobbly_roof():
+    from depthwizard.postprocess.shaping import flatten_buildings
+
+    building, tree = _scene_masks()
+    agl = _scene_agl(building, tree)
+    out, stats = flatten_buildings(agl, building, np.isfinite(agl), min_area=25)
+    assert stats["building_flattened"] == 1
+    interior = out[10:22, 10:22]
+    assert interior.std() < 0.1          # wobbly roof -> flat plateau
+    assert abs(interior.mean() - 10.0) < 0.5
+    # full predicted extent replaced: crisp edge-detected footprint
+    assert (out[8:24, 8:24].std() < 0.5)
+    # ground outside the footprint untouched
+    np.testing.assert_allclose(out[30:34, 0:4], agl[30:34, 0:4], atol=1e-6)
+    # NaN pattern preserved
+    agl_nan = agl.copy()
+    agl_nan[0, 0] = np.nan
+    out_nan, _ = flatten_buildings(agl_nan, building, np.isfinite(agl_nan))
+    assert np.isnan(out_nan[0, 0]) and np.isfinite(out_nan).sum() == np.isfinite(agl_nan).sum()
+
+
+def test_tree_canopy_dome_rises_to_peak_at_center():
+    from depthwizard.postprocess.shaping import shape_tree_canopies
+
+    _b, tree = _scene_masks()
+    # deterministic single-crown canopy: smooth paraboloid blob ~7.5 m tall
+    yy, xx = np.mgrid[0 : tree.shape[0], 0 : tree.shape[1]]
+    r2 = (yy - 40) ** 2 + (xx - 44) ** 2
+    agl = np.full(tree.shape, 2.0, dtype=np.float32)
+    agl[tree] = np.maximum(2.0, 7.5 - 0.055 * r2[tree]).astype(np.float32)
+    out, stats = shape_tree_canopies(agl, tree, np.isfinite(agl))
+    assert stats["veg_crowns_domed"] == 1
+    assert stats["veg_pixels_replaced"] == int(tree.sum())
+    # dome apex reaches the crown's robust height percentile (p90 of a
+    # paraboloid spanning 2..7.5 m sits at ~6.95 m)
+    apex = float(out[tree].max())
+    assert 6.5 <= apex <= 7.5
+    # rounded profile: canopy falls toward the ground ring at its edge
+    assert float(out[tree].min()) <= 4.6
+    assert apex - float(out[tree].min()) >= 2.5
+    # ground outside the canopy untouched
+    np.testing.assert_allclose(out[40, 5:10], agl[40, 5:10], atol=1e-6)
+
+
+def test_low_prominence_vegetation_not_domed():
+    from depthwizard.postprocess.shaping import shape_tree_canopies
+
+    _b, tree = _scene_masks()
+    agl = np.full(tree.shape, 2.0, dtype=np.float32)
+    agl[tree] = 2.3  # grass: 30 cm above ground -> below the 1 m gate
+    out, stats = shape_tree_canopies(
+        agl, tree, np.isfinite(agl), min_tree_height=1.0
+    )
+    assert stats["veg_crowns_domed"] == 0
+    np.testing.assert_allclose(out, agl, atol=1e-6)
+
+
+def test_non_planar_building_component_rejected():
+    from depthwizard.postprocess.shaping import flatten_buildings
+
+    building, _tree = _scene_masks()
+    agl = np.full(building.shape, 2.0, dtype=np.float32)
+    # checkerboard roof levels inside one footprint -> nothing plane-like;
+    # even a tilted IRLS plane leaves a residual far above the guard
+    rows, cols = np.mgrid[8:24, 8:24]
+    agl[8:24, 8:24] = np.where(((rows // 2 + cols // 2) % 2) == 0, 8.0, 16.0)
+    out, stats = flatten_buildings(
+        agl, building, np.isfinite(agl),
+        min_area=25, max_residual=2.0, min_inlier_frac=0.5,
+    )
+    assert stats["building_rejected"] == 1
+    np.testing.assert_allclose(out, agl, atol=1e-6)  # untouched
+
+
+def test_refine_agl_shapes_only_with_sem_probs():
+    """Shaping runs inside refine_agl when sem_probs are supplied, and is
+    skipped with an explicit note when they are not — never fabricated."""
+    building, tree = _scene_masks()
+    agl = _scene_agl(building, tree)
+    rgb = np.full(agl.shape + (3,), 128, dtype=np.uint8)
+    probs = _scene_probs(building, tree)
+
+    cfg = config_from_preset("median", {"spike_removal": False})
+    shaped, rep_shaped = refine_agl(agl, rgb, cfg, sem_probs=probs, gsd=(1.0, 1.0))
+    assert rep_shaped.shape_stats["building_flattened"] == 1
+    assert any("semantic_shape" in n for n in rep_shaped.notes)
+    # roof genuinely flattened by the stage (median alone keeps the wobble)
+    assert shaped[10:22, 10:22].std() < agl[10:22, 10:22].std()
+
+    bare, rep_bare = refine_agl(agl, rgb, cfg, sem_probs=None, gsd=(1.0, 1.0))
+    assert rep_bare.shape_stats == {}
+    assert any("no sem_probs" in n for n in rep_bare.notes)
+    # without semantics the result must equal a run with the stage disabled
+    cfg_off = config_from_preset("median", {"spike_removal": False, "semantic_shape": False})
+    off, _ = refine_agl(agl, rgb, cfg_off, sem_probs=None, gsd=(1.0, 1.0))
+    np.testing.assert_allclose(bare, off, atol=1e-6)
+
+
+def test_semantic_shape_disabled_is_exact_passthrough():
+    building, tree = _scene_masks()
+    agl = _scene_agl(building, tree, seed=11)
+    rgb = np.full(agl.shape + (3,), 128, dtype=np.uint8)
+    probs = _scene_probs(building, tree)
+
+    cfg_off = config_from_preset("median", {"spike_removal": False, "semantic_shape": False})
+    cfg_on = config_from_preset("median", {"spike_removal": False})
+    off, rep_off = refine_agl(agl, rgb, cfg_off, sem_probs=probs, gsd=(1.0, 1.0))
+    on, _ = refine_agl(agl, rgb, cfg_on, sem_probs=probs, gsd=(1.0, 1.0))
+    assert rep_off.shape_stats == {}
+    assert not np.array_equal(off, on)  # shaping actually changed something

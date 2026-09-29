@@ -21,7 +21,7 @@ import { getTerrain } from '../../api/terrain.js';
 import { resolveAssetUrl, authHeaders, assetFetch } from '../../api/client.js';
 import { TerrainEngine } from '../../engine/TerrainEngine.js';
 import TerrainDebugHUD from '../../engine/debug/TerrainDebugHUD.jsx';
-import { decodeHeightPng16 } from '../../engine/streaming/heightDecode.js';
+import { decodeHeightPng16, despikeHeightfield } from '../../engine/streaming/heightDecode.js';
 import { decodeHeightmap } from '../../engine/streaming/heightFetch.js';
 import { overviewToHeightfield } from '../../engine/streaming/PatchHeightfield.js';
 
@@ -60,6 +60,9 @@ async function fetchOverviewHeightfield(urlFn, rasterWidth, rasterHeight) {
   const buf = await res.arrayBuffer();
   const decoded = await decodeHeightPng16(buf);
   if (!decoded) throw new Error('overview tile is not a 16-bit grayscale PNG');
+  // Same spike safety net as the render path — spatial queries (collision,
+  // measurement, routing) must not trip over 1-px needles either.
+  despikeHeightfield(decoded.data, decoded.width, decoded.height);
   return overviewToHeightfield({
     data: decoded.data,
     size: decoded.width,

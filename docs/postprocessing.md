@@ -167,6 +167,7 @@ synthetic fixtures (Section 5).
 ```text
 validity mask → spike removal → optional TTA fusion →
 core refinement (semantic+confidence+WLS) → optional planar stage →
+semantic structural shaping (buildings + vegetation) →
 calibration report (mean/median/std raw vs refined) → clamp(≥0)
 ```
 
@@ -175,6 +176,39 @@ experimental plane stage; `tta=True` adds the ensemble. The method
 dispatcher, presets, and the ablation ladder all go through the same
 orchestrator, so the CLI preset `full`, the ablation entry `v8_full`, and
 `PostProcessConfig(method="full")` are one code path.
+
+### 1.8.1 Semantic structural shaping — buildings + vegetation (`semantic_shape`)
+
+`postprocess/shaping.py`. A rendering-quality stage that runs after the
+core refinement **only when predicted semantic probabilities are
+available** (checkpoint semantic auxiliary head); without them it is
+skipped with an explicit report note — regions are never fabricated.
+Enabled by default (`semantic_shape=True`), only inside PREDICTED
+regions:
+
+* **Building plateaus** — the predicted building mask is morphologically
+  cleaned (close → fill holes → drop specks → per-component fit on the
+  opened core), then each footprint's full extent is replaced by its
+  robust best-fit plane (IRLS/Huber). Components that are not
+  plane-like (RMSE > `shape_building_max_residual`, or inlier fraction
+  below `shape_building_min_inlier_frac`) are left untouched — sloped
+  or multi-facet roofs are never force-flattened. The result is a crisp,
+  edge-detected footprint with a flat roof instead of a wobbly lump.
+* **Tree canopy domes** — vegetation components (≥ `shape_min_veg_area`
+  px) are split into crowns at local maxima of smoothed heights
+  (nearest-peak Voronoi); each crown is replaced by a hemispherical dome
+  from the surrounding ground ring to a robust (`shape_peak_percentile`)
+  height percentile of the refined signal. Crowns whose prominence is
+  below `shape_min_tree_height` (grass, shrubs) are left as refined.
+  Beyond `shape_max_crowns` the stage degrades to gentle canopy
+  smoothing (reported in `shape_stats.veg_fallback`).
+
+Both operations preserve the NaN pattern bit-identically and report
+pixel counts in `PostProcessReport.shape_stats`. On the frontend, a
+conservative `despikeHeightfield` pass (engine `heightDecode.js`)
+additionally removes any isolated 1-px needle that survives in already-
+processed artifacts at decode time — the strict all-8-neighbours
+criterion leaves roofs, walls and ridges untouched.
 
 ### 1.9 Spike removal (conservative) — part of most variants
 

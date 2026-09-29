@@ -1,32 +1,35 @@
 /* DepthWizard design tokens — instrument-panel / geospatial world */
-/* Monochrome ivory system: neutral graphite surfaces, white primary actions,
-   colour reserved for status. See DESIGN.md for the full visual system rationale */
+/* Deep slate system: navy-graphite surfaces, sky primary actions,
+   colour reserved for status. See DESIGN.md for the visual system rationale */
 :root {
-  /* Palette — neutral zinc graphite, no hue */
-  --dw-void:    #09090b; /* canvas / page background */
-  --dw-panel:   #101012; /* header, side panels, bottom toolbar */
-  --dw-surface: #18181b; /* cards, input fields, popovers */
-  --dw-hover:   #1f1f23; /* one-step hover lightening */
-  --dw-rim:     #27272a; /* 1px borders, dividers */
-  --dw-rim-strong: #3f3f46; /* hover borders, active tracks */
+  /* Palette — slate with a cool blue cast: softens the old pure-black
+     chrome while keeping panels dark enough for imagery to dominate */
+  --dw-void:    #0c1220; /* canvas / page background */
+  --dw-panel:   #111a2c; /* header, side panels, bottom toolbar */
+  --dw-surface: #17223a; /* cards, input fields, popovers */
+  --dw-hover:   #1d2b47; /* one-step hover lightening */
+  --dw-rim:     #2a3a58; /* 1px borders, dividers */
+  --dw-rim-strong: #43587c; /* hover borders, active tracks */
+  --dw-glass:   rgba(15, 23, 41, 0.92); /* translucent in-viewport bars */
 
   /* Foreground — high-clarity contrast for mission-control readability */
-  --dw-fg:       #fafafa; /* primary text — crisp and luminous */
-  --dw-fg-muted: #a1a1aa; /* secondary labels, metadata — clearly legible */
-  --dw-fg-ghost: #71717a; /* tertiary, placeholders, units — readable */
-  --dw-fg-invert: #09090b; /* text on ivory / white primary surfaces */
+  --dw-fg:       #eef2f9; /* primary text — crisp and luminous */
+  --dw-fg-muted: #9db0cc; /* secondary labels, metadata — clearly legible */
+  --dw-fg-ghost: #64748b; /* tertiary, placeholders, units — readable */
+  --dw-fg-invert: #071224; /* text on sky / light primary surfaces */
 
-  /* Status / accent — accent is ivory; interactive states are luminance, not hue */
-  --dw-accent:      #fafafa;             /* active state, selection, progress */
-  --dw-accent-soft: rgba(250,250,250,0.10); /* subtle active washes, hover fills */
-  --dw-confirm: #22c55e; /* completed, valid */
-  --dw-live:    #f59e0b; /* active processing, warnings */
-  --dw-fault:   #ef4444; /* errors, failures */
+  /* Status / accent — sky instrument accent; primary actions invert text */
+  --dw-accent:      #4cc3ff;             /* active state, selection, progress */
+  --dw-accent-strong: #7dd3fc;           /* hover on accent surfaces */
+  --dw-accent-soft: rgba(76, 195, 255, 0.12); /* subtle active washes, hover fills */
+  --dw-confirm: #34d399; /* completed, valid */
+  --dw-live:    #fbbf24; /* active processing, warnings */
+  --dw-fault:   #f87171; /* errors, failures */
 
   /* Terrain-specific */
-  --dw-probe:  #fafafa;                  /* elevation probe marker */
-  --dw-fov:    rgba(250,250,250,0.16);   /* minimap FOV cone fill */
-  --dw-marker: #f59e0b;                  /* minimap camera position dot */
+  --dw-probe:  #e2e8f0;                  /* elevation probe marker */
+  --dw-fov:    rgba(76, 195, 255, 0.16); /* minimap FOV cone fill */
+  --dw-marker: #fbbf24;                  /* minimap camera position dot */
 
   /* Typography */
   --dw-font-ui:   'Geist Variable', ui-sans-serif, system-ui, sans-serif;
@@ -85,11 +88,11 @@
 
   /* Text selection */
   ::selection {
-    background-color: #3f3f46;
+    background-color: rgba(76, 195, 255, 0.32);
     color: var(--dw-fg);
   }
   ::-moz-selection {
-    background-color: #3f3f46;
+    background-color: rgba(76, 195, 255, 0.32);
     color: var(--dw-fg);
   }
   * {
@@ -103,20 +106,20 @@
   height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: #0c1220;
 }
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: #2a3a58;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: #43587c;
 }
 
 /* Minimalist scrollbar — Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #27272a #09090b;
+  scrollbar-color: #2a3a58 #0c1220;
 }
 
 /* Cross-browser keyframe animations */
@@ -129,6 +132,18 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Progress bar — moving sheen over the filled portion while a stage runs */
+@keyframes dw-progress-sheen {
+  from { background-position: 0 0; }
+  to   { background-position: 48px 0; }
+}
+
+/* Soft breathing glow for active pipeline stages */
+@keyframes dw-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(76, 195, 255, 0.35); }
+  50%      { box-shadow: 0 0 0 6px rgba(76, 195, 255, 0.06); }
 }
 
 /* Ensure backdrop-filter works cross-browser */
