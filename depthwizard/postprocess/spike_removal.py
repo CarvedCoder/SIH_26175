@@ -221,34 +221,42 @@ def remove_spikes(
 
     spike_pos = np.zeros_like(cand_pos)
     sizes_pos = np.bincount(lbl_pos.ravel())
+    sizes_neg = np.bincount(lbl_neg.ravel())
     margin = max(0.15, 0.25 * min_spike_height)
 
-    for i in range(1, n_pos + 1):
-        # Large coherent structures are protected (genuine roofs/cliffs)
-        if sizes_pos[i] <= max_component_size:
-            comp_mask = lbl_pos == i
-            dilated = ndimage.binary_dilation(comp_mask, structure=conn)
-            boundary = dilated & (~comp_mask) & valid
-            if np.any(boundary):
-                c_min = np.min(f[comp_mask])
-                b_vals = f[boundary]
-                # Peak must be higher than most of its surrounding perimeter
-                if np.mean(b_vals < c_min - margin) >= min_isolation:
-                    spike_pos[comp_mask] = True
+    def _isolation_pass(lbl, sizes, mode):
+        """Peaks ('pos'): flag comps whose boundary ring is mostly LOWER.
+        Pits ('neg'): boundary ring mostly HIGHER. Bounding-box bounded."""
+        out_mask = np.zeros(lbl.shape, dtype=bool)
+        for i, sl in enumerate(ndimage.find_objects(lbl), start=1):
+            if sl is None or sizes[i] > max_component_size:
+                continue
+            y0 = max(0, sl[0].start - 1)
+            y1 = min(lbl.shape[0], sl[0].stop + 1)
+            x0 = max(0, sl[1].start - 1)
+            x1 = min(lbl.shape[1], sl[1].stop + 1)
+            lbl_win = lbl[y0:y1, x0:x1]
+            f_win = f[y0:y1, x0:x1]
+            valid_win = valid[y0:y1, x0:x1]
 
-    spike_neg = np.zeros_like(cand_neg)
-    sizes_neg = np.bincount(lbl_neg.ravel())
-    for i in range(1, n_neg + 1):
-        if sizes_neg[i] <= max_component_size:
-            comp_mask = lbl_neg == i
+            comp_mask = lbl_win == i
             dilated = ndimage.binary_dilation(comp_mask, structure=conn)
-            boundary = dilated & (~comp_mask) & valid
-            if np.any(boundary):
-                c_max = np.max(f[comp_mask])
-                b_vals = f[boundary]
-                # Pit must be lower than most of its surrounding perimeter
-                if np.mean(b_vals > c_max + margin) >= min_isolation:
-                    spike_neg[comp_mask] = True
+            boundary = dilated & (~comp_mask) & valid_win
+            if not np.any(boundary):
+                continue
+            b_vals = f_win[boundary]
+            if mode == "pos":
+                c_ext = f_win[comp_mask].min()
+                ok = np.mean(b_vals < c_ext - margin) >= min_isolation
+            else:
+                c_ext = f_win[comp_mask].max()
+                ok = np.mean(b_vals > c_ext + margin) >= min_isolation
+            if ok:
+                out_mask[y0:y1, x0:x1] |= comp_mask
+        return out_mask
+
+    spike_pos = _isolation_pass(lbl_pos, sizes_pos, "pos")
+    spike_neg = _isolation_pass(lbl_neg, sizes_neg, "neg")
 
     spike_mask = spike_pos | spike_neg
 
