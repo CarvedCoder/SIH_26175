@@ -75,7 +75,11 @@ def _get_result_file(scene_id: str, result_name: str):
             owner_id = row.owner_id if row is not None else current_user().user_id
         url = storage_service.publish_and_presign(owner_id, scene_id, path)
         if url is not None:
-            return RedirectResponse(url=url, status_code=307)
+            return RedirectResponse(
+                url=url,
+                status_code=307,
+                headers={"Access-Control-Allow-Origin": "*"},
+            )
 
     return FileResponse(
         path=path,
@@ -179,7 +183,11 @@ def _layer_texture_response(scene_id: str, generator):
             owner_id = row.owner_id if row is not None else current_user().user_id
         url = storage_service.publish_and_presign(owner_id, scene_id, path)
         if url is not None:
-            return RedirectResponse(url=url, status_code=307)
+            return RedirectResponse(
+                url=url,
+                status_code=307,
+                headers={"Access-Control-Allow-Origin": "*"},
+            )
     return FileResponse(path=path, filename=path.name)
 
 

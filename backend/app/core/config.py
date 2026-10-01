@@ -190,5 +190,62 @@ class Settings:
             in {"1", "true", "yes"}
         )
 
+        # --- Disaster assessment (HOTOSM ONNX models) ---------------------
+        # Master switch: DW_DISASTER_ENABLED=false skips the entire
+        # disaster pipeline (building detection + damage assessment).
+        self.disaster_enabled: bool = (
+            os.environ.get("DW_DISASTER_ENABLED", "true").strip().lower()
+            in {"1", "true", "yes"}
+        )
+        self.building_detection_enabled: bool = (
+            os.environ.get("DW_BUILDING_DETECTION_ENABLED", "true").strip().lower()
+            in {"1", "true", "yes"}
+        )
+        self.damage_enabled: bool = (
+            os.environ.get("DW_DAMAGE_ENABLED", "true").strip().lower()
+            in {"1", "true", "yes"}
+        )
+        # Recover completely-destroyed structures the building detector
+        # misses, using the damage model's own per-pixel 'destroyed' output.
+        self.disaster_recover_destroyed: bool = (
+            os.environ.get("DW_DISASTER_RECOVER_DESTROYED", "true").strip().lower()
+            in {"1", "true", "yes"}
+        )
+        # ONNX model paths (absolute or relative to PROJECT_ROOT).
+        # Never hardcode developer-specific paths.
+        self.building_model_onnx: str | None = (
+            os.environ.get("DW_BUILDING_MODEL_ONNX") or None
+        )
+        self.damage_model_onnx: str | None = (
+            os.environ.get("DW_DAMAGE_MODEL_ONNX") or None
+        )
+        # Building detection tuning
+        self.building_threshold: float = float(
+            os.environ.get("DW_BUILDING_THRESHOLD", "0.5")
+        )
+        # Disaster inference device (separate from depth — allows CPU
+        # fallback while depth runs on GPU, or vice versa).
+        self.disaster_device: str = os.environ.get("DW_DISASTER_DEVICE", "auto")
+        self.disaster_batch_size: int = _int_env("DW_DISASTER_BATCH_SIZE", 1)
+        self.disaster_tile_size: int = _int_env("DW_DISASTER_TILE_SIZE", 256)
+        self.disaster_tile_stride: int = _int_env("DW_DISASTER_TILE_STRIDE", 128)
+
+        # --- Route damage integration -------------------------------------
+        # DW_ROUTE_DAMAGE_ENABLED=true adds building damage as an optional
+        # cost signal in Route Assist (separate from semantic blocking).
+        self.route_damage_enabled: bool = (
+            os.environ.get("DW_ROUTE_DAMAGE_ENABLED", "true").strip().lower()
+            in {"1", "true", "yes"}
+        )
+        self.route_damage_destroyed_cost: float = float(
+            os.environ.get("DW_ROUTE_DAMAGE_DESTROYED_COST", "50.0")
+        )
+        self.route_damage_major_cost: float = float(
+            os.environ.get("DW_ROUTE_DAMAGE_MAJOR_COST", "20.0")
+        )
+        self.route_damage_minor_cost: float = float(
+            os.environ.get("DW_ROUTE_DAMAGE_MINOR_COST", "3.0")
+        )
+
 
 settings = get_settings()

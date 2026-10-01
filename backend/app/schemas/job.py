@@ -34,6 +34,8 @@ class JobStage(str, Enum):
     DSM_GENERATION = "dsm_generation"
     TERRAIN_GENERATION = "terrain_generation"
     VALIDATION = "validation"
+    DISASTER_ASSESSMENT = "disaster_assessment"
+    DISASTER_COMPLETE = "disaster_complete"
     FINALIZING = "finalizing"
     COMPLETED = "completed"
     FAILED = "failed"

@@ -658,14 +658,15 @@ def start_backend() -> None:
         fail("uv not found")
 
     cmd = [
-    sys.executable,
-    "-m",
-    "uvicorn",
-    "backend.app.main:app",
-    "--host",
-    "0.0.0.0",
-    "--port",
-    str(backend_port()),
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "backend.app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        str(backend_port()),
+        "--reload",
     ]   
 
     log(f"starting backend on :{backend_port()}…")

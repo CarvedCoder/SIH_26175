@@ -217,6 +217,8 @@ export default function Toolbar({
               { id: 'reference_dem', label: 'Reference DEM (SRTM)', disabled: !avail.reference },
               { id: 'slope',         label: 'Slope Layer (Viridis)' },
               { id: 'error',         label: 'Error Map (Diverging)', disabled: !avail.error },
+              { id: 'buildings',     label: 'Building Footprints (DINOv3)', disabled: !avail.buildings },
+              { id: 'damage',        label: 'Damage Severity Map (HOTOSM)', disabled: !avail.damage },
             ].map(l => (
               <PopoverButton
                 key={l.id}

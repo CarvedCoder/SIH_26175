@@ -57,6 +57,8 @@ class VehicleAssessment(BaseModel):
     other_fraction: float | None = None
     semantic_risk_fraction: float | None = None
     semantic_aware: bool = False
+    damage_risk_fraction: float | None = None
+    damage_aware: bool = False
 
 
 class RouteAssessResponse(BaseModel):
@@ -67,6 +69,7 @@ class RouteAssessResponse(BaseModel):
     georeferenced: bool
     disclaimer: str
     semantic_available: bool = False
+    damage_available: bool = False
     path_crs: str | None = None
     vehicles: list[VehicleAssessment]
 

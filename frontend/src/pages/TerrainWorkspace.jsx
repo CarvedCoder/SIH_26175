@@ -49,6 +49,11 @@ import { getValidation } from '../api/validation.js';
 import { getErrorMap } from '../api/validation.js';
 import { assessRoute, VERDICT_META } from '../api/route.js';
 import { resolveAssetUrl } from '../api/client.js';
+import {
+  getBuildingsMeta,
+  getDamageMeta,
+  getDamageGeoJsonUrl,
+} from '../api/disaster.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 import {
   RotateCcw,
@@ -59,6 +64,41 @@ import {
   Building2,
   X,
 } from 'lucide-react';
+
+function findDamageAtPixel(pixelX, pixelY, geojson) {
+  if (!geojson?.features?.length) return null;
+  for (const feat of geojson.features) {
+    const rings = feat.geometry?.coordinates;
+    if (!rings || !rings.length) continue;
+    const ring = rings[0];
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      const intersect = ((yi > pixelY) !== (yj > pixelY)) &&
+        (pixelX < (xj - xi) * (pixelY - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    if (inside) return feat.properties;
+  }
+  let closest = null;
+  let minDist = 15;
+  for (const feat of geojson.features) {
+    const rings = feat.geometry?.coordinates;
+    if (!rings || !rings.length) continue;
+    const ring = rings[0];
+    let cx = 0, cy = 0;
+    for (const [rx, ry] of ring) { cx += rx; cy += ry; }
+    cx /= ring.length;
+    cy /= ring.length;
+    const dist = Math.hypot(pixelX - cx, pixelY - cy);
+    if (dist < minDist) {
+      minDist = dist;
+      closest = feat.properties;
+    }
+  }
+  return closest;
+}
 
 export default function TerrainWorkspace() {
   const { state } = useApp();
@@ -110,6 +150,11 @@ export default function TerrainWorkspace() {
     return () => { cancelled = true; };
   }, [state.scene?.scene_id, isLoading]);
 
+  // ── Disaster metadata & GeoJSON features ──
+  const [buildingsMeta, setBuildingsMeta] = useState(null);
+  const [damageMeta, setDamageMeta]       = useState(null);
+  const damageGeoJsonRef                  = useRef(null);
+
   // Scene switches (batch switcher) must not carry the previous scene's
   // selections, measurements or layer texture cache into the new terrain.
   useEffect(() => {
@@ -125,6 +170,9 @@ export default function TerrainWorkspace() {
     layerCache.current = {};
     prevLayerRef.current = 'rgb';
     elevCache.current.clear();
+    damageGeoJsonRef.current = null;
+    setBuildingsMeta(null);
+    setDamageMeta(null);
     terrainRef.current?.setMeasurePoints?.(null);
   }, [state.scene?.scene_id]);
 
@@ -139,10 +187,10 @@ export default function TerrainWorkspace() {
   const prevLayerRef = useRef('rgb');
 
   // Colormap mode per layer (matches fragment shader uniforms)
-  const COLORMAP_MODE = { rgb: 0, depth: 1, dsm: 2, reference_dem: 2, error: 3, slope: 2, buildings: 4, passability: 0, semantics: 0, route_risk: 0 };
+  const COLORMAP_MODE = { rgb: 0, depth: 1, dsm: 2, reference_dem: 2, error: 3, slope: 2, buildings: 0, damage: 0, passability: 0, semantics: 0, route_risk: 0 };
 
   // ── Layer availability (Compare menu) — real backend state, not guesses ──
-  const [layerAvail, setLayerAvail] = useState({ dsm: true, reference: true, error: true, semantics: true, route_risk: true });
+  const [layerAvail, setLayerAvail] = useState({ dsm: true, reference: true, error: true, semantics: true, route_risk: true, buildings: true, damage: true });
   const [semanticData, setSemanticData] = useState(null);
 
   useEffect(() => {
@@ -151,21 +199,37 @@ export default function TerrainWorkspace() {
     let cancelled = false;
     // Optimistic defaults keep the menu responsive; the fetches below then
     // disable exactly the products the scene is missing.
-    setLayerAvail({ dsm: true, reference: true, error: true, semantics: true, route_risk: true });
+    setLayerAvail({ dsm: true, reference: true, error: true, semantics: true, route_risk: true, buildings: true, damage: true });
     Promise.all([
       getResults(sceneId).catch(() => null),
       getReference(sceneId).catch(() => null),
       getSemanticMeta(sceneId).catch(() => null),
-    ]).then(([results, reference, semMeta]) => {
+      getBuildingsMeta(sceneId).catch(() => null),
+      getDamageMeta(sceneId).catch(() => null),
+    ]).then(([results, reference, semMeta, bldMeta, dmgMeta]) => {
       if (cancelled) return;
       const semAvail = !!semMeta?.available;
+      setBuildingsMeta(bldMeta);
+      setDamageMeta(dmgMeta);
       setLayerAvail({
         dsm: !!(results?.dsm?.available ?? results?.dsm),
         reference: !!reference?.available,
         error: !!results?.capabilities?.validation,
         semantics: semAvail,
         route_risk: semAvail,
+        buildings: !!bldMeta?.available,
+        damage: !!dmgMeta?.available,
       });
+      if (dmgMeta?.available) {
+        fetch(resolveAssetUrl(dmgMeta?.geojson_url || getDamageGeoJsonUrl(sceneId)))
+          .then(res => res.ok ? res.json() : null)
+          .then(geojson => {
+            if (!cancelled && geojson) {
+              damageGeoJsonRef.current = geojson;
+            }
+          })
+          .catch(() => {});
+      }
     });
     return () => { cancelled = true; };
   }, [state.scene?.scene_id, isLoading]);
@@ -414,6 +478,7 @@ export default function TerrainWorkspace() {
       rgb: 'RGB', depth: 'Depth map', dsm: 'Estimated DSM',
       reference_dem: 'Reference DEM', error: 'Error map', slope: 'Slope layer',
       passability: 'Passability map', semantics: 'Semantic map', route_risk: 'Route-risk map',
+      buildings: 'Building footprints', damage: 'Damage assessment',
     };
 
     try {
@@ -468,8 +533,6 @@ export default function TerrainWorkspace() {
         return;
       } else if (layerId === 'route_risk') {
         url = `/api/v1/scenes/${sceneId}/results/route-risk?vehicle=fire_truck`;
-        const res = await fetch(resolveAssetUrl(url));
-        if (!res.ok) throw new Error('route-risk layer unavailable');
       } else if (layerId === 'error') {
         const errMap = await getErrorMap(sceneId);
         url = errMap?.url ?? null;
@@ -478,16 +541,23 @@ export default function TerrainWorkspace() {
         url = refDem?.visualization_url ?? refDem?.download_url ?? null;
       } else if (layerId === 'slope') {
         // Generated on demand by the backend from the scene's DSM array.
-        const slopeUrl = `/api/v1/scenes/${sceneId}/results/slope`;
-        const res = await fetch(resolveAssetUrl(slopeUrl));
-        if (!res.ok) throw new Error('slope preview unavailable');
-        url = slopeUrl;
+        url = `/api/v1/scenes/${sceneId}/results/slope`;
       } else if (layerId === 'passability') {
         // Route Assist heat map (jury round 2): traffic-light vehicle
         // passability PNG — already colored, so colormapMode stays RGB.
         url = `/api/v1/scenes/${sceneId}/results/passability?vehicle=fire_truck`;
-        const res = await fetch(resolveAssetUrl(url));
-        if (!res.ok) throw new Error('passability layer unavailable');
+      } else if (layerId === 'buildings') {
+        const bMeta = buildingsMeta || await getBuildingsMeta(sceneId).catch(() => null);
+        if (!bMeta?.available) {
+          throw new Error('Building footprints layer is not available for this scene.');
+        }
+        url = bMeta.url || `/api/v1/scenes/${sceneId}/results/buildings-preview`;
+      } else if (layerId === 'damage') {
+        const dMeta = damageMeta || await getDamageMeta(sceneId).catch(() => null);
+        if (!dMeta?.available) {
+          throw new Error('Damage assessment layer is not available for this scene.');
+        }
+        url = dMeta.url || dMeta.preview_url || `/api/v1/scenes/${sceneId}/results/damage-preview`;
       } else {
         // Other layers: try results endpoint for URL
         const results = await getResults(sceneId);
@@ -608,6 +678,17 @@ export default function TerrainWorkspace() {
     // heightmap estimate before any tool or panel consumes the point.
     const pt = await resolveExactPoint(rawPt);
 
+    // Check if point hits a detected / assessed disaster building
+    const rasterW = state.scene?.width ?? 1024;
+    const rasterH = state.scene?.height ?? 1024;
+    const px = Math.min(Math.max(Math.round((rawPt.u ?? 0.5) * (rasterW - 1)), 0), rasterW - 1);
+    const py = Math.min(Math.max(Math.round((rawPt.v ?? 0.5) * (rasterH - 1)), 0), rasterH - 1);
+    const matchedDamage = findDamageAtPixel(px, py, damageGeoJsonRef.current);
+    if (matchedDamage) {
+      pt.damage = matchedDamage;
+      pt.is_structure = true;
+    }
+
     setSelectedPoint({ x: pt.x, z: pt.z, elevation: pt.elevation });
 
     // Update selectedLocation for context switching (§25)
@@ -626,11 +707,9 @@ export default function TerrainWorkspace() {
     } else if (activeTool === 'route') {
       // Route Assist: picks are in SOURCE-RASTER pixel coords (the API's
       // coordinate space), derived from the normalized pick point.
-      const rasterW = state.scene?.width ?? 1024;
-      const rasterH = state.scene?.height ?? 1024;
       const pixel = {
-        x: Math.min(Math.max(Math.round((rawPt.u ?? 0.5) * (rasterW - 1)), 0), rasterW - 1),
-        y: Math.min(Math.max(Math.round((rawPt.v ?? 0.5) * (rasterH - 1)), 0), rasterH - 1),
+        x: px,
+        y: py,
       };
       const picked = routeToolRef.current?.handleTerrainClick(pixel);
       if (picked?.picked === 'start') {
@@ -677,14 +756,15 @@ export default function TerrainWorkspace() {
       structToolRef.current?.inspectPoint(pt);
       const idNum = Math.abs(Math.round(pt.x * 100 + pt.z * 100)) % 999;
       setSelectedStructure({
-        id: `STR-${String(idNum).padStart(3, '0')}`,
+        id: matchedDamage?.building_id || `STR-${String(idNum).padStart(3, '0')}`,
         // Metered DSM values from the backend — ground level, roof sample
         // and geometric height above ground, with the honest confidence.
         ground: pt.ground_elevation ?? pt.elevation,
         top: pt.elevation,
         height: pt.height_above_ground_m ?? 0,
-        isStructure: !!pt.is_structure,
+        isStructure: !!pt.is_structure || !!matchedDamage,
         confidence: pt.height_confidence ?? pt.confidence ?? null,
+        damage: matchedDamage,
       });
     } else if (activeTool === 'probe') {
       semanticInspectorRef.current?.handleTerrainClick?.(rawPt);
@@ -965,6 +1045,8 @@ export default function TerrainWorkspace() {
             }}
             scenario={scenario}
             onSelectScenario={setScenario}
+            damageMeta={damageMeta}
+            buildingsMeta={buildingsMeta}
           />
         )}
 

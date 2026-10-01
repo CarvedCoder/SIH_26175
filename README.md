@@ -59,6 +59,11 @@ The three elevation concepts are kept distinct everywhere in the product:
   detail mode that re-processes a selected bbox at source resolution.
 - **Validation** — when a scene carries a reference DEM, metrics (RMSE, MAE,
   median error, bias, correlation) and an error map are produced and served.
+- **Localized disaster assessment** — production pipeline using two HOTOSM ONNX
+  models: DINOv3 building localization (256×256 tiles, footprints + masks)
+  and earthquake damage assessment (512×512 crops, 4-class taxonomy: `no-damage`,
+  `minor-damage`, `major-damage`, `destroyed`). Safe for 6 GB GPUs with explicit
+  post-only mode, close-margin review flags, and route hazard integration.
 - **Honest geospatial handling** — CRS/transform are propagated when present
   and reported as `UNKNOWN` when absent; nothing georeferenced is invented.
 - **Durable results** — every artifact is persisted to object storage and
@@ -222,6 +227,9 @@ payload).
 - **Training/evaluation:** `python model.py train | evaluate | depth |
   bench` with configs under `configs/`. Citable numbers come **only** from
   `evaluate` — the serving UI is a demo, not an evaluation tool.
+- **Disaster assessment:** `python model.py disaster --input <post.png> [--pre <pre.png>] [--output <dir>]`
+  runs DINOv3 building footprint localization and HOTOSM earthquake damage
+  assessment, exporting GeoJSON, confidence masks, color previews, and metadata.
 - Depth inputs are never silently re-normalized: each backend documents its
   exact depth contract, and RDAH rejects DEM/semantic inputs loudly rather
   than dropping them.
@@ -250,6 +258,7 @@ Principal `/api/v1` route groups (see `/docs` for the full contract):
 | `validation` | reference-DEM metrics and error maps |
 | `reference` | reference DEM management |
 | `route` | route risk analysis |
+| `disaster` | building detection (DINOv3) & damage assessment (HOTOSM) |
 | `export` | artifact export via presigned URLs |
 
 In host-side development the backend listens on **8010** (`DW_PORT`); the

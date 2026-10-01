@@ -87,4 +87,16 @@ RESULT_ARTIFACT_KEYS: Dict[str, str] = {
     "semantic_confidence": "semantic_confidence.npy",
     "semantic_map": "semantic_map.png",
     "semantic_meta": "semantic_meta.json",
+    # Disaster assessment artifacts (building detection + damage)
+    "buildings_geojson": "buildings.geojson",
+    "building_mask": "building_mask.npy",
+    "building_confidence": "building_confidence.npy",
+    "buildings_preview": "buildings_preview.png",
+    "buildings_meta": "buildings_meta.json",
+    "damage_geojson": "damage_buildings.geojson",
+    "damage_labels": "damage_labels.npy",
+    "damage_confidence": "damage_confidence.npy",
+    "damage_preview": "damage_preview.png",
+    "damage_meta": "damage_meta.json",
 }
+

@@ -128,3 +128,7 @@ checkpoints/
 
 # Native extension build artifacts (rebuilt via: python native/build.py)
 native/build/
+
+# ONNX model files (external assets, not committed — typically 200MB–1.3GB).
+# Configure paths via DW_BUILDING_MODEL_ONNX / DW_DAMAGE_MODEL_ONNX env vars.
+*.onnx

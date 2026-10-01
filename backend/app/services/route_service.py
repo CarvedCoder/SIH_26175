@@ -82,6 +82,13 @@ class SemanticConfig:
         "other": 1.5,        # uncertainty penalty
     })
 
+@dataclass(frozen=True)
+class DamageConfig:
+    enabled: bool = True
+    destroyed_cost: float = 50.0
+    major_cost: float = 20.0
+    minor_cost: float = 3.0
+
 
 VEGETATION_PENALTIES: dict[str, float] = {
     "fire_truck": 8.0,
@@ -297,23 +304,52 @@ def _semantic_cost(
     return sem_cost, hard_blocked
 
 
+def _damage_cost(
+    damage_labels: np.ndarray,  # [H, W] uint8 (0=background, 1=no-damage, 2=minor, 3=major, 4=destroyed)
+    config: DamageConfig,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Returns (damage_cost_multiplier [H,W], damage_hazard_blocked [H,W] bool).
+
+    Damage classes:
+        1 = no-damage (multiplier 1.0)
+        2 = minor-damage (multiplier config.minor_cost)
+        3 = major-damage (multiplier config.major_cost)
+        4 = destroyed (multiplier config.destroyed_cost, rubble hazard)
+    """
+    mult = np.ones(damage_labels.shape, dtype=np.float32)
+    mult[damage_labels == 2] = config.minor_cost
+    mult[damage_labels == 3] = config.major_cost
+    mult[damage_labels == 4] = config.destroyed_cost
+    hazard_blocked = damage_labels == 4
+    return mult, hazard_blocked
+
+
 def _combined_cost(
     grid: PassabilityGrid,
     sem_probs: np.ndarray | None = None,
     sem_labels: np.ndarray | None = None,
     sem_conf: np.ndarray | None = None,
     sem_config: SemanticConfig | None = None,
+    damage_labels: np.ndarray | None = None,
+    damage_config: DamageConfig | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Combines geometric passability cost with semantic cost and blocking."""
+    """Combines geometric passability cost with semantic and damage cost/blocking."""
     geo_cost = _soft_cost(grid)
-    if sem_probs is None or sem_config is None or not sem_config.enabled:
-        return geo_cost, ~grid.passable
+    total_cost = geo_cost
+    total_blocked = ~grid.passable
 
-    sem_cost, sem_blocked = _semantic_cost(
-        sem_probs, sem_labels, sem_conf, grid.vehicle, sem_config
-    )
-    total_cost = geo_cost * sem_cost
-    total_blocked = (~grid.passable) | sem_blocked
+    if sem_probs is not None and sem_config is not None and sem_config.enabled:
+        sem_cost, sem_blocked = _semantic_cost(
+            sem_probs, sem_labels, sem_conf, grid.vehicle, sem_config
+        )
+        total_cost = total_cost * sem_cost
+        total_blocked = total_blocked | sem_blocked
+
+    if damage_labels is not None and damage_config is not None and damage_config.enabled:
+        dmg_cost, dmg_blocked = _damage_cost(damage_labels, damage_config)
+        total_cost = total_cost * dmg_cost
+        total_blocked = total_blocked | dmg_blocked
+
     return total_cost, total_blocked
 
 
@@ -325,12 +361,17 @@ def find_path(
     sem_labels: np.ndarray | None = None,
     sem_conf: np.ndarray | None = None,
     sem_config: SemanticConfig | None = None,
+    damage_labels: np.ndarray | None = None,
+    damage_config: DamageConfig | None = None,
 ) -> list[tuple[int, int]] | None:
     """Hierarchical A*: coarse global corridor, then fine corridor search.
 
-    When semantic data is provided, incorporates semantic edge weights and
-    hard blocking (buildings, water bodies) in both hierarchical levels."""
-    cost, blocked = _combined_cost(grid, sem_probs, sem_labels, sem_conf, sem_config)
+    When semantic or damage data is provided, incorporates cost weights and
+    hard blocking (buildings, water, destroyed rubble) in both levels."""
+    cost, blocked = _combined_cost(
+        grid, sem_probs, sem_labels, sem_conf, sem_config,
+        damage_labels=damage_labels, damage_config=damage_config,
+    )
     h, w = cost.shape
 
     # Level 2 first attempt: direct fine search only on small maps.
@@ -473,6 +514,32 @@ class RouteService:
             logger.warning("Failed to load semantics for scene %s: %s", scene_id, e)
             return None, None, None
 
+    def load_damage(
+        self, scene_id: str
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """Load damage artifacts (labels, confidence) if available.
+        Returns (damage_labels [H,W], damage_conf [H,W]) or (None, None).
+        """
+        from backend.app.services.result_service import result_service
+
+        files = result_service.get_result_files(scene_id)
+        labels_file = files.get("damage_labels")
+        conf_file = files.get("damage_confidence")
+
+        if labels_file is None or not labels_file.exists():
+            return None, None
+        try:
+            labels = np.load(labels_file, mmap_mode="r")
+            conf = (
+                np.load(conf_file, mmap_mode="r")
+                if conf_file and conf_file.exists()
+                else None
+            )
+            return labels, conf
+        except Exception as e:
+            logger.warning("Failed to load damage for scene %s: %s", scene_id, e)
+            return None, None
+
     def gsd_for(self, scene_id: str) -> float | None:
         """Metric GSD from the DSM GeoTIFF; None for pixel-space scenes."""
         from backend.app.services.result_service import result_service
@@ -508,6 +575,15 @@ class RouteService:
         sem_probs_full, sem_labels_full, sem_conf_full = self.load_semantics(scene_id)
         has_semantics = sem_probs_full is not None and sem_config.enabled
 
+        dmg_config = DamageConfig(
+            enabled=getattr(settings, "disaster_enabled", True) and getattr(settings, "route_damage_enabled", True),
+            destroyed_cost=getattr(settings, "route_damage_destroyed_cost", 50.0),
+            major_cost=getattr(settings, "route_damage_major_cost", 20.0),
+            minor_cost=getattr(settings, "route_damage_minor_cost", 3.0),
+        )
+        damage_labels_full, damage_conf_full = self.load_damage(scene_id)
+        has_damage = damage_labels_full is not None and dmg_config.enabled
+
         def clamp(px: int, py: int) -> tuple[int, int]:
             return (
                 min(max(int(round(py)), 0), h - 1),
@@ -518,10 +594,10 @@ class RouteService:
         goal = clamp(*goal_xy)
 
         disclaimer = (
-            "Geometry and semantic passability estimate from the predicted DSM "
-            "(slope, step height, roughness, and 6-class semantics). Roads are "
-            "preferred; buildings and water bodies are avoided."
-            if has_semantics
+            "Geometry, semantic, and structural damage passability estimate from the predicted DSM "
+            "(slope, step height, roughness, 6-class semantics, and disaster damage). Roads are "
+            "preferred; buildings, water bodies, and damaged rubble are avoided."
+            if (has_semantics or has_damage)
             else (
                 "Geometry-based passability estimate from the predicted DSM "
                 "(slope, step height, roughness). Fences, wires, water and "
@@ -536,6 +612,7 @@ class RouteService:
             "units": "meters" if gsd is not None else "pixels",
             "georeferenced": gsd is not None,
             "semantic_available": has_semantics,
+            "damage_available": has_damage,
             "disclaimer": disclaimer,
             "vehicles": [],
         }
@@ -561,6 +638,9 @@ class RouteService:
                     sem_labels_full=sem_labels_full,
                     sem_conf_full=sem_conf_full,
                     sem_config=sem_config,
+                    damage_labels_full=damage_labels_full,
+                    damage_conf_full=damage_conf_full,
+                    damage_config=dmg_config,
                 )
             )
         return response
@@ -578,6 +658,9 @@ class RouteService:
         sem_labels_full: np.ndarray | None = None,
         sem_conf_full: np.ndarray | None = None,
         sem_config: SemanticConfig | None = None,
+        damage_labels_full: np.ndarray | None = None,
+        damage_conf_full: np.ndarray | None = None,
+        damage_config: DamageConfig | None = None,
     ) -> dict[str, Any]:
         if profile.is_aerial:
             return self._assess_chopper(
@@ -591,6 +674,9 @@ class RouteService:
                 sem_labels_full=sem_labels_full,
                 sem_conf_full=sem_conf_full,
                 sem_config=sem_config,
+                damage_labels_full=damage_labels_full,
+                damage_conf_full=damage_conf_full,
+                damage_config=damage_config,
             )
         grid = classify_grid(dsm, gsd, profile)
         f = grid.factor
@@ -610,9 +696,21 @@ class RouteService:
                 sem_probs, sem_labels, sem_conf, profile, sem_config
             )
 
+        # Downsample damage to match grid resolution
+        damage_labels = None
+        damage_conf = None
+        dmg_blocked = None
+        if damage_labels_full is not None and damage_config is not None and damage_config.enabled:
+            damage_labels = damage_labels_full[::f, ::f][:grid.classes.shape[0], :grid.classes.shape[1]]
+            if damage_conf_full is not None:
+                damage_conf = damage_conf_full[::f, ::f][:grid.classes.shape[0], :grid.classes.shape[1]]
+            _, dmg_blocked = _damage_cost(damage_labels, damage_config)
+
         total_blocked = ~grid.passable
         if sem_blocked is not None:
             total_blocked = total_blocked | sem_blocked
+        if dmg_blocked is not None:
+            total_blocked = total_blocked | dmg_blocked
         total_passable = ~total_blocked
 
         result: dict[str, Any] = {
@@ -683,6 +781,8 @@ class RouteService:
             sem_labels=sem_labels,
             sem_conf=sem_conf,
             sem_config=sem_config,
+            damage_labels=damage_labels,
+            damage_config=damage_config,
         )
         if grid_path is None:
             result.update(
@@ -768,6 +868,18 @@ class RouteService:
                     "Route skirts or touches building/water boundaries."
                 )
 
+        # Damage stats on path
+        damage_risk_frac = None
+        if damage_labels is not None:
+            path_dmg = damage_labels[path_arr[:, 0], path_arr[:, 1]]
+            damaged_pts = ((path_dmg >= 2) & (path_dmg <= 4)).sum()
+            damage_risk_frac = float(damaged_pts) / max(len(path_dmg), 1)
+            destroyed_pts = (path_dmg == 4).sum()
+            if destroyed_pts > 0:
+                reasons.append("Route navigates near rubble from destroyed structures.")
+            elif damage_risk_frac > 0.05:
+                reasons.append(f"Route navigates damaged building zones ({damage_risk_frac * 100:.0f}% exposure).")
+
         if caution_frac > 0.30:
             verdict = "CAUTION"
             reasons.append(
@@ -804,6 +916,8 @@ class RouteService:
             other_fraction=round(other_frac, 3) if other_frac is not None else None,
             semantic_risk_fraction=round(sem_risk_frac, 3) if sem_risk_frac is not None else None,
             semantic_aware=(sem_labels is not None),
+            damage_aware=(damage_labels is not None),
+            damage_risk_fraction=round(damage_risk_frac, 3) if damage_risk_frac is not None else None,
         )
         if geo is not None:
             result["path_geojson"] = {
@@ -849,6 +963,9 @@ class RouteService:
         sem_labels_full: np.ndarray | None = None,
         sem_conf_full: np.ndarray | None = None,
         sem_config: SemanticConfig | None = None,
+        damage_labels_full: np.ndarray | None = None,
+        damage_conf_full: np.ndarray | None = None,
+        damage_config: DamageConfig | None = None,
     ) -> dict[str, Any]:
         """Aerial verdict: fly start→destination directly, but only if a
         viable LANDING ZONE exists near the destination. No LZ ⇒ denial."""
@@ -870,13 +987,18 @@ class RouteService:
         radius_cells = max(1, int(self.LZ_RADIUS_M / max(cell_m, 1e-6)))
 
         # Landing patch = free cell whose (LZ_MIN_PATCH_CELLS)² neighbourhood
-        # is entirely free and not building/water.
+        # is entirely free, not building/water, and free of structural damage.
         from scipy.ndimage import uniform_filter
 
         free_mask = grid.classes == 0
         if sem_probs_full is not None and sem_config is not None and sem_config.enabled:
             sem_probs = _block_downsample_probs(sem_probs_full, f)
             free_mask = free_mask & (sem_probs[0] < 0.5) & (sem_probs[3] < 0.5)
+
+        if damage_labels_full is not None and damage_config is not None and damage_config.enabled:
+            damage_labels = damage_labels_full[::f, ::f][:grid.classes.shape[0], :grid.classes.shape[1]]
+            # Avoid damaged/collapsed building zones (classes 2, 3, 4)
+            free_mask = free_mask & (damage_labels < 2)
 
         free = free_mask.astype(np.float32)
         patch = uniform_filter(free, size=self.LZ_MIN_PATCH_CELLS) >= 0.999
@@ -1123,6 +1245,15 @@ class RouteService:
             }
             for cls, color in palette.items():
                 rgba[grid.classes == cls] = color
+
+        # Overlay damage hazards if available
+        damage_labels_full, _ = self.load_damage(scene_id)
+        if damage_labels_full is not None and getattr(settings, "route_damage_enabled", True):
+            damage_labels = damage_labels_full[::f, ::f][:grid.classes.shape[0], :grid.classes.shape[1]]
+            # Destroyed structures / debris: Dark Red (211, 47, 47, 255)
+            rgba[damage_labels == 4] = (211, 47, 47, 255)
+            # Major damage: Deep Orange (255, 87, 34, 255)
+            rgba[damage_labels == 3] = (255, 87, 34, 255)
 
         from PIL import Image
 

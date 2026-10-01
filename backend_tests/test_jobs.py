@@ -365,3 +365,39 @@ def test_heartbeat_keeps_leased_job_alive(fresh_job_manager, monkeypatch):
 
     restarted = JobManager(retention_limit=8, ttl_seconds=3600)
     assert restarted.get_job(job.job_id).status == "processing"
+
+
+def test_get_job_handles_disaster_stages(client, fresh_job_manager):
+    """GET /api/v1/jobs/{job_id} must serialize disaster_assessment and disaster_complete stages."""
+    from backend.app.jobs.manager import job_manager
+
+    job = job_manager.create_job("scene_000000000001")
+    job_manager.update_job(
+        job.job_id,
+        status="processing",
+        stage="disaster_assessment",
+        progress=85.0,
+        message="Assessing building damage",
+    )
+
+    resp = client.get(f"/api/v1/jobs/{job.job_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["stage"] == "disaster_assessment"
+    assert data["status"] == "processing"
+
+    job_manager.update_job(
+        job.job_id,
+        stage="disaster_complete",
+        progress=95.0,
+    )
+    resp = client.get(f"/api/v1/jobs/{job.job_id}")
+    assert resp.status_code == 200
+    assert resp.json()["stage"] == "disaster_complete"
+
+    # Also test unrecognized stage fallback gracefully maps without crashing
+    job_manager.update_job(job.job_id, stage="some_unrecognized_custom_stage")
+    resp = client.get(f"/api/v1/jobs/{job.job_id}")
+    assert resp.status_code == 200
+    assert resp.json()["stage"] == "finalizing"
+

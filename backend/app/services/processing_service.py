@@ -507,6 +507,16 @@ class ProcessingService:
         # NOW — get_validation only reports what actually exists on disk.
         self._write_validation_artifacts(scene_id, input_path, output_dir)
 
+        # ── Disaster assessment (optional, non-blocking) ──────────────
+        # Runs AFTER depth/semantic inference. If the disaster models
+        # are unavailable or fail, the existing depth pipeline results
+        # are preserved intact. Partial failure is logged honestly.
+        disaster_result = self._run_disaster_stage(
+            job_id, scene_id, input_path, output_dir
+        )
+        if disaster_result:
+            payload["disaster"] = disaster_result
+
         self._publish_artifacts(scene_id, output_dir)
 
         self.jobs.update_job(
@@ -737,6 +747,111 @@ class ProcessingService:
             self.record_failure(job_id, exc)
             return None
 
+    # -- disaster assessment integration ------------------------------------
+
+    def _resolve_disaster_model_path(self, env_path: str | None, fallbacks: tuple[str, ...]) -> str | None:
+        """Resolve an ONNX model path from settings, falling back to known
+        locations relative to PROJECT_ROOT."""
+        if env_path:
+            p = Path(env_path)
+            if p.exists():
+                return str(p)
+            # Try relative to PROJECT_ROOT
+            rel = PROJECT_ROOT / env_path
+            if rel.exists():
+                return str(rel)
+            logger.warning("configured disaster model path not found: %s", env_path)
+            return None
+        # Try fallback paths
+        for fb in fallbacks:
+            p = PROJECT_ROOT / fb
+            if p.exists():
+                return str(p)
+        return None
+
+    def _run_disaster_stage(
+        self,
+        job_id: str,
+        scene_id: str,
+        input_path: Path,
+        output_dir: Path,
+    ) -> dict | None:
+        """Run disaster assessment as an optional post-inference stage.
+
+        NEVER crashes the main pipeline — all errors are caught and
+        returned as partial failure metadata.
+        """
+        s = self.settings
+        if not s.disaster_enabled:
+            return None
+
+        try:
+            self.jobs.update_job(
+                job_id, stage="disaster_assessment", progress=85.0
+            )
+
+            # Resolve model paths
+            building_model = self._resolve_disaster_model_path(
+                s.building_model_onnx,
+                ("local_model.onnx", "models/building/model.onnx"),
+            )
+            damage_model = self._resolve_disaster_model_path(
+                s.damage_model_onnx,
+                ("model.onnx", "models/damage/model.onnx"),
+            )
+
+            if not building_model and not damage_model:
+                logger.info(
+                    "disaster assessment skipped for scene %s: "
+                    "no ONNX models found", scene_id
+                )
+                return None
+
+            # Read the source RGB image
+            from depthwizard.inference import read_image
+            from depthwizard.pipeline.scene_outputs import georef_state
+
+            rgb, profile = read_image(input_path)
+            georef, crs, tf = georef_state(profile)
+
+            from depthwizard.disaster.pipeline import run_disaster_pipeline
+
+            result = run_disaster_pipeline(
+                rgb,
+                output_dir,
+                building_model_path=building_model,
+                damage_model_path=damage_model,
+                device=s.disaster_device,
+                threshold=s.building_threshold,
+                tile_size=s.disaster_tile_size,
+                tile_stride=s.disaster_tile_stride,
+                batch_size=s.disaster_batch_size,
+                georeferenced=georef,
+                crs_string=str(crs) if crs else None,
+                transform=tf,
+                should_cancel=lambda: self._check_cancelled(job_id),
+                building_detection_enabled=s.building_detection_enabled,
+                damage_enabled=s.damage_enabled,
+                recover_destroyed=s.disaster_recover_destroyed,
+            )
+
+            self.jobs.update_job(
+                job_id, stage="disaster_complete", progress=95.0
+            )
+
+            return result
+
+        except Exception as exc:
+            logger.warning(
+                "disaster assessment failed for scene %s: %s",
+                scene_id, exc,
+            )
+            return {
+                "buildings_available": False,
+                "damage_available": False,
+                "errors": [f"Disaster pipeline error: {exc}"],
+            }
+
     def _discard_outputs(self, output_dir: Path) -> None:
         """Remove partial outputs of a cancelled run (idempotent)."""
         for name in ("dsm.npy", "dsm.tif", "dsm_anchored.tif", "dsm_anchored.npy", "dsm_preview.png"):
@@ -748,3 +863,4 @@ class ProcessingService:
 
 
 processing_service = ProcessingService()
+

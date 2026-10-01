@@ -18,6 +18,8 @@ const STAGE_LABELS = {
   refinement:           'Refining structures',
   dsm_generation:       'Generating DSM',
   validation:           'Validating result',
+  disaster_assessment:  'Assessing disaster damage',
+  disaster_complete:    'Disaster assessment complete',
   terrain_generation:   'Building 3D terrain',
   completed:            'Complete',
   failed:               'Failed',

@@ -163,11 +163,21 @@ async def get_job(job_id: str):
         )
     _ensure_job_owner(job)
 
+    try:
+        status = JobStatus(job.status)
+    except (ValueError, TypeError):
+        status = JobStatus.PROCESSING
+
+    try:
+        stage = JobStage(job.stage)
+    except (ValueError, TypeError):
+        stage = JobStage.FINALIZING
+
     return JobResponse(
         job_id=job.job_id,
         scene_id=job.scene_id,
-        status=JobStatus(job.status),
-        stage=JobStage(job.stage),
+        status=status,
+        stage=stage,
         progress=job.progress,
         message=job.message,
         cancel_requested=job.cancel_requested,

@@ -13,7 +13,8 @@
  * - Never claims automated flood/landslide predictions.
  * - Dark mode mission-control styling.
  */
-import { AlertTriangle, TrendingUp, Mountain, Building2, ShieldCheck, MapPin } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Mountain, Building2, ShieldCheck, MapPin, Crosshair } from 'lucide-react';
+import { DAMAGE_COLORS_HEX, DAMAGE_CLASS_LABELS } from '../../api/disaster.js';
 
 /**
  * @param {{
@@ -34,6 +35,8 @@ export default function DisasterAssessmentPanel({
   unitLabel = 'm',
   onSelectLayer,
   onOpenValidation,
+  damageMeta = null,
+  buildingsMeta = null,
 }) {
   const minElev = terrainMeta?.min_elevation ?? 0;
   const maxElev = terrainMeta?.max_elevation ?? 350;
@@ -304,6 +307,136 @@ export default function DisasterAssessmentPanel({
           )}
         </div>
       </section>
+
+      {/* 5. Structural Damage Assessment */}
+      {(damageMeta?.available || buildingsMeta?.available) && (
+        <section aria-labelledby="structural-damage-heading">
+          <h3
+            id="structural-damage-heading"
+            style={{
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 11.5,
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--dw-fg-ghost)',
+              margin: '0 0 10px 0',
+            }}
+          >
+            STRUCTURAL DAMAGE
+          </h3>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            padding: '10px 12px',
+            background: 'var(--dw-surface)',
+            border: '1px solid var(--dw-rim)',
+            borderRadius: 'var(--dw-radius-sm)',
+          }}>
+            {/* Building count */}
+            {buildingsMeta?.available && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>Buildings detected</span>
+                <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 14, color: 'var(--dw-accent)', fontWeight: 600 }}>
+                  {buildingsMeta.count ?? 0}
+                </span>
+              </div>
+            )}
+
+            {/* Damage distribution */}
+            {damageMeta?.available && damageMeta.damage_counts && (
+              <>
+                {Object.entries(damageMeta.damage_counts).map(([cls, count]) => (
+                  <div key={cls} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{
+                        width: 8, height: 8, borderRadius: 2, flexShrink: 0,
+                        background: DAMAGE_COLORS_HEX[cls] ?? 'var(--dw-fg-ghost)',
+                      }} />
+                      <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12.5, color: 'var(--dw-fg-muted)' }}>
+                        {DAMAGE_CLASS_LABELS[cls] ?? cls}
+                      </span>
+                    </span>
+                    <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 13, color: 'var(--dw-fg)' }}>
+                      {count}
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Assessment mode */}
+            {damageMeta?.available && (
+              <div style={{ marginTop: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11.5, color: 'var(--dw-fg-ghost)', textTransform: 'uppercase' }}>
+                    Assessment mode
+                  </span>
+                  <span style={{
+                    fontFamily: 'var(--dw-font-data)',
+                    fontSize: 11.5,
+                    fontWeight: 600,
+                    color: damageMeta.mode === 'pre_post' ? 'var(--dw-confirm)' : 'var(--dw-live)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                  }}>
+                    {damageMeta.mode === 'pre_post' ? 'PRE/POST' : 'POST ONLY'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* View damage layer button */}
+            {damageMeta?.available && (
+              <button
+                onClick={() => onSelectLayer?.('damage')}
+                style={{
+                  marginTop: 4,
+                  height: 32,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                  padding: '0 12px',
+                  background: 'transparent',
+                  border: '1px solid var(--dw-rim)',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 12.5,
+                  color: 'var(--dw-fg-muted)',
+                  cursor: 'pointer',
+                  outline: 'none',
+                }}
+                onFocus={e => {
+                  e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+                  e.currentTarget.style.outlineOffset = '1px';
+                }}
+                onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+              >
+                <Crosshair size={13} strokeWidth={1.5} color="var(--dw-live)" />
+                View Damage Layer
+              </button>
+            )}
+          </div>
+
+          {/* Disclaimer */}
+          <div style={{
+            marginTop: 8,
+            padding: '8px 10px',
+            background: 'rgba(245, 158, 11, 0.05)',
+            border: '1px solid rgba(245, 158, 11, 0.15)',
+            borderRadius: 'var(--dw-radius-sm)',
+            fontFamily: 'var(--dw-font-ui)',
+            fontSize: 11,
+            color: 'var(--dw-fg-ghost)',
+            lineHeight: 1.5,
+          }}>
+            Post-disaster building damage assessment.
+            Results are model estimates and should be independently verified before operational use.
+          </div>
+        </section>
+      )}
     </div>
   );
 }

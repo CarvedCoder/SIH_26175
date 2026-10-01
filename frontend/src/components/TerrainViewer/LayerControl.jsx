@@ -24,16 +24,17 @@ import { useApp } from '../../store/appStore.jsx';
 
 /** Human-readable names + colourmap description for each layer ID */
 const LAYER_META = {
-  buildings:     { label: 'Buildings',      sub: 'Solid-colour block model',     colormap: 'blocks' },
-  semantics:     { label: 'Semantics',      sub: 'Learned semantic classification', colormap: 'categorical' },
-  solid:         { label: 'Solid',          sub: 'Shaded surface + mesh',        colormap: 'solid' },
-  rgb:           { label: 'RGB',            sub: 'Source photograph',           colormap: 'rgb' },
-  depth:         { label: 'Depth',          sub: 'Monocular depth estimate',    colormap: 'greyscale' },
-  dsm:           { label: 'DSM',            sub: 'Digital surface model',       colormap: 'viridis' },
-  reference_dem: { label: 'Reference DEM',  sub: 'Ground-truth elevation',      colormap: 'viridis' },
-  error:         { label: 'Error Map',       sub: 'Estimated − Reference',       colormap: 'diverging' },
-  slope:         { label: 'Slope',          sub: 'Terrain gradient (°)',         colormap: 'viridis' },
-  route_risk:    { label: 'Route Risk',     sub: 'Combined geometry & semantics risk', colormap: 'categorical' },
+  solid:           { label: 'Solid',          sub: 'Shaded surface + mesh',        colormap: 'solid' },
+  rgb:             { label: 'RGB',            sub: 'Source photograph',           colormap: 'rgb' },
+  depth:           { label: 'Depth',          sub: 'Monocular depth estimate',    colormap: 'greyscale' },
+  dsm:             { label: 'DSM',            sub: 'Digital surface model',       colormap: 'viridis' },
+  reference_dem:   { label: 'Reference DEM',  sub: 'Ground-truth elevation',      colormap: 'viridis' },
+  error:           { label: 'Error Map',       sub: 'Estimated − Reference',       colormap: 'diverging' },
+  slope:           { label: 'Slope',          sub: 'Terrain gradient (°)',         colormap: 'viridis' },
+  route_risk:      { label: 'Route Risk',     sub: 'Combined geometry & semantics risk', colormap: 'categorical' },
+  semantics:       { label: 'Semantics',      sub: 'Learned semantic classification', colormap: 'categorical' },
+  buildings:       { label: 'Building Footprints', sub: 'Detected footprints (DINOv3)', colormap: 'blocks' },
+  damage:          { label: 'Damage',          sub: 'Building damage assessment',   colormap: 'damage' },
 };
 
 /**
@@ -45,9 +46,18 @@ const LAYER_META = {
 export default function LayerControl({ activeLayer, onLayerChange }) {
   const { state } = useApp();
   const isAbsolute = state.results?.elevation_mode === 'absolute' || state.scene?.is_georeferenced;
+
+  const hasBuildings = state.results?.assets?.some(a => a.name.startsWith('building')) ?? true;
+  const hasDamage = state.results?.assets?.some(a => a.name.startsWith('damage')) ?? false;
+
+  const disasterLayers = [
+    ...(hasBuildings ? ['buildings'] : []),
+    ...(hasDamage ? ['damage'] : []),
+  ];
+
   const defaultAvailable = isAbsolute
-    ? ['solid', 'rgb', 'depth', 'dsm', 'reference_dem', 'error', 'slope', 'semantics', 'route_risk']
-    : ['solid', 'rgb', 'depth', 'dsm', 'slope', 'semantics', 'route_risk'];
+    ? ['solid', 'rgb', 'depth', 'dsm', 'reference_dem', 'error', 'slope', 'semantics', 'route_risk', ...disasterLayers]
+    : ['solid', 'rgb', 'depth', 'dsm', 'slope', 'semantics', 'route_risk', ...disasterLayers];
   const availableLayers = state.results?.available_layers ?? defaultAvailable;
 
   return (
@@ -96,11 +106,13 @@ export default function LayerControl({ activeLayer, onLayerChange }) {
 /** Single layer list item */
 function LayerItem({ id, label, sub, isActive, isAvailable, colormap, onSelect }) {
   const disabledReason = isAvailable ? null :
-    id === 'dsm'           ? 'Requires georeferenced GeoTIFF input' :
-    id === 'reference_dem' ? 'No reference DEM provided' :
-    id === 'error'         ? 'Reference DEM required for error map' :
-    id === 'semantics'     ? 'Semantic segmentation is unavailable for this scene' :
-    id === 'route_risk'    ? 'Route-risk layer unavailable for this scene' :
+    id === 'dsm'             ? 'Requires georeferenced GeoTIFF input' :
+    id === 'reference_dem'   ? 'No reference DEM provided' :
+    id === 'error'           ? 'Reference DEM required for error map' :
+    id === 'semantics'       ? 'Semantic segmentation is unavailable for this scene' :
+    id === 'route_risk'      ? 'Route-risk layer unavailable for this scene' :
+    id === 'buildings'       ? 'Building footprints not available for this scene' :
+    id === 'damage'          ? 'Damage assessment not available for this scene' :
     'Not available for this input';
 
   return (
@@ -173,11 +185,14 @@ function ColormapBadge({ type, visible }) {
   if (!visible) return null;
 
   const gradients = {
-    rgb:         'linear-gradient(to right, #e53e3e, #38a169, #3b82f6)',
-    greyscale:   'linear-gradient(to right, #09090b, #f4f4f5)',
-    viridis:     'linear-gradient(to right, #440154, #31688e, #35b779, #fde725)',
-    diverging:   'linear-gradient(to right, #2563eb, #dde4ef, #ef4444)',
-    categorical: 'linear-gradient(to right, #e74c3c, #2ecc71, #9b9b9b, #3498db, #d2b48c)',
+    rgb:             'linear-gradient(to right, #e53e3e, #38a169, #3b82f6)',
+    greyscale:       'linear-gradient(to right, #09090b, #f4f4f5)',
+    viridis:         'linear-gradient(to right, #440154, #31688e, #35b779, #fde725)',
+    diverging:       'linear-gradient(to right, #2563eb, #dde4ef, #ef4444)',
+    categorical:     'linear-gradient(to right, #e74c3c, #2ecc71, #9b9b9b, #3498db, #d2b48c)',
+    blocks:          'linear-gradient(to right, #1a1a2e, #3498db, #1a1a2e)',
+    building_detect: 'linear-gradient(to right, #1a1a2e, #3498db, #1a1a2e)',
+    damage:          'linear-gradient(to right, #4CAF50, #FFC107, #FF5722, #D32F2F)',
   };
 
   return (

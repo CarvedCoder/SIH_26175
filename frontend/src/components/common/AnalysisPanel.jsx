@@ -43,6 +43,7 @@ import ReferenceComparison from '../Validation/ReferenceComparison.jsx';
 import DetailMode from '../Analysis/DetailMode.jsx';
 import ScenarioSwitcher from '../Analysis/ScenarioSwitcher.jsx';
 import DisasterAssessmentPanel from '../Analysis/DisasterAssessmentPanel.jsx';
+import { DAMAGE_CLASS_LABELS } from '../../api/disaster.js';
 import {
   ChevronRight,
   Info,
@@ -93,6 +94,8 @@ export default function AnalysisPanel({
   onRefineComplete,
   scenario = 'exploration',
   onSelectScenario,
+  damageMeta = null,
+  buildingsMeta = null,
 }) {
   const { state } = useApp();
 
@@ -375,6 +378,44 @@ export default function AnalysisPanel({
                 label="Top Elevation"
                 value={`${selectedStructure.top?.toFixed(1) ?? '—'} ${unitLabel}`}
               />
+              {selectedStructure.damage && (
+                <>
+                  <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
+                  <DataRow
+                    label="Damage Class"
+                    value={DAMAGE_CLASS_LABELS[selectedStructure.damage.damage_class] || selectedStructure.damage.damage_class}
+                    highlight
+                  />
+                  {selectedStructure.damage.damage_confidence != null && (
+                    <DataRow
+                      label="Damage Confidence"
+                      value={`${(selectedStructure.damage.damage_confidence * 100).toFixed(1)}%`}
+                    />
+                  )}
+                  {selectedStructure.damage.damage_mode && (
+                    <DataRow
+                      label="Inference Mode"
+                      value={selectedStructure.damage.damage_mode === 'post_only' ? 'Post-Only' : selectedStructure.damage.damage_mode}
+                    />
+                  )}
+                  {selectedStructure.damage.damage_review && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      padding: '4px 6px',
+                      borderRadius: 'var(--dw-radius-sm)',
+                      background: 'rgba(255, 193, 7, 0.1)',
+                      border: '1px solid rgba(255, 193, 7, 0.3)',
+                      color: '#FFC107',
+                      fontFamily: 'var(--dw-font-ui)',
+                      fontSize: 11,
+                    }}>
+                      <span>⚠ Manual review recommended</span>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </section>
         )}
@@ -459,6 +500,8 @@ export default function AnalysisPanel({
                 unitLabel={unitLabel}
                 onSelectLayer={onSelectLayer}
                 onOpenValidation={() => setTab('validation')}
+                damageMeta={damageMeta}
+                buildingsMeta={buildingsMeta}
               />
             ) : (
               <>

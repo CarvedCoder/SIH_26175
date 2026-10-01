@@ -121,3 +121,33 @@ split removes the last process-local piece (in-process job execution).
   cross-process transactions; the DB-backed repository is the upgrade.
 * **ML pipeline decomposition** (`inference.py`, 981 lines) is tranche 3,
   now safely gated by the golden regression test.
+
+## 9. Localized Disaster Assessment Pipeline (HOTOSM ONNX)
+
+DepthWizard integrates a dedicated, production-quality localized disaster assessment pipeline using two HOTOSM ONNX models:
+
+1. **HOTOSM DINOv3 Building Localization** (`local_model.onnx`):
+   - Input: RGB imagery tiled at 256×256 pixels.
+   - Output: 3-class segmentation (background, interior, boundary), aggregated via sliding window into building probability masks and polygonized building footprints.
+2. **HOTOSM Earthquake Damage Assessment** (`model.onnx`):
+   - Input: Post-disaster RGB imagery + detected/provided building footprints + optional pre-disaster imagery (512×512 crops).
+   - Output: 4-class building damage taxonomy: `no-damage`, `minor-damage`, `major-damage`, `destroyed`.
+
+### Key Design & Safety Principles
+- **Explicit Post-Only Mode**: When pre-disaster imagery is absent, the pipeline feeds a zero tensor to `pre`, sets `mode="post_only"`, and never fabricates pre-disaster imagery.
+- **VRAM Safety (<6 GB)**: Models are never run concurrently; building detection completes, frees memory, and then damage assessment runs on building crops sequentially with `batch_size=1`.
+- **Review Margin**: Buildings with a top-2 class probability margin < 15% are flagged with `damage_review=true` (`review_required`).
+- **Separation of Taxonomies**: 4-class building damage is strictly separated from 6-class landcover semantic segmentation.
+- **Route Assist Hazard Integration**: Structural damage is converted into an obstacle/cost surface (`DW_ROUTE_DAMAGE_AVOIDANCE`, `DW_ROUTE_DAMAGE_MAJOR_COST`, `DW_ROUTE_DAMAGE_DESTROYED_COST`), influencing vehicle pathfinding and excluding helicopter landing zones on destroyed structures.
+
+### Generated Scene Artifacts
+- `buildings.geojson`, `building_mask.npy`, `building_confidence.npy`, `buildings_preview.png`, `buildings_meta.json`
+- `damage_buildings.geojson`, `damage_labels.npy`, `damage_confidence.npy`, `damage_preview.png`, `damage_meta.json`
+
+### REST API Endpoints
+- `GET /api/v1/scenes/{scene_id}/buildings`: Building detection metadata
+- `GET /api/v1/scenes/{scene_id}/damage`: Damage assessment metadata
+- `GET /api/v1/scenes/{scene_id}/results/buildings-geojson`: Building footprints GeoJSON
+- `GET /api/v1/scenes/{scene_id}/results/buildings-preview`: Building footprints overlay PNG
+- `GET /api/v1/scenes/{scene_id}/results/damage-geojson`: Building damage GeoJSON
+- `GET /api/v1/scenes/{scene_id}/results/damage-preview`: Damage severity color overlay PNG

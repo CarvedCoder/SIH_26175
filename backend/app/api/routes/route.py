@@ -42,6 +42,7 @@ def _require_results(scene_id: str) -> None:
 
 
 @router.post("/{scene_id}/route/assess", response_model=RouteAssessResponse)
+@router.post("/{scene_id}/route", response_model=RouteAssessResponse)
 async def assess_route(scene_id: str, request: RouteAssessRequest):
     """Assess whether emergency vehicles can move from start to end.
 

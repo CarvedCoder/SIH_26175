@@ -19,7 +19,8 @@
  */
 import { useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { useApp } from '../../store/appStore.jsx';
-import { Building2, RotateCcw } from 'lucide-react';
+import { Building2, RotateCcw, AlertTriangle } from 'lucide-react';
+import { DAMAGE_CLASS_LABELS, DAMAGE_COLORS_HEX } from '../../api/disaster.js';
 
 const StructureInspector = forwardRef(function StructureInspector(
   { terrainRef, active = false, selectedPoint, onClear, heightScale = 1, onHeightScaleChange },
@@ -51,15 +52,16 @@ const StructureInspector = forwardRef(function StructureInspector(
     if (point.metered && point.height_above_ground_m != null && point.ground_elevation != null) {
       const idNum = Math.abs(Math.round(point.x * 100 + point.z * 100)) % 999;
       setInspection({
-        id: `STR-${String(idNum).padStart(3, '0')}`,
+        id: point.damage?.building_id || `STR-${String(idNum).padStart(3, '0')}`,
         groundElevation: point.ground_elevation,
         topElevation: point.elevation,
         rawHeight: point.height_above_ground_m,
         estimatedHeight: point.height_above_ground_m,
-        isStructure: !!point.is_structure,
+        isStructure: !!point.is_structure || !!point.damage,
         confidence: point.height_confidence ?? null,
         metered: true,
         calibrated: point.calibrated ?? null,
+        damage: point.damage ?? null,
       });
       return;
     }
@@ -100,13 +102,15 @@ const StructureInspector = forwardRef(function StructureInspector(
 
     const height = Math.max(0, peakElev - baseElev);
     const idNum = Math.abs(Math.round(point.x * 100 + point.z * 100)) % 999;
-    const structureId = `STR-${String(idNum).padStart(3, '0')}`;
+    const structureId = point.damage?.building_id || `STR-${String(idNum).padStart(3, '0')}`;
 
     setInspection({
       id: structureId,
       groundElevation: baseElev,
       topElevation: peakElev,
       estimatedHeight: height > 0.1 ? height : (baseElev * 0.12),
+      isStructure: !!point.damage,
+      damage: point.damage ?? null,
     });
   }, [terrainRef, isAbsolute]);
 
@@ -142,9 +146,11 @@ const StructureInspector = forwardRef(function StructureInspector(
             textTransform: 'uppercase',
             color: 'var(--dw-fg-ghost)',
           }}>
-            {inspection?.metered
-              ? (inspection.isStructure ? 'STRUCTURE · BUILDING-LIKE' : 'SURFACE POINT')
-              : 'STRUCTURE INSPECTION'}
+            {inspection?.damage
+              ? `BUILDING · ${inspection.damage.damage_class ? (DAMAGE_CLASS_LABELS[inspection.damage.damage_class] || inspection.damage.damage_class).toUpperCase() : 'ASSESSED'}`
+              : inspection?.metered
+                ? (inspection.isStructure ? 'STRUCTURE · BUILDING-LIKE' : 'SURFACE POINT')
+                : 'STRUCTURE INSPECTION'}
           </span>
         </div>
 
@@ -303,7 +309,123 @@ const StructureInspector = forwardRef(function StructureInspector(
               </div>
             </div>
           )}
-          {!inspection.metered && (
+
+          {/* Disaster Damage Assessment Section */}
+          {inspection.damage && (
+            <>
+              <div style={{ width: '100%', height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
+                  Damage Severity
+                </span>
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '2px 8px',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  backgroundColor: `${DAMAGE_COLORS_HEX[inspection.damage.damage_class] || '#888'}22`,
+                  border: `1px solid ${DAMAGE_COLORS_HEX[inspection.damage.damage_class] || '#888'}`,
+                  fontFamily: 'var(--dw-font-data)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: DAMAGE_COLORS_HEX[inspection.damage.damage_class] || 'var(--dw-fg)',
+                  textTransform: 'uppercase',
+                }}>
+                  <span style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    backgroundColor: DAMAGE_COLORS_HEX[inspection.damage.damage_class] || '#888',
+                  }} />
+                  {DAMAGE_CLASS_LABELS[inspection.damage.damage_class] || inspection.damage.damage_class}
+                </span>
+              </div>
+
+              {inspection.damage.damage_confidence != null && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 13, color: 'var(--dw-fg-muted)' }}>
+                    Damage Confidence
+                  </span>
+                  <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 13.5, fontWeight: 600, color: 'var(--dw-fg)' }}>
+                    {(inspection.damage.damage_confidence * 100).toFixed(1)}%
+                  </span>
+                </div>
+              )}
+
+              {inspection.damage.damage_mode && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 12, color: 'var(--dw-fg-muted)' }}>
+                    Assessment Mode
+                  </span>
+                  <span style={{
+                    fontFamily: 'var(--dw-font-data)',
+                    fontSize: 11,
+                    padding: '1px 6px',
+                    borderRadius: 'var(--dw-radius-sm)',
+                    background: 'var(--dw-surface)',
+                    border: '1px solid var(--dw-rim)',
+                    color: 'var(--dw-fg-ghost)',
+                  }}>
+                    {inspection.damage.damage_mode === 'post_only' ? 'POST-ONLY' : inspection.damage.damage_mode.toUpperCase()}
+                  </span>
+                </div>
+              )}
+
+              {inspection.damage.damage_review && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 8px',
+                  borderRadius: 'var(--dw-radius-sm)',
+                  background: 'rgba(255, 193, 7, 0.1)',
+                  border: '1px solid rgba(255, 193, 7, 0.3)',
+                  color: '#FFC107',
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 11,
+                }}>
+                  <AlertTriangle size={13} strokeWidth={2} aria-hidden="true" />
+                  <span>Manual review recommended (close margin)</span>
+                </div>
+              )}
+
+              {inspection.damage.damage_probabilities && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                  <span style={{
+                    fontFamily: 'var(--dw-font-ui)',
+                    fontSize: 10.5,
+                    fontWeight: 600,
+                    color: 'var(--dw-fg-ghost)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                  }}>
+                    Damage Distribution
+                  </span>
+                  {Object.entries(inspection.damage.damage_probabilities).map(([cls, prob]) => (
+                    <div key={cls} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11, color: 'var(--dw-fg-muted)', width: 85, whiteSpace: 'nowrap' }}>
+                        {DAMAGE_CLASS_LABELS[cls] || cls}
+                      </span>
+                      <div style={{ flex: 1, height: 4, background: 'var(--dw-surface)', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${Math.round(prob * 100)}%`,
+                          height: '100%',
+                          backgroundColor: DAMAGE_COLORS_HEX[cls] || 'var(--dw-accent)',
+                        }} />
+                      </div>
+                      <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 11, color: 'var(--dw-fg-ghost)', width: 32, textAlign: 'right' }}>
+                        {(prob * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {!inspection.metered && !inspection.damage && (
             <div style={{ marginTop: 6, fontFamily: 'var(--dw-font-ui)', fontSize: 11, lineHeight: 1.45, color: 'var(--dw-fg-ghost)' }}>
               Visual estimate from the display heightmap — click a point to meter it against the DSM.
             </div>
