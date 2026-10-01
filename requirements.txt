@@ -167,6 +167,8 @@ mdurl==0.1.2
     # via
     #   depthwizard
     #   markdown-it-py
+ml-dtypes==0.6.0
+    # via onnx
 mpmath==1.3.0
     # via
     #   depthwizard
@@ -181,6 +183,8 @@ numpy==2.5.1
     #   depthwizard
     #   h5py
     #   matplotlib
+    #   ml-dtypes
+    #   onnx
     #   onnxruntime-gpu
     #   rasterio
     #   scipy
@@ -253,6 +257,8 @@ nvidia-nvtx==13.0.85 ; (platform_machine == 'aarch64' and sys_platform == 'linux
     # via
     #   cuda-toolkit
     #   depthwizard
+onnx==1.23.1
+    # via depthwizard
 onnxruntime-gpu==1.30.0
     # via depthwizard
 packaging==26.3
@@ -274,6 +280,7 @@ pluggy==1.6.0
 protobuf==7.36.2
     # via
     #   depthwizard
+    #   onnx
     #   onnxruntime-gpu
 psycopg==3.3.6
     # via depthwizard
@@ -281,8 +288,6 @@ psycopg-binary==3.3.6 ; implementation_name != 'pypy'
     # via
     #   depthwizard
     #   psycopg
-psycopg2-binary==2.9.13
-    # via depthwizard
 pybind11==3.1.0
     # via depthwizard
 pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
@@ -400,6 +405,7 @@ typing-extensions==4.16.0
     #   depthwizard
     #   fastapi
     #   huggingface-hub
+    #   onnx
     #   psycopg
     #   pydantic
     #   pydantic-core

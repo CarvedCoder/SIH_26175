@@ -524,7 +524,7 @@ class ProcessingService:
             status="completed",
             stage="completed",
             progress=100.0,
-            result=payload,
+            result=self._sanitize_payload_paths(payload),
         )
         logger.info("job completed: %s scene=%s", job_id, scene_id)
         return payload
@@ -595,11 +595,17 @@ class ProcessingService:
                 with rasterio.open(crop_path, "w", **profile) as dst:
                     dst.write(data)
 
+            # Run the crop through the standard inference path into an
+            # ISOLATED directory — run_inference always writes dsm.npy/
+            # dsm.tif/dsm_preview.png, and pointing it at output_dir would
+            # silently overwrite the full-scene depth products.
+            refine_dir = process_dir / "refine"
+            refine_dir.mkdir(parents=True, exist_ok=True)
             try:
                 payload = run_inference(
                     input_path=crop_path,
                     ckpt_path=checkpoint,
-                    out_dir=output_dir,
+                    out_dir=refine_dir,
                     mode="tiles",
                     architecture=architecture,
                     write_files=True,
@@ -612,12 +618,24 @@ class ProcessingService:
                 )
                 return {"cancelled": True}
 
-        # Persist the refined product explicitly; run_inference wrote the
-        # full-scene-shaped outputs — copy the dsm.npy to the refined name.
-        dsm_npy = output_dir / "dsm.npy"
+        # Persist the refined product under its own name; the full-scene
+        # dsm.npy/dsm.tif in output_dir are never touched.
+        dsm_npy = refine_dir / "dsm.npy"
         refined_npy = output_dir / "refined_dsm.npy"
         if dsm_npy.is_file():
             refined_npy.write_bytes(dsm_npy.read_bytes())
+        else:
+            raise RuntimeError(
+                "refinement inference produced no dsm.npy — nothing stored."
+            )
+        import shutil
+
+        shutil.rmtree(refine_dir, ignore_errors=True)
+        payload = {
+            "refined": True,
+            "bbox": list(bbox),
+            "outputs": {"refined_dsm": "refined_dsm.npy"},
+        }
 
         self._publish_artifacts(scene_id, output_dir)
 
@@ -626,10 +644,39 @@ class ProcessingService:
             status="completed",
             stage="completed",
             progress=100.0,
-            result=payload,
+            result=self._sanitize_payload_paths(payload),
         )
         logger.info("refine job completed: %s scene=%s", job_id, scene_id)
         return payload
+
+    @staticmethod
+    def _sanitize_payload_paths(payload: dict) -> dict:
+        """Strip absolute filesystem paths from a job result payload.
+
+        Job results are served verbatim by /api/v1/jobs/{id}; the artifact
+        FILENAMES are useful to clients, the server paths are not.
+        """
+        import copy as _copy
+
+        # Read at call time so a redirected project root is respected
+        from backend.app.core import paths as _paths
+
+        root = str(_paths.PROJECT_ROOT)
+
+        def _clean(value):
+            if isinstance(value, dict):
+                return {
+                    k: (Path(v).name if isinstance(v, str) and v.startswith(root) else _clean(v))
+                    for k, v in value.items()
+                }
+            if isinstance(value, list):
+                return [
+                    (Path(v).name if isinstance(v, str) and v.startswith(root) else _clean(v))
+                    for v in value
+                ]
+            return value
+
+        return _clean(_copy.deepcopy(payload)) if isinstance(payload, dict) else payload
 
     # -- artifact publication ------------------------------------------------
 
@@ -853,13 +900,44 @@ class ProcessingService:
             }
 
     def _discard_outputs(self, output_dir: Path) -> None:
-        """Remove partial outputs of a cancelled run (idempotent)."""
-        for name in ("dsm.npy", "dsm.tif", "dsm_anchored.tif", "dsm_anchored.npy", "dsm_preview.png"):
+        """Remove partial outputs of a cancelled run (idempotent).
+
+        Covers every artifact the pipeline can have produced before a
+        cancellation checkpoint — otherwise a cancelled scene could still
+        report scene_has_results=True from orphan files.
+        """
+        names = [
+            "dsm.npy", "dsm.tif", "dsm_anchored.tif", "dsm_anchored.npy",
+            "dsm_preview.png", "agl_raw.npy", "postprocess_meta.json",
+            "semantic_labels.npy", "semantic_probs.npy",
+            "semantic_confidence.npy", "semantic_map.png",
+            "semantic_meta.json", "refined_dsm.npy",
+            "validation.json", "error_map.png", "validation_error_map.png",
+            "heightmap.png",
+        ]
+        names += [
+            (key) for key in (
+                "buildings.geojson", "building_mask.npy",
+                "building_confidence.npy", "buildings_preview.png",
+                "buildings_meta.json", "damage_buildings.geojson",
+                "damage_labels.npy", "damage_confidence.npy",
+                "damage_preview.png", "damage_meta.json",
+            )
+        ]
+        for name in names:
             path = output_dir / name
             try:
                 path.unlink()
             except FileNotFoundError:
                 pass
+        # derived tile/texture caches live in subdirectories
+        import shutil
+
+        for sub in ("tiles",):
+            shutil.rmtree(output_dir / sub, ignore_errors=True)
+        for stale in output_dir.glob("*_layer.png"):
+            stale.unlink(missing_ok=True)
+        (output_dir / "minimap.png").unlink(missing_ok=True)
 
 
 processing_service = ProcessingService()

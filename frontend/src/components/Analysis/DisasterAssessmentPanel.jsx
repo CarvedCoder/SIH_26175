@@ -38,9 +38,10 @@ export default function DisasterAssessmentPanel({
   damageMeta = null,
   buildingsMeta = null,
 }) {
-  const minElev = terrainMeta?.min_elevation ?? 0;
-  const maxElev = terrainMeta?.max_elevation ?? 350;
-  const reliefSpan = maxElev - minElev;
+  const minElev = terrainMeta?.min_elevation;
+  const maxElev = terrainMeta?.max_elevation;
+  const reliefSpan = minElev != null && maxElev != null ? maxElev - minElev : null;
+  const fmtElev = (v) => (v != null ? `${v.toFixed(1)} ${unitLabel}` : '—');
 
   // Slope classification
   const locSlope = selectedLocation?.slope ?? null;
@@ -112,12 +113,12 @@ export default function DisasterAssessmentPanel({
           gridTemplateColumns: '1fr 1fr',
           gap: 8,
         }}>
-          <ReliefItem label="Lowest Elevation" value={`${minElev.toFixed(1)} ${unitLabel}`} />
-          <ReliefItem label="Highest Crest" value={`${maxElev.toFixed(1)} ${unitLabel}`} />
+          <ReliefItem label="Lowest Elevation" value={fmtElev(minElev)} />
+          <ReliefItem label="Highest Crest" value={fmtElev(maxElev)} />
           <div style={{ gridColumn: 'span 2' }}>
             <ReliefItem
               label="Total Vertical Span (Δz)"
-              value={`${reliefSpan.toFixed(1)} ${unitLabel}`}
+              value={reliefSpan != null ? `${reliefSpan.toFixed(1)} ${unitLabel}` : '—'}
               highlight
             />
           </div>
@@ -384,6 +385,26 @@ export default function DisasterAssessmentPanel({
                     {damageMeta.mode === 'pre_post' ? 'PRE/POST' : 'POST ONLY'}
                   </span>
                 </div>
+                {!!damageMeta.review_count && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                    <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11.5, color: 'var(--dw-fg-ghost)', textTransform: 'uppercase' }}>
+                      Review recommended
+                    </span>
+                    <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 12, color: 'var(--dw-fg)' }}>
+                      {damageMeta.review_count}
+                    </span>
+                  </div>
+                )}
+                {!!damageMeta.recovered_destroyed_areas && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                    <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11.5, color: 'var(--dw-fg-ghost)', textTransform: 'uppercase' }}>
+                      Recovered destroyed areas
+                    </span>
+                    <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 12, color: 'var(--dw-fg)' }}>
+                      {damageMeta.recovered_destroyed_areas}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 

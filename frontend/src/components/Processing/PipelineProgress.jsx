@@ -11,31 +11,28 @@ import { useApp } from '../../store/appStore.jsx';
 /** Maps backend stage string → human-readable label */
 const STAGE_LABELS = {
   queued:               'Waiting in queue',
+  validating:           'Validating input',
   preprocessing:        'Preparing image',
-  depth_estimation:     'Estimating depth',
-  geospatial_alignment: 'Aligning geospatial data',
-  scale_calibration:    'Recovering metric scale',
-  refinement:           'Refining structures',
+  depth_inference:      'Estimating depth & height',
+  calibration:          'Recovering metric scale',
   dsm_generation:       'Generating DSM',
+  terrain_generation:   'Building 3D terrain',
   validation:           'Validating result',
   disaster_assessment:  'Assessing disaster damage',
   disaster_complete:    'Disaster assessment complete',
-  terrain_generation:   'Building 3D terrain',
+  finalizing:           'Finalizing',
   completed:            'Complete',
   failed:               'Failed',
   cancelled:            'Cancelled',
 };
 
+// Must mirror the stages the backend actually emits
+// (backend/app/schemas/job.py JobStage, processing_service.py).
 const STAGE_ORDER = [
   'queued',
-  'preprocessing',
-  'depth_estimation',
-  'geospatial_alignment',
-  'scale_calibration',
-  'refinement',
-  'dsm_generation',
-  'validation',
-  'terrain_generation',
+  'depth_inference',
+  'disaster_assessment',
+  'disaster_complete',
 ];
 
 function stageIndex(stage) {

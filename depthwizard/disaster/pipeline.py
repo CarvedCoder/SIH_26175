@@ -121,6 +121,7 @@ def run_disaster_pipeline(
                 georeferenced=georeferenced,
                 crs_string=crs_string,
                 transform=transform,
+                mode=result.mode,
             )
             artifacts.update(bld_artifacts)
             buildings_available = True

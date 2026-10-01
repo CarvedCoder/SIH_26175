@@ -1,7 +1,10 @@
 /** @module api/export */
-import { downloadArtifact } from './client.js';
+import { downloadArtifact, getBaseUrl } from './client.js';
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1').replace(/\/$/, '');
+// Same origin-relative base as every other API client — the hardcoded
+// localhost:8000 fallback bypassed the dev proxy (backend on :8010) and
+// any VITE_API_BASE_URL override.
+const BASE_URL = getBaseUrl();
 
 /**
  * Trigger an authenticated file download: fetches with the Supabase

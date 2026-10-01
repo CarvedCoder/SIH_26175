@@ -12,7 +12,6 @@ import { useApp } from '../store/appStore.jsx';
 import { getJobStatus, cancelJob } from '../api/processing.js';
 import { getResults } from '../api/results.js';
 
-const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const POLL_MS = 2500;
 
 export function useProcessing() {
@@ -36,15 +35,15 @@ export function useProcessing() {
         try {
           const results = await getResults(state.scene?.scene_id ?? job.scene_id);
           actions.processingDone(results);
-        } catch (e) {
+        } catch {
           actions.processingDone(null); // still move forward; results can be fetched later
         }
       } else if (job.status === 'failed') {
         stop();
         actions.processingFail({
-          code:        'PROCESSING_FAILED',
-          message:     job.message ?? 'Processing failed.',
-          recoverable: true,
+          code:        job.error?.code ?? 'PROCESSING_FAILED',
+          message:     job.error?.message ?? job.message ?? 'Processing failed.',
+          recoverable: job.error?.recoverable ?? true,
         });
       } else if (job.status === 'cancelled') {
         stop();

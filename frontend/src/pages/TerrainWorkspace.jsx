@@ -48,7 +48,7 @@ import { getResults, getDepth, getDsm, getReference, getScene } from '../api/res
 import { getValidation } from '../api/validation.js';
 import { getErrorMap } from '../api/validation.js';
 import { assessRoute, VERDICT_META } from '../api/route.js';
-import { resolveAssetUrl } from '../api/client.js';
+import { assetFetch, resolveAssetUrl } from '../api/client.js';
 import {
   getBuildingsMeta,
   getDamageMeta,
@@ -65,10 +65,28 @@ import {
   X,
 } from 'lucide-react';
 
+/**
+ * Point-in-polygon test for damage building selection.
+ *
+ * Uses the polygon rings in the coordinate space the click was made in.
+ * Backend GeoJSON geometry is pixel-space for non-georeferenced scenes,
+ * but geographic (CRS) for georeferenced ones — in that case the writer
+ * also embeds `properties.pixel_geometry` (rings in raster pixel space),
+ * which is what terrain clicks are expressed in.
+ */
+function featureRingsInPixelSpace(feat) {
+  const space = feat.properties?.coordinate_space;
+  if (space === 'geographic') {
+    const px = feat.properties?.pixel_geometry;
+    return px?.length ? px : null; // no pixel mapping → cannot test
+  }
+  return feat.geometry?.coordinates;
+}
+
 function findDamageAtPixel(pixelX, pixelY, geojson) {
   if (!geojson?.features?.length) return null;
   for (const feat of geojson.features) {
-    const rings = feat.geometry?.coordinates;
+    const rings = featureRingsInPixelSpace(feat);
     if (!rings || !rings.length) continue;
     const ring = rings[0];
     let inside = false;
@@ -84,7 +102,7 @@ function findDamageAtPixel(pixelX, pixelY, geojson) {
   let closest = null;
   let minDist = 15;
   for (const feat of geojson.features) {
-    const rings = feat.geometry?.coordinates;
+    const rings = featureRingsInPixelSpace(feat);
     if (!rings || !rings.length) continue;
     const ring = rings[0];
     let cx = 0, cy = 0;
@@ -221,7 +239,7 @@ export default function TerrainWorkspace() {
         damage: !!dmgMeta?.available,
       });
       if (dmgMeta?.available) {
-        fetch(resolveAssetUrl(dmgMeta?.geojson_url || getDamageGeoJsonUrl(sceneId)))
+        assetFetch(resolveAssetUrl(dmgMeta?.geojson_url || getDamageGeoJsonUrl(sceneId)))
           .then(res => res.ok ? res.json() : null)
           .then(geojson => {
             if (!cancelled && geojson) {

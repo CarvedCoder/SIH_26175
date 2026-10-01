@@ -102,7 +102,7 @@ async def get_buildings_meta(scene_id: str):
     return {
         "available": True,
         "count": meta.get("count", 0),
-        "mode": "post_only",
+        "mode": meta.get("mode", "post_only"),
         "georeferenced": meta.get("georeferenced", False),
         "coordinate_space": meta.get("coordinate_space", "pixel_space"),
         "url": _artifact_url(
@@ -143,6 +143,7 @@ async def get_damage_meta(scene_id: str):
         "damage_counts": meta.get("damage_counts", {}),
         "review_count": meta.get("review_count", 0),
         "mean_confidence": meta.get("mean_confidence"),
+        "recovered_destroyed_areas": meta.get("recovered_destroyed_areas", 0),
         "georeferenced": meta.get("georeferenced", False),
         "colors": meta.get("colors", {}),
         "geojson_url": _artifact_url(

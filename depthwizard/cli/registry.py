@@ -105,6 +105,7 @@ SPECS: List[tuple] = [
     ("diag_rgb", "diag", "tensor/init/gradient diagnostics for a pinned training run"),
     ("serve", "serve", "launch the FastAPI inference service used by the webapp"),
     ("disaster", "disaster", "run disaster assessment (building detection + damage) on a post-disaster image"),
+    ("inspect_models", "inspect-models", "print building/damage ONNX model I/O signatures (no inference)"),
 ]
 
 COMMANDS: Dict[str, str] = {name: mod for mod, name, _h in SPECS}

@@ -19,6 +19,7 @@ dependencies = [
     "huggingface-hub==1.28.0", # GAMUS lazy download
     # Disaster assessment (HOTOSM ONNX models + polygonization)
     "onnxruntime-gpu==1.30.0",
+    "onnx==1.23.1",             # graph surgery: fp32 restore for GPU correctness
     "shapely==2.1.2",
     "requests==2.34.2",
     # Serving stack (backend.app)
@@ -33,7 +34,6 @@ dependencies = [
     "pyjwt[crypto]==2.14.0",
     # S3-compatible object storage (RustFS)
     "boto3==1.43.98",
-    "psycopg2-binary==2.9.13",
     "affine==3.0.0",
     "annotated-doc==0.0.5",
     "annotated-types==0.8.0",

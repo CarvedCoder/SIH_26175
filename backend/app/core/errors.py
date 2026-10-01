@@ -176,11 +176,26 @@ def register_error_handlers(app: FastAPI) -> None:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         logger.info("validation error path=%s: %s", request.url.path, exc.errors())
+        # Pydantic v2 error entries can carry non-JSON-serializable `ctx`
+        # (exception objects); stringify them so the 422 envelope itself
+        # can never raise.
+        safe_errors = []
+        for err in exc.errors():
+            clean = {}
+            for k, v in err.items():
+                try:
+                    import json as _json
+
+                    _json.dumps(v)
+                    clean[k] = v
+                except (TypeError, ValueError):
+                    clean[k] = str(v)
+            safe_errors.append(clean)
         return error_envelope(
             status_code=422,
             code="VALIDATION_ERROR",
             message="Request payload failed validation.",
-            details={"errors": exc.errors()},
+            details={"errors": safe_errors},
             recoverable=True,
         )
 

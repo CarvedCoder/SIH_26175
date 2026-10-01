@@ -307,6 +307,83 @@ def test_recover_destroyed_structures_ignores_weak_signal():
     assert recover_destroyed_structures(probs, building_mask) == []
 
 
+# ── fp32-restore (GPU fp16-overflow workaround) tests ─────────────────
+
+def _make_internal_fp16_model(path):
+    """Tiny model computing Conv in fp16 via Cast wrappers."""
+    import onnx
+    from onnx import helper, TensorProto, numpy_helper
+
+    w = numpy_helper.from_array(
+        np.array([[[[0.5]]], [[[-0.25]]]], dtype=np.float16), "w")
+    b = numpy_helper.from_array(np.array([0.1, -0.1], dtype=np.float16), "b")
+    inp = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 1, 4, 4])
+    out = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 2, 4, 4])
+    nodes = [
+        helper.make_node("Cast", ["x"], ["x16"], to=TensorProto.FLOAT16),
+        helper.make_node("Conv", ["x16", "w", "b"], ["c16"]),
+        helper.make_node("Cast", ["c16"], ["y"], to=TensorProto.FLOAT),
+    ]
+    graph = helper.make_graph(nodes, "g", [inp], [out], [w, b])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 21)])
+    model.ir_version = 13
+    onnx.save(model, path)
+
+
+def test_restore_fp32_rewrites_internal_fp16(tmp_path):
+    import onnx
+    from onnx import TensorProto
+    from depthwizard.disaster.graph_fp32 import restore_fp32_model
+
+    model_path = tmp_path / "tiny_fp16.onnx"
+    _make_internal_fp16_model(model_path)
+
+    assert restore_fp32_model(model_path) != model_path  # cache path returned
+    restored = onnx.load(str(restore_fp32_model(model_path)))
+    casts = {a.i for n in restored.graph.node if n.op_type == "Cast"
+             for a in n.attribute if a.name == "to"}
+    assert TensorProto.FLOAT16 not in casts
+    assert all(i.data_type != TensorProto.FLOAT16
+               for i in restored.graph.initializer)
+
+
+def test_restore_fp32_passthrough_for_fp32_model(tmp_path):
+    import onnx
+    import numpy as np
+    from onnx import helper, TensorProto, numpy_helper
+    from depthwizard.disaster.graph_fp32 import restore_fp32_model
+
+    w = numpy_helper.from_array(
+        np.ones((1, 1, 1, 1), dtype=np.float32), "w")
+    inp = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 1, 2, 2])
+    out = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 1, 2, 2])
+    graph = helper.make_graph(
+        [helper.make_node("Conv", ["x", "w"], ["y"])], "g", [inp], [out], [w])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 21)])
+    model.ir_version = 13
+    path = tmp_path / "fp32.onnx"
+    onnx.save(model, path)
+
+    assert restore_fp32_model(path) == path  # unchanged
+
+
+def test_restore_fp32_preserves_output_values(tmp_path):
+    import onnx
+    import onnxruntime as ort
+    from depthwizard.disaster.graph_fp32 import restore_fp32_model
+
+    model_path = tmp_path / "tiny_fp16.onnx"
+    _make_internal_fp16_model(model_path)
+    x = np.random.default_rng(1).normal(0, 1, (1, 1, 4, 4)).astype(np.float32)
+
+    original = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+    restored = ort.InferenceSession(
+        str(restore_fp32_model(model_path)), providers=["CPUExecutionProvider"])
+    np.testing.assert_allclose(
+        original.run(None, {"x": x})[0], restored.run(None, {"x": x})[0],
+        rtol=1e-3, atol=1e-4)
+
+
 # ── Artifact tests ────────────────────────────────────────────────────
 
 def test_artifacts_generation(tmp_path):

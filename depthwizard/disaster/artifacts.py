@@ -62,6 +62,7 @@ def write_building_artifacts(
     georeferenced: bool = False,
     crs_string: str | None = None,
     transform: Any = None,
+    mode: str = "post_only",
 ) -> dict[str, str]:
     """Write building detection artifacts to the output directory."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -97,6 +98,7 @@ def write_building_artifacts(
     meta = {
         "available": True,
         "count": len(buildings),
+        "mode": mode,
         "georeferenced": georeferenced,
         "coordinate_space": "geographic" if georeferenced else "pixel_space",
         "crs": crs_string,
@@ -180,9 +182,14 @@ def _buildings_to_geojson(
                 for x, y in b.polygon
             ]
             centroid = _pixel_to_geo(b.centroid_x, b.centroid_y, transform)
+            # Keep the raster pixel-space rings alongside the geographic
+            # geometry so pixel-based consumers (terrain-viewer clicks)
+            # can do containment without knowing the CRS/transform.
+            pixel_geometry = [b.polygon]
         else:
             coords = b.polygon
             centroid = (b.centroid_x, b.centroid_y)
+            pixel_geometry = None
 
         feature = {
             "type": "Feature",
@@ -200,6 +207,8 @@ def _buildings_to_geojson(
                 "detection_source": b.source,
             },
         }
+        if pixel_geometry is not None:
+            feature["properties"]["pixel_geometry"] = pixel_geometry
         features.append(feature)
 
     return {
@@ -233,8 +242,10 @@ def _damage_to_geojson(
                 _pixel_to_geo(x, y, transform)
                 for x, y in b.polygon
             ]
+            pixel_geometry = [b.polygon]
         else:
             coords = b.polygon
+            pixel_geometry = None
 
         properties: dict[str, Any] = {
             "building_id": b.building_id,
@@ -244,6 +255,8 @@ def _damage_to_geojson(
             "coordinate_space": "geographic" if georeferenced else "pixel_space",
             "detection_source": b.source,
         }
+        if pixel_geometry is not None:
+            properties["pixel_geometry"] = pixel_geometry
 
         if assessment is not None:
             properties["damage_class"] = assessment.damage_class

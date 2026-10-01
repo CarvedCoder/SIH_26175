@@ -309,6 +309,34 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
               </div>
             )}
 
+            {v.damage_aware && (
+              <div
+                data-testid={`route-damage-${v.vehicle}`}
+                style={{
+                  marginTop: 8,
+                  padding: '6px 8px',
+                  borderRadius: 6,
+                  background: 'rgba(24, 24, 27, 0.75)',
+                  border: '1px solid rgba(161, 161, 170, 0.25)',
+                }}
+              >
+                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#a1a1aa', letterSpacing: 0.8, marginBottom: 5 }}>
+                  DAMAGE EXPOSURE
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
+                  <span style={{ color: '#d4d4d8', display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{
+                      width: 7, height: 7, borderRadius: '50%',
+                      background: (v.damage_risk_fraction ?? 0) > 0.15 ? '#E74C3C' : '#FFC107',
+                    }} /> Damaged-structure exposure
+                  </span>
+                  <span style={{ color: '#ffffff', fontWeight: 600 }}>
+                    {Math.round((v.damage_risk_fraction ?? 0) * 100)}%
+                  </span>
+                </div>
+              </div>
+            )}
+
             {v.landing_zone && (
               <div
                 data-testid={`route-lz-${v.vehicle}`}

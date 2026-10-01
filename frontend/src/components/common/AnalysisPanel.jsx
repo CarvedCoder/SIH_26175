@@ -524,14 +524,14 @@ export default function AnalysisPanel({
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
                     <DataRow
                       label="Image"
-                      value={state.scene?.filename ?? state.scene?.image_name ?? 'scene_042.tif'}
+                      value={state.scene?.filename ?? state.scene?.image_name ?? '—'}
                     />
                     <DataRow
                       label="Resolution"
                       value={
-                        state.scene?.dimensions?.width && state.scene?.dimensions?.height
-                          ? `${state.scene.dimensions.width} × ${state.scene.dimensions.height}`
-                          : '4096 × 4096'
+                        state.scene?.width && state.scene?.height
+                          ? `${state.scene.width} × ${state.scene.height}`
+                          : '—'
                       }
                     />
                     <DataRow
@@ -541,11 +541,15 @@ export default function AnalysisPanel({
                     />
                     <DataRow
                       label="Reference"
-                      value={state.results?.reference_source ?? (isAbsolute ? 'SRTM' : 'None')}
+                      value={state.results?.reference_source ?? (isAbsolute ? 'Unknown source' : 'None')}
                     />
                     <DataRow
                       label="Georeferenced"
-                      value={state.scene?.is_georeferenced ? 'Yes (EPSG:4326)' : 'No (Relative)'}
+                      value={
+                        state.scene?.georeferenced
+                          ? `Yes${state.scene?.crs ? ` (${state.scene.crs})` : ''}`
+                          : 'No (pixel space)'
+                      }
                     />
                   </div>
                 </section>
@@ -588,7 +592,7 @@ export default function AnalysisPanel({
                     />
                     <DataRow
                       label="Terrain Segments"
-                      value="512 × 512 (Hi-Res)"
+                      value={state.scene?.terrain_segments ?? '—'}
                     />
                   </div>
                 </section>

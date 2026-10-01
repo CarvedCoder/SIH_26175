@@ -149,13 +149,31 @@ class TerrainService:
 
         gsd = self._pixel_size(scene_id)
 
+        # Advertise only what the scene actually has on disk — the
+        # validation / reference routes serve these loose files directly
+        # (validation_service / reference route candidate lists).
+        scene_out = scene_artifact_store().path_for(
+            scene_output_dir_key(scene_id)
+        )
+        has_error_map = any(
+            (scene_out / name).is_file()
+            for name in ("error_map.png", "validation_error_map.png")
+        )
+        has_reference = any(
+            (scene_out / name).is_file()
+            for name in (
+                "reference.tif", "reference_dem.tif", "ref_dem.tif",
+                "reference.npy", "reference_dem.npy", "ref_dem.npy",
+            )
+        )
+
         capabilities = TerrainCapabilities(
             absolute_elevation=georeferenced,
             relative_elevation=True,
-            reference_comparison=False,
+            reference_comparison=has_reference,
             slope=gsd is not None,
             height_measurement=True,
-            error_map=False,
+            error_map=has_error_map,
             local_refinement=True,
         )
 
@@ -614,7 +632,13 @@ class TerrainService:
             raise ValueError(
                 f"point ({x}, {y}) is outside the {width}x{height} scene grid."
             )
-        return float(dsm[y, x])
+        raw = float(dsm[y, x])
+        if not np.isfinite(raw):
+            # NaN hole (no-data) — never serve NaN as an elevation
+            raise ValueError(
+                f"point ({x}, {y}) falls in a no-data region of the DSM."
+            )
+        return raw
 
     def sample_elevation_with_confidence(
         self, scene_id: str, x: int, y: int

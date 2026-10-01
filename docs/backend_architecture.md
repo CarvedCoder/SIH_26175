@@ -128,7 +128,7 @@ DepthWizard integrates a dedicated, production-quality localized disaster assess
 
 1. **HOTOSM DINOv3 Building Localization** (`local_model.onnx`):
    - Input: RGB imagery tiled at 256×256 pixels.
-   - Output: 3-class segmentation (background, interior, boundary), aggregated via sliding window into building probability masks and polygonized building footprints.
+   - Output: 3-class segmentation (0=building footprint, 1=road/paved, 2=background; verified against aerial imagery), building channel aggregated via sliding window into building probability masks and polygonized building footprints.
 2. **HOTOSM Earthquake Damage Assessment** (`model.onnx`):
    - Input: Post-disaster RGB imagery + detected/provided building footprints + optional pre-disaster imagery (512×512 crops).
    - Output: 4-class building damage taxonomy: `no-damage`, `minor-damage`, `major-damage`, `destroyed`.
@@ -138,7 +138,10 @@ DepthWizard integrates a dedicated, production-quality localized disaster assess
 - **VRAM Safety (<6 GB)**: Models are never run concurrently; building detection completes, frees memory, and then damage assessment runs on building crops sequentially with `batch_size=1`.
 - **Review Margin**: Buildings with a top-2 class probability margin < 15% are flagged with `damage_review=true` (`review_required`).
 - **Separation of Taxonomies**: 4-class building damage is strictly separated from 6-class landcover semantic segmentation.
-- **Route Assist Hazard Integration**: Structural damage is converted into an obstacle/cost surface (`DW_ROUTE_DAMAGE_AVOIDANCE`, `DW_ROUTE_DAMAGE_MAJOR_COST`, `DW_ROUTE_DAMAGE_DESTROYED_COST`), influencing vehicle pathfinding and excluding helicopter landing zones on destroyed structures.
+- **ONNX fp32 restore (GPU correctness)**: both HOTOSM models were exported with internal fp16 compute; on this GPU stack the fp16 attention MatMul overflows to inf/NaN. `depthwizard/disaster/graph_fp32.py` rewrites such graphs to fp32 (cached as `<model>.fp32-<hash>.onnx` beside the source) and `OnnxSession` applies it automatically before session creation. A session-level warmup probe still validates the GPU and falls back to CPU if NaNs are ever produced.
+- **Destroyed-structure recovery**: the building model cannot see rubble (trained on intact footprints). After per-building assessment, a scene-wide damage pass (`map_damage_probability`) recovers destroyed areas the detector missed (`recover_destroyed_structures`); they are flagged `detection_source: "damage_map"` and `review_required: true` in the GeoJSON, and counted in `damage_meta.json` as `recovered_destroyed_areas`. Toggle with `DW_DISASTER_RECOVER_DESTROYED`.
+- **Region refinement**: `refined_dsm.npy` is produced in an isolated directory (never overwriting full-scene `dsm.npy`) and registered as a result artifact.
+- **Route Assist Hazard Integration**: Structural damage is converted into an obstacle/cost surface (`DW_ROUTE_DAMAGE_ENABLED`, `DW_ROUTE_DAMAGE_MINOR_COST`, `DW_ROUTE_DAMAGE_MAJOR_COST`, `DW_ROUTE_DAMAGE_DESTROYED_COST`), influencing vehicle pathfinding and excluding helicopter landing zones on destroyed structures.
 
 ### Generated Scene Artifacts
 - `buildings.geojson`, `building_mask.npy`, `building_confidence.npy`, `buildings_preview.png`, `buildings_meta.json`

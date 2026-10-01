@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import json
 from pathlib import Path
 
 
@@ -401,3 +402,28 @@ def test_get_job_handles_disaster_stages(client, fresh_job_manager):
     assert resp.status_code == 200
     assert resp.json()["stage"] == "finalizing"
 
+
+
+def test_job_payload_paths_sanitized():
+    """Job results are served verbatim by /jobs/{id} — server filesystem
+    paths must never reach the client (only artifact basenames)."""
+    from backend.app.core.paths import PROJECT_ROOT
+    from backend.app.services.processing_service import processing_service
+
+    out = str(PROJECT_ROOT / "data" / "output" / "scenes" / "s1")
+    payload = {
+        "outputs": {
+            "dsm_npy": f"{out}/dsm.npy",
+            "nested": {"preview_png": f"{out}/dsm_preview.png"},
+            "kept": "relative_name.npy",
+        },
+        "disaster": {"artifacts": [f"{out}/buildings.geojson"]},
+    }
+    clean = processing_service._sanitize_payload_paths(payload)
+    text = json.dumps(clean)
+    assert "/home/" not in text
+    assert clean["outputs"]["dsm_npy"] == "dsm.npy"
+    assert clean["outputs"]["kept"] == "relative_name.npy"
+    # original payload untouched (sanitize works on a deep copy)
+    assert payload["outputs"]["dsm_npy"].endswith("dsm.npy")
+    assert payload["outputs"]["dsm_npy"] != clean["outputs"]["dsm_npy"]

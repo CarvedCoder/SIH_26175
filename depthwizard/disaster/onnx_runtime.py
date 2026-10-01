@@ -103,7 +103,13 @@ class OnnxSession:
         outputs = session.run({"image": np.zeros(...)})
     """
 
-    def __init__(self, model_path: str | Path, *, device: str = "auto") -> None:
+    def __init__(
+        self,
+        model_path: str | Path,
+        *,
+        device: str = "auto",
+        restore_fp32: bool = True,
+    ) -> None:
         import onnxruntime as ort
 
         self.model_path = Path(model_path)
@@ -116,13 +122,30 @@ class OnnxSession:
                 f"ONNX model path is not a file: {self.model_path}"
             )
 
+        # Internally-fp16 graphs overflow to inf/NaN in the attention
+        # MatMul on the CUDA EP (see graph_fp32.py docstring). Restoring
+        # the graph to fp32 makes GPU inference correct; on CPU it is
+        # harmless (and more accurate than the fp16 export).
+        load_path = self.model_path
+        self.fp32_restored = False
+        if restore_fp32:
+            try:
+                from .graph_fp32 import restore_fp32_model
+
+                restored = restore_fp32_model(self.model_path)
+                self.fp32_restored = restored != self.model_path
+                load_path = restored
+            except Exception as exc:  # restore is best-effort
+                print(f"[onnx] fp32 restore unavailable ({exc}); "
+                      f"loading original model")
+
         # Provider selection — skip the GPU entirely once a warmup probe
         # has proven it broken in this process.
         if device != "cpu" and _CUDA_UNUSABLE:
             providers = ["CPUExecutionProvider"]
         else:
             providers = self._select_providers(device)
-        self._session = self._create_session(providers)
+        self._session = self._create_session(providers, load_path)
 
         # Determine which provider is actually active
         active_providers = self._session.get_providers()
@@ -142,17 +165,18 @@ class OnnxSession:
         # Build signature once
         self._signature = self._build_signature()
 
-    def _create_session(self, providers: list) -> "ort.InferenceSession":
+    def _create_session(self, providers: list, load_path: Path | None = None):
         import onnxruntime as ort
 
+        path = Path(load_path) if load_path else self.model_path
         try:
             return ort.InferenceSession(
-                str(self.model_path),
+                str(path),
                 providers=providers,
             )
         except Exception as exc:
             raise OnnxModelError(
-                f"Failed to load ONNX model '{self.model_path.name}': {exc}"
+                f"Failed to load ONNX model '{path.name}': {exc}"
             ) from exc
 
     def _validate_gpu_or_fallback(self) -> None:

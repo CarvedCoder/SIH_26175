@@ -558,6 +558,23 @@ def start_local_postgres() -> None:
     """Start the Docker PostgreSQL service only when explicitly needed."""
     docker = docker_command()
 
+    # The compose file may not define a `db` service (the default stack
+    # uses Supabase for persistence) — fail with a clear message instead
+    # of a cryptic compose error.
+    check = run(
+        [docker, "compose", "config", "--services"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    services = set(check.stdout.split()) if check.returncode == 0 else set()
+    if "db" not in services:
+        fail(
+            "DATABASE_URL points at local PostgreSQL but docker-compose.yml "
+            "defines no 'db' service. Configure a Supabase/external Postgres "
+            "DATABASE_URL instead."
+        )
+
     log("starting local PostgreSQL via docker compose…")
 
     result = run(

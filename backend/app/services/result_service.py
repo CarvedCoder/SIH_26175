@@ -93,14 +93,31 @@ class ResultService:
         """
         array = np.load(path, mmap_mode="r")
 
+        # DSM arrays legitimately contain NaN holes (no-data); the plain
+        # np.min/max/mean/median propagate NaN into JSON responses and
+        # height-scale computation, so the summary uses the nan-aware
+        # variants. An all-NaN array reports None rather than NaN.
+        finite = np.isfinite(array)
+        if not finite.any():
+            return {
+                "width": int(array.shape[1]),
+                "height": int(array.shape[0]),
+                "minimum": None,
+                "maximum": None,
+                "mean": None,
+                "median": None,
+                "relief": None,
+                "units": "meters",
+            }
+        finite_vals = array[finite]
         stats = {
             "width": int(array.shape[1]),
             "height": int(array.shape[0]),
-            "minimum": float(np.min(array)),
-            "maximum": float(np.max(array)),
-            "mean": float(np.mean(array)),
-            "median": float(np.median(array)),
-            "relief": float(np.max(array) - np.min(array)),
+            "minimum": float(finite_vals.min()),
+            "maximum": float(finite_vals.max()),
+            "mean": float(finite_vals.mean()),
+            "median": float(np.median(finite_vals)),
+            "relief": float(finite_vals.max() - finite_vals.min()),
             "units": "meters",
         }
         return stats

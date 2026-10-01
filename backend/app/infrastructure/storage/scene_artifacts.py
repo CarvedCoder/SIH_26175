@@ -98,5 +98,7 @@ RESULT_ARTIFACT_KEYS: Dict[str, str] = {
     "damage_confidence": "damage_confidence.npy",
     "damage_preview": "damage_preview.png",
     "damage_meta": "damage_meta.json",
+    # Region refinement product (isolated crop re-inference)
+    "refined_dsm": "refined_dsm.npy",
 }
 

@@ -42,10 +42,14 @@ def run_worker(poll_seconds: float | None = None, once: bool = False) -> None:
     )
     concurrency = max(1, int(os.environ.get("DW_WORKER_CONCURRENCY", "1")))
 
-    repository = FileJobRepository(
+    # Same repository selection as the API side (DW_JOB_STORE) — an
+    # external worker must poll the store the API writes to, or claimed
+    # jobs never execute when the store is sqlite/postgres.
+    from backend.app.jobs.manager import _build_repository
+
+    repository = _build_repository(
         retention_limit=settings.job_retention_limit,
         ttl_seconds=settings.job_ttl_seconds,
-        lease_seconds=settings.job_lease_seconds,
     )
     jobs = JobService(repository)
     processing = ProcessingService()
