@@ -99,7 +99,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
     >
       {/* header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <Route size={15} style={{ color: '#fafafa' }} />
+        <Route size={15} style={{ color: 'var(--dw-fg)' }} />
         <span style={{ fontWeight: 700, letterSpacing: 1 }}>ROUTE ASSIST</span>
         <button
           onClick={() => {
@@ -111,7 +111,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
           style={{
             marginLeft: 'auto',
             background: 'none',
-            border: '1px solid rgba(250,250,250,0.18)',
+            border: '1px solid var(--dw-rim-strong)',
             borderRadius: 6,
             color: '#d4d4d8',
             cursor: 'pointer',
@@ -143,9 +143,9 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   borderRadius: 999,
                   fontSize: 11,
                   cursor: 'pointer',
-                  border: `1px solid ${on ? '#fafafa' : 'rgba(250,250,250,0.10)'}`,
-                  background: on ? 'rgba(250,250,250,0.10)' : 'transparent',
-                  color: on ? '#fafafa' : 'var(--dw-fg-ghost)',
+                  border: `1px solid ${on ? 'var(--dw-accent)' : 'var(--dw-rim)'}`,
+                  background: on ? 'var(--dw-accent-soft)' : 'transparent',
+                  color: on ? 'var(--dw-accent)' : 'var(--dw-fg-ghost)',
                 }}
               >
                 {v.label}
@@ -224,13 +224,13 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                 {v.path_length_m != null && (
                   <>
                     <span>Length</span>
-                    <span style={{ color: '#fafafa' }}>{fmtDistance(v.path_length_m)}</span>
+                    <span style={{ color: 'var(--dw-fg)' }}>{fmtDistance(v.path_length_m)}</span>
                   </>
                 )}
                 {v.landing_zone?.distance_to_goal_m != null && (
                   <>
                     <span>LZ→target</span>
-                    <span style={{ color: '#fafafa' }}>
+                    <span style={{ color: 'var(--dw-fg)' }}>
                       {fmtDistance(v.landing_zone.distance_to_goal_m)}
                     </span>
                   </>
@@ -238,19 +238,19 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                 {v.estimated_travel_seconds != null && (
                   <>
                     <span>Est. travel</span>
-                    <span style={{ color: '#fafafa' }}>{fmtTime(v.estimated_travel_seconds)}</span>
+                    <span style={{ color: 'var(--dw-fg)' }}>{fmtTime(v.estimated_travel_seconds)}</span>
                   </>
                 )}
                 {v.max_slope_on_path_deg != null && (
                   <>
                     <span>Max slope</span>
-                    <span style={{ color: '#fafafa' }}>{v.max_slope_on_path_deg}°</span>
+                    <span style={{ color: 'var(--dw-fg)' }}>{v.max_slope_on_path_deg}°</span>
                   </>
                 )}
                 {v.max_step_on_path_m != null && (
                   <>
                     <span>Max step</span>
-                    <span style={{ color: '#fafafa' }}>{v.max_step_on_path_m} m</span>
+                    <span style={{ color: 'var(--dw-fg)' }}>{v.max_step_on_path_m} m</span>
                   </>
                 )}
               </div>
@@ -376,7 +376,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
           style={{
             marginTop: 10,
             paddingTop: 8,
-            borderTop: '1px solid rgba(250,250,250,0.10)',
+            borderTop: '1px solid var(--dw-rim)',
             color: 'var(--dw-fg-ghost)',
             fontSize: 10,
             lineHeight: 1.5,

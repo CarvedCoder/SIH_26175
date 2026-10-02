@@ -58,14 +58,14 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
   };
 
   return (
-    <div className="dark min-h-screen flex flex-col justify-center items-center p-4 sm:p-6 bg-zinc-950 relative selection:bg-zinc-800 selection:text-zinc-100">
+    <div className="dark min-h-screen flex flex-col justify-center items-center p-4 sm:p-6 bg-[#0a0e17] relative selection:bg-[#1c2639] selection:text-[#f1f5f9]">
       {/* Top Bar with Back Button and Brand */}
       <header className="absolute top-0 left-0 right-0 h-20 px-6 sm:px-12 flex items-center justify-between z-10">
         <button
           onClick={onBackToHome}
-          className="flex items-center gap-2.5 text-sm font-medium text-zinc-400 hover:text-zinc-100 transition-colors duration-200 cursor-pointer focus:outline-none group"
+          className="flex items-center gap-2.5 text-sm font-medium text-[#a9b7cd] hover:text-[#f1f5f9] transition-colors duration-200 cursor-pointer focus:outline-none group"
         >
-          <div className="p-1.5 rounded-full bg-zinc-900 border border-zinc-800 group-hover:border-zinc-700 transition-colors">
+          <div className="p-1.5 rounded-full bg-[#151d2e] border border-[#273650] group-hover:border-[#3d5375] transition-colors">
             <ArrowLeft className="w-4 h-4 transition-transform duration-200 group-hover:-translate-x-0.5" />
           </div>
           <span>Back to overview</span>
@@ -73,7 +73,7 @@ export default function AuthPage({ onAuthenticate, onBackToHome, initialView = '
 
         <button
           onClick={onBackToHome}
-          className="font-display font-medium text-lg tracking-tight text-zinc-200 hover:text-white transition-colors cursor-pointer focus:outline-none"
+          className="font-display font-medium text-lg tracking-tight text-[#f1f5f9] hover:text-white transition-colors cursor-pointer focus:outline-none"
         >
           DepthWizard
         </button>

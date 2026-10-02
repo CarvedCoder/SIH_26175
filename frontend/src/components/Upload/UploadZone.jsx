@@ -147,7 +147,7 @@ export default function UploadZone() {
         maxWidth: '100%',
         padding: '56px 36px',
         borderRadius: 'var(--dw-radius)',
-        border: `1px dashed ${dragOver ? 'var(--dw-accent)' : 'var(--dw-rim)'}`,
+        border: `1px dashed ${dragOver ? 'var(--dw-accent)' : 'var(--dw-rim-strong)'}`,
         background: dragOver ? 'var(--dw-accent-soft)' : 'var(--dw-surface)',
         cursor: isUploading ? 'wait' : 'pointer',
         transition: 'border-color 150ms ease, background 150ms ease',
@@ -201,20 +201,20 @@ export default function UploadZone() {
           <button
             onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
             style={{
-              background: 'none',
-              border: '1px solid var(--dw-rim)',
+              background: 'var(--dw-accent)',
+              border: '1px solid var(--dw-accent)',
               borderRadius: 'var(--dw-radius-sm)',
               padding: '8px 20px',
               fontFamily: 'var(--dw-font-ui)',
               fontSize: 14,
-              fontWeight: 500,
-              color: 'var(--dw-fg)',
+              fontWeight: 600,
+              color: 'var(--dw-fg-invert)',
               cursor: 'pointer',
-              transition: 'border-color 150ms ease, background 150ms ease',
+              transition: 'filter 150ms ease',
               outline: 'none',
             }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--dw-accent)'; e.currentTarget.style.background = 'var(--dw-panel)'; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--dw-rim)'; e.currentTarget.style.background = 'none'; }}
+            onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.15)'; }}
+            onMouseLeave={e => { e.currentTarget.style.filter = 'none'; }}
             onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; e.currentTarget.style.outlineOffset = '2px'; }}
             onBlur={e => { e.currentTarget.style.outline = 'none'; }}
           >
