@@ -268,7 +268,7 @@ export default function RecentProjects({
                     height: 8,
                     borderRadius: '50%',
                     background: isAbsolute ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
-                    boxShadow: isAbsolute ? '0 0 0 2px rgba(250,250,250,0.28)' : 'none',
+                    boxShadow: isAbsolute ? '0 0 0 2px rgba(56,189,248,0.4)' : 'none',
                   }} aria-hidden="true" />
 
                   <div style={{

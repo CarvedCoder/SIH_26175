@@ -77,7 +77,7 @@ function AppContent() {
   /* 1. Landing View: Hero with WebGL Halftone visualizer & Top Nav */
   if (view === 'landing') {
     return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
+      <div className="min-h-screen bg-[var(--dw-void)] text-[var(--dw-fg)] font-sans">
         <Navbar
           user={user}
           onOpenAuth={() => setView('auth')}

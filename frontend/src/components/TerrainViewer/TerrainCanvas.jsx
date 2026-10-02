@@ -855,7 +855,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           display: 'block',
           width: '100%',
           height: '100%',
-          background: '#09090b',
+          background: 'var(--dw-void)',
           outline: 'none',
         }}
         tabIndex={0}

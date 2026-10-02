@@ -193,7 +193,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
             <Layers size={14} />
           </div>
           <div>
-            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: '#fafafa' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--dw-fg)' }}>
               Semantic Inspect
             </span>
             <span style={{ display: 'block', fontSize: 10, color: 'var(--dw-fg-muted)' }}>
@@ -260,7 +260,7 @@ const SemanticInspector = forwardRef(function SemanticInspector(
                 boxShadow: `0 0 8px ${classColor}80`,
               }}
             />
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#fafafa', textTransform: 'capitalize' }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--dw-fg)', textTransform: 'capitalize' }}>
               {currentClass ? SEMANTIC_CLASS_LABELS[currentClass] : 'Move cursor over terrain'}
             </span>
           </div>

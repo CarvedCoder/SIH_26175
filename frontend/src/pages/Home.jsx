@@ -357,8 +357,8 @@ function StartProcessingPanel({ sceneId }) {
           letterSpacing: '0.01em',
         }}
         onMouseEnter={e => {
-          e.currentTarget.style.background = '#ffffff';
-          e.currentTarget.style.borderColor = '#ffffff';
+          e.currentTarget.style.background = '#67d2fb';
+          e.currentTarget.style.borderColor = '#67d2fb';
         }}
         onMouseLeave={e => {
           e.currentTarget.style.background = 'var(--dw-accent)';

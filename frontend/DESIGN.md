@@ -16,28 +16,29 @@ The signature element is the **minimap as live mirror**: the uploaded photograph
 
 | Role | Name | Value | Usage |
 |------|------|-------|-------|
-| Ground | `--dw-void` | `#09090b` | Page / canvas background |
-| Panel | `--dw-panel` | `#101012` | Side panels, bottom toolbar, header |
-| Surface | `--dw-surface` | `#18181b` | Cards, input fields, popovers |
-| Hover | `--dw-hover` | `#232327` | One-step hover lightening on surfaces |
-| Rim | `--dw-rim` | `#2e2e33` | Thin 1px borders, dividers |
-| Rim / Strong | `--dw-rim-strong` | `#4a4a52` | Hover borders, secondary control outlines |
-| Text / Primary | `--dw-fg` | `#fafafa` | Body copy, panel labels |
-| Text / Secondary | `--dw-fg-muted` | `#b6b6bd` | Metadata, secondary labels |
-| Text / Tertiary | `--dw-fg-ghost` | `#8d8d96` | Disabled, placeholder |
-| Text / Inverted | `--dw-fg-invert` | `#09090b` | Text on ivory primary surfaces |
-| Accent / Instrument | `--dw-accent` | `#fafafa` | Active states, selected elements, progress indicators |
-| Accent / Wash | `--dw-accent-soft` | `rgba(250,250,250,0.10)` | Subtle active backgrounds, hover fills |
-| Accent / Confirm | `--dw-confirm` | `#4ade80` | Processing complete, validation pass |
+| Ground | `--dw-void` | `#0a0e17` | Page / canvas background — deep blue-black field |
+| Panel | `--dw-panel` | `#0f1522` | Side panels, bottom toolbar, header |
+| Surface | `--dw-surface` | `#151d2e` | Cards, input fields, popovers |
+| Hover | `--dw-hover` | `#1c2639` | One-step hover lightening on surfaces |
+| Rim | `--dw-rim` | `#273650` | Thin 1px borders, dividers |
+| Rim / Strong | `--dw-rim-strong` | `#3d5375` | Hover borders, secondary control outlines |
+| Text / Primary | `--dw-fg` | `#f1f5f9` | Body copy, panel labels |
+| Text / Secondary | `--dw-fg-muted` | `#a9b7cd` | Metadata, secondary labels |
+| Text / Tertiary | `--dw-fg-ghost` | `#7f90ab` | Disabled, placeholder |
+| Text / Inverted | `--dw-fg-invert` | `#06121f` | Text on cyan primary surfaces |
+| Accent / Instrument | `--dw-accent` | `#38bdf8` | Primary buttons, active states, selection, progress |
+| Accent / Wash | `--dw-accent-soft` | `rgba(56,189,248,0.14)` | Subtle active backgrounds, hover fills |
+| Accent / Dim | `--dw-accent-dim` | `rgba(56,189,248,0.45)` | Active borders, secondary highlights |
+| Accent / Confirm | `--dw-confirm` | `#34d399` | Processing complete, validation pass |
 | Accent / Live | `--dw-live` | `#fbbf24` | Active processing stage, warnings |
 | Accent / Fault | `--dw-fault` | `#f87171` | Errors, failed stages |
-| Terrain / Probe | `--dw-probe` | `#fafafa` | Elevation probe crosshair, measurement markers |
-| Minimap / Cone | `--dw-fov` | `rgba(250,250,250,0.16)` | FOV cone fill on minimap |
+| Terrain / Probe | `--dw-probe` | `#38bdf8` | Elevation probe crosshair, measurement markers |
+| Minimap / Cone | `--dw-fov` | `rgba(56,189,248,0.18)` | FOV cone fill on minimap |
 | Minimap / Marker | `--dw-marker` | `#fbbf24` | Camera position dot |
 
-Colour strategy: **Monochrome ivory (restrained)**. Neutral graphite surfaces carry the UI with no hue; interactive states are luminance, not colour — the ivory accent (`--dw-accent`) is a white-filled button, a white border, a white marker. Primary actions invert: ivory surface, near-black text (`--dw-fg-invert`). Fault, confirm, and live are the only hues in the chrome, reserved strictly for status; the remaining colour on screen belongs to the data itself (imagery, colormaps, semantic classes).
+Colour strategy: **Deep field + instrument cyan**. Surfaces are blue-tinted slate — never pure black — so panels read as depth, not void. Interactive states carry HUE: the cyan accent (`--dw-accent`) fills primary buttons (dark `--dw-fg-invert` text on top), rims active/selected controls, and colors focus rings, so a pressed or focused control is always unambiguously visible. Confirm (green), live (amber), and fault (red) remain status-only. The remaining colour on screen belongs to the data itself (imagery, colormaps, semantic classes).
 
-Data colormaps are exempt from the monochrome rule: the diverging error map keeps its blue→grey→red ramp, viridis keeps its purples, semantic classes keep their assignment hexes — legends must stay truthful to the GLSL they mirror.
+Data colormaps are exempt from the chrome accent rule: the diverging error map keeps its blue→grey→red ramp, viridis keeps its purples, semantic classes keep their assignment hexes — legends must stay truthful to the GLSL they mirror.
 
 ---
 
