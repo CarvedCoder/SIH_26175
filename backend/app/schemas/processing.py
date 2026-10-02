@@ -13,15 +13,20 @@ class ProcessMode(str, Enum):
 
 
 class ModelArchitecture(str, Enum):
-    """Height-model backend (RDAH integration). Both share the identical
-    downstream path (tiling, anchoring, post-processing, DSM writer) —
-    only the height net and its depth preprocessing differ:
+    """Height-model backend (RDAH + TerraHeight integrations). All share
+    the identical downstream path (scene payload, anchoring, DSM writer,
+    terrain layers, disaster stage) — only the height net and its
+    preprocessing differ:
 
         rdah             official RDAH-Net (HeightPredTransformer) with the
                          released pretrained Track1 checkpoint; depth input
                          is RAW DAv2 x 40; output is unclamped nDSM metres.
         calibration_net  the legacy Phase-2 net (H = clamp(a*Dn + b, 0),
                          Dn min-max [0,1] per tile); output clamped >= 0.
+        terraheight_s    external pretrained TerraHeight-S (GAMUS; Depth
+                         Anything V2 Small backbone) — RGB ONLY, computes
+                         AGL metres directly with no relative-depth cache;
+                         output clamped >= 0 metres AGL.
         auto             follow the checkpoint: DW_CKPT's detected
                          architecture when set, else the pretrained RDAH
                          default (the legacy-client behaviour).
@@ -29,6 +34,7 @@ class ModelArchitecture(str, Enum):
 
     RDAH = "rdah"
     CALIBRATION_NET = "calibration_net"
+    TERRAHEIGHT_S = "terraheight_s"
     AUTO = "auto"
 
 
@@ -62,8 +68,9 @@ class ProcessRequest(BaseModel):
     architecture: ModelArchitecture = Field(
         default=ModelArchitecture.AUTO,
         description="Height-model backend: rdah (pretrained RDAH-Net), "
-        "calibration_net (legacy Phase-2 net), or auto (follow the "
-        "configured checkpoint; the legacy-client default).",
+        "calibration_net (legacy Phase-2 net), terraheight_s (external "
+        "pretrained GAMUS AGL model — RGB only, no depth cache), or auto "
+        "(follow the configured checkpoint; the legacy-client default).",
     )
     ground_elev: float | None = Field(
         default=None,

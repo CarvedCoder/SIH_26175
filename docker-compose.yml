@@ -57,6 +57,9 @@ services:
       # Browser talks to the backend from the host at :5173.
       DW_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       DW_DEVICE: auto
+      # TerraHeight-S external checkpoint (set to a real path to enable the
+      # terraheight_s height backend; never auto-downloaded)
+      DW_CKPT_TERRAHEIGHT: ${DW_CKPT_TERRAHEIGHT:-}
       # Supabase's direct db.* host is IPv6-only; Docker's default bridge
       # network has no IPv6, so the container cannot resolve/connect to it
       # (backend crash-looped on startup → uploads 5xx). Containers run on

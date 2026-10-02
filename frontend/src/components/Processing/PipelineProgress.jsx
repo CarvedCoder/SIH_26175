@@ -14,6 +14,9 @@ const STAGE_LABELS = {
   validating:           'Validating input',
   preprocessing:        'Preparing image',
   depth_inference:      'Estimating depth & height',
+  // terraheight_s override — TerraHeight-S runs NO relative-depth stage:
+  // RGB -> tiled AGL inference -> stitched height raster, directly.
+  'terraheight_s:depth_inference': 'Loading TerraHeight-S · running tiled AGL inference',
   calibration:          'Recovering metric scale',
   dsm_generation:       'Generating DSM',
   terrain_generation:   'Building 3D terrain',
@@ -39,7 +42,7 @@ function stageIndex(stage) {
   return STAGE_ORDER.indexOf(stage);
 }
 
-function StageRow({ stage, currentStage, jobStatus }) {
+function StageRow({ stage, currentStage, jobStatus, heightBackend }) {
   const currentIdx = stageIndex(currentStage);
   const thisIdx    = stageIndex(stage);
 
@@ -92,7 +95,7 @@ function StageRow({ stage, currentStage, jobStatus }) {
         fontWeight: isActive ? 600 : 400,
         transition: 'color 200ms ease',
       }}>
-        {STAGE_LABELS[stage] ?? stage}
+        {STAGE_LABELS[`${heightBackend}:${stage}`] ?? STAGE_LABELS[stage] ?? stage}
       </span>
     </div>
   );
@@ -141,6 +144,7 @@ export default function PipelineProgress() {
             stage={stage}
             currentStage={currentStage}
             jobStatus={jobStatus}
+            heightBackend={state.modelBackend}
           />
         ))}
       </div>

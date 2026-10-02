@@ -13,7 +13,7 @@ import { apiFetch } from './client.js';
  * @param {string} sceneId
  * @param {{
  *   mode?: 'auto'|'crop'|'resize'|'tiles',
- *   architecture?: 'rdah'|'calibration_net',
+ *   architecture?: 'rdah'|'calibration_net'|'terraheight_s',
  *   groundElev?: number,
  * }} [opts]
  * @returns {Promise<import('../types/api.js').JobStartResponse>}
@@ -54,7 +54,7 @@ export async function cancelJob(jobId) {
  * Submit a local tile refinement job for a selected bounding box.
  * POST /scenes/{id}/refine
  * @param {string} sceneId
- * @param {{ bbox: { x_min: number, y_min: number, x_max: number, y_max: number }, resolution?: 'standard'|'high', architecture?: 'rdah'|'calibration_net' }} opts
+ * @param {{ bbox: { x_min: number, y_min: number, x_max: number, y_max: number }, resolution?: 'standard'|'high', architecture?: 'rdah'|'calibration_net'|'terraheight_s' }} opts
  * @returns {Promise<{ job_id: string, status: string }>}
  */
 export async function refineScene(sceneId, opts) {

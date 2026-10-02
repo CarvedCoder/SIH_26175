@@ -45,11 +45,13 @@ const Action = {
 };
 
 /** Height-model backend switch (RDAH integration) — kept internal; the
- *  values ('rdah' | 'calibration_net') are the API contract strings.
+ *  values ('rdah' | 'calibration_net' | 'terraheight_s') are the API
+ *  contract strings.
  *  @type {Record<string, string>} */
 const ModelBackend = {
   RDAH:            'rdah',
   CALIBRATION_NET: 'calibration_net',
+  TERRAHEIGHT_S:   'terraheight_s',
 };
 
 /**
@@ -117,9 +119,9 @@ const initialState = {
   modelBackend: (() => {
     try {
       const stored = localStorage.getItem('dw_model_backend');
-      return stored === ModelBackend.CALIBRATION_NET
-        ? ModelBackend.CALIBRATION_NET
-        : ModelBackend.RDAH;
+      if (stored === ModelBackend.CALIBRATION_NET) return ModelBackend.CALIBRATION_NET;
+      if (stored === ModelBackend.TERRAHEIGHT_S) return ModelBackend.TERRAHEIGHT_S;
+      return ModelBackend.RDAH;
     } catch {
       return ModelBackend.RDAH;
     }
@@ -397,7 +399,9 @@ function reducer(state, action) {
     case Action.SET_MODEL_BACKEND: {
       const backend = action.payload === ModelBackend.CALIBRATION_NET
         ? ModelBackend.CALIBRATION_NET
-        : ModelBackend.RDAH;
+        : action.payload === ModelBackend.TERRAHEIGHT_S
+          ? ModelBackend.TERRAHEIGHT_S
+          : ModelBackend.RDAH;
       try { localStorage.setItem('dw_model_backend', backend); } catch { /* storage unavailable — session-only choice */ }
       return { ...state, modelBackend: backend };
     }

@@ -42,7 +42,7 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
     add_config_arg(p, "configs/infer.yaml")
     p.add_argument(
         "--architecture",
-        choices=("rdah", "calibration_net", "auto"),
+        choices=("rdah", "calibration_net", "terraheight_s", "auto"),
         default="rdah",
         help="height-model backend to benchmark (auto = detect from ckpt)",
     )
@@ -50,7 +50,9 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
         "--checkpoint",
         default=None,
         help="checkpoint path (rdah default: checkpoints/rdah/... "
-        "auto-downloads; calibration_net: pass a trained best.pt)",
+        "auto-downloads; terraheight_s default: models/terraheight/"
+        "best_model.pth or repo-root best_model.pth — never downloaded; "
+        "calibration_net: pass a trained best.pt)",
     )
     p.add_argument(
         "--resolutions",
@@ -86,9 +88,18 @@ def run(args) -> int:
                 "(a trained outputs/calib_net/<tag>/best.pt)."
             )
             return 1
-        from depthwizard.rdah import RDAH_CKPT_DIR, RDAH_CHECKPOINTS
+        if architecture == "terraheight_s":
+            from depthwizard.terraheight import default_checkpoint_path
 
-        ckpt = str(RDAH_CKPT_DIR / RDAH_CHECKPOINTS["track1"]["filename"])
+            try:
+                ckpt = str(default_checkpoint_path())
+            except FileNotFoundError as e:
+                print(f"[error] {e}")
+                return 1
+        else:
+            from depthwizard.rdah import RDAH_CKPT_DIR, RDAH_CHECKPOINTS
+
+            ckpt = str(RDAH_CKPT_DIR / RDAH_CHECKPOINTS["track1"]["filename"])
 
     model = load_height_model(ckpt, device, architecture=architecture)
     net = model.net
@@ -115,6 +126,12 @@ def run(args) -> int:
                     "encoding buffer)"
                 )
                 continue
+        if model.architecture == "terraheight_s" and size % 14 != 0:
+            print(
+                f"{size:8d}  SKIPPED — TerraHeight needs multiples of 14 "
+                "(ViT patch size; the published training crop is 630)"
+            )
+            continue
         # realistic inputs: raw DAv2-like depth (1..6) and ImageNet-norm RGB
         g = torch.Generator().manual_seed(0)
         raw = 1.0 + 5.0 * torch.rand(1, 1, size, size, generator=g)
@@ -170,6 +187,16 @@ def _normalize_like_dataset(raw):
 
 def _forward(net, dn, rgb, stats, device: str, amp: bool):
     import torch
+
+    # TerraHeight consumes RGB ONLY (no depth cache / dn / stats); its
+    # forward signature is (rgb, dn, dem, sem, stats) — rgb first.
+    if getattr(net, "architecture", None) == "terraheight_s":
+        with torch.autocast(
+            device_type="cuda" if (amp and device.startswith("cuda")) else "cpu",
+            dtype=torch.float16 if (amp and device.startswith("cuda")) else torch.float32,
+            enabled=bool(amp and device.startswith("cuda")),
+        ):
+            return net(rgb, None, None, None, None)
 
     with torch.autocast(
         device_type="cuda" if (amp and device.startswith("cuda")) else "cpu",

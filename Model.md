@@ -299,3 +299,29 @@ python model.py --help                              # instant, no torch needed
 python model.py infer --help                        # lazy per-command import
 cd frontend && npm run lint && npm run build        # frontend checks
 ```
+
+## 8. TerraHeight-S height backend (external pretrained model)
+
+`architecture="terraheight_s"` — the third entry in the height-model
+registry (`depthwizard/tifops.py`), alongside `rdah` (default) and
+`calibration_net`. Full report: [docs/terraheight_integration.md](docs/terraheight_integration.md).
+
+- **Provenance**: external pretrained TerraHeight-S
+  (https://huggingface.co/benfox6515/TerraHeight-S, Apache-2.0) — official
+  DepthAnythingV2 implementation (`vits`, features 64, out_channels
+  [48,96,192,384]; vendored verbatim in `depthwizard/vendor/`), trained on
+  GAMUS. NOT trained by this project and NOT downloaded automatically.
+- **Contract**: RGB only → metres AGL. `AGL = clamp(raw × scale_m, 0)`
+  with `scale_m` read from the checkpoint's own `transform` block
+  (8.492877943662961). Inputs must be multiples of the ViT-14 patch; the
+  tiled path (630 px training crop, overlap 157, batch 1) guarantees that.
+- **CLI**:
+  `python model.py infer --architecture terraheight_s --input <image>`,
+  `python model.py bench --architecture terraheight_s`,
+  `python model.py evaluate --model terraheight_s --dataset gamus ...`
+  (adds the published >1 m / >5 m threshold bands to the pooled report).
+- **Config**: `DW_CKPT_TERRAHEIGHT`, `DW_TERRHEIGHT_TILE_SIZE` (630),
+  `DW_TERRHEIGHT_TILE_STRIDE` (473), `DW_TERRHEIGHT_BATCH_SIZE` (1).
+- **Citable numbers** still come ONLY from `evaluate`; the checkpoint's
+  embedded validation metrics are labelled PUBLISHED reference values and
+  never mixed with local results.

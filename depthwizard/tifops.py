@@ -5,17 +5,23 @@ from a checkpoint. Both the ``infer`` CLI command and the FastAPI service
 import ``load_height_model`` / ``make_predict_fn`` from here, so the webapp
 can never drift from the certified CLI forward pass.
 
-Architecture registry (RDAH integration):
+Architecture registry (RDAH + TerraHeight integrations):
     "calibration_net"  the frozen Phase-2 CalibrationNet path — rebuilt by
                        ``load_calib_net`` exactly as before (this module's
                        original, byte-identical behavior).
     "rdah"             the official RDAH-Net backend — built by
                        ``depthwizard.rdah.load_rdah_model`` (pretrained
                        HeightPredTransformer + adapter).
+    "terraheight_s"    the external pretrained TerraHeight-S (GAMUS AGL,
+                       Depth Anything V2 Small backbone) — built by
+                       ``depthwizard.terraheight.load_terraheight_model``;
+                       consumes RGB ONLY (no depth cache, no Dn).
     ``load_height_model`` selects by explicit argument or by inspecting
     the checkpoint payload (CalibrationNet checkpoints carry
     ``model_state`` + ``use_rgb``; RDAH checkpoints carry
-    ``model_state_dict``) — never a silent guess when both/neither match.
+    ``model_state_dict``; TerraHeight releases carry ``model`` +
+    ``model_config`` + ``transform``) — never a silent guess when
+    ambiguous.
 
 Checkpoint contract, CalibrationNet (written by the ``train`` command,
 do not change):
@@ -67,8 +73,8 @@ class LoadedModel:
     film_stats: bool = False  # Exp 1 FiLM checkpoints (additive default)
     # ---- RDAH integration (additive defaults — legacy checkpoints and
     # every existing caller keep working unchanged) ----
-    architecture: str = "calibration_net"  # "calibration_net" | "rdah"
-    height_type: str = "AGL"  # semantic role of net output (RDAH: "nDSM")
+    architecture: str = "calibration_net"  # "calibration_net" | "rdah" | "terraheight_s"
+    height_type: str = "AGL"  # semantic role of net output ("nDSM" for RDAH)
     depth_scale: float = 40.0  # rdah only: raw DAv2 depth x scale constant
 
     @property
@@ -76,6 +82,8 @@ class LoadedModel:
         """Human-readable model id for logs / stats panels."""
         if self.architecture == "rdah":
             return f"rdah_{Path(self.checkpoint).stem}_ep{self.epoch}"
+        if self.architecture == "terraheight_s":
+            return f"terraheight_s_{Path(self.checkpoint).stem}"
         return f"calib_{Path(self.checkpoint).parent.name}_ep{self.epoch}"
 
     @property
@@ -263,6 +271,8 @@ def detect_architecture(ckpt_path: Path | str) -> str:
       * explicit ``architecture`` field wins (DepthWizard-saved ckpts);
       * ``model_state_dict`` (official RDAH key) -> "rdah";
       * ``model_state`` (CalibrationNet key)     -> "calibration_net";
+      * TerraHeight release payload (``model`` + ``model_config`` +
+        ``transform``, neither CalibrationNet nor RDAH key) -> "terraheight_s";
       * anything else raises — the file is not a known height-model
         checkpoint and guessing would silently load garbage.
     """
@@ -281,7 +291,7 @@ def detect_architecture(ckpt_path: Path | str) -> str:
             f"({ckpt_path})"
         )
     arch = ckpt.get("architecture")
-    if arch in ("calibration_net", "rdah"):
+    if arch in ("calibration_net", "rdah", "terraheight_s"):
         return str(arch)
     has_rdah = "model_state_dict" in ckpt
     has_calib = "model_state" in ckpt
@@ -289,12 +299,16 @@ def detect_architecture(ckpt_path: Path | str) -> str:
         return "rdah"
     if has_calib and not has_rdah:
         return "calibration_net"
+    from .terraheight import is_terraheight_payload
+
+    if is_terraheight_payload(ckpt):
+        return "terraheight_s"
     raise ValueError(
         f"cannot determine the architecture of {ckpt_path}: it carries "
         f"{'both' if has_rdah and has_calib else 'neither'} "
-        "model_state/model_state_dict. Pass --architecture explicitly or "
-        "use a checkpoint produced by `model.py train` / the official "
-        "RDAH-Net release."
+        "model_state/model_state_dict and is not a TerraHeight release "
+        "payload. Pass --architecture explicitly or use a checkpoint "
+        "produced by `model.py train` / an official model release."
     )
 
 
@@ -306,22 +320,26 @@ def load_height_model(
 ) -> LoadedModel:
     """THE height-model entry point: registry dispatch over architectures.
 
-    ``architecture``: "calibration_net" | "rdah" | None (None = detect
-    from the checkpoint payload — see detect_architecture). Both paths
-    return a LoadedModel with the same surface (net / use_rgb / tag /
-    needs_stats), so DepthWizardPredictor, the service and the CLI serve
-    both backends from one code path.
+    ``architecture``: "calibration_net" | "rdah" | "terraheight_s" | None
+    (None = detect from the checkpoint payload — see detect_architecture).
+    All paths return a LoadedModel with the same surface (net / use_rgb /
+    tag / needs_stats), so DepthWizardPredictor, the service and the CLI
+    serve every backend from one code path.
     """
     arch = architecture or detect_architecture(ckpt_path)
-    if arch not in ("calibration_net", "rdah"):
+    if arch not in ("calibration_net", "rdah", "terraheight_s"):
         raise ValueError(
-            f"unknown architecture {arch!r} — expected 'calibration_net' "
-            "or 'rdah'."
+            f"unknown architecture {arch!r} — expected 'calibration_net', "
+            "'rdah' or 'terraheight_s'."
         )
     if arch == "rdah":
         from .rdah import load_rdah_model
 
         return load_rdah_model(ckpt_path, device=device, depth_scale=depth_scale)
+    if arch == "terraheight_s":
+        from .terraheight import load_terraheight_model
+
+        return load_terraheight_model(ckpt_path, device=device)
     return load_calib_net(ckpt_path, device)
 
 
@@ -343,6 +361,10 @@ def make_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
         from .rdah import make_rdah_predict_fn
 
         return make_rdah_predict_fn(model, device)
+    if model.architecture == "terraheight_s":
+        from .terraheight import make_terraheight_predict_fn
+
+        return make_terraheight_predict_fn(model, device)
 
     import torch
 
@@ -407,6 +429,10 @@ def make_full_predict_fn(model: LoadedModel, device: str = "cpu") -> Callable:
         from .rdah import make_rdah_full_predict_fn
 
         return make_rdah_full_predict_fn(model, device)
+    if model.architecture == "terraheight_s":
+        from .terraheight import make_terraheight_full_predict_fn
+
+        return make_terraheight_full_predict_fn(model, device)
 
     import torch
 

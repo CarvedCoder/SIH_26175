@@ -153,6 +153,32 @@ def evaluate_split(net, ds, use_rgb: bool, device: str, cache_dir: Path):
     return pooled, summary, city_tab, per_tile, ext_summary
 
 
+def _threshold_metrics(pooled_p, pooled_t) -> dict:
+    """MAE / RMSE / Pearson r on the pooled valid pixels where the TARGET
+    height exceeds a threshold (the published TerraHeight validation
+    bands ">1m" and ">5m"). Same metric implementation as the pooled
+    report — the only difference is the pixel band."""
+    import numpy as np
+
+    p = np.concatenate([np.asarray(x).ravel() for x in pooled_p])
+    t = np.concatenate([np.asarray(x).ravel() for x in pooled_t])
+    out = {}
+    for name, thr in ((">1m", 1.0), (">5m", 5.0)):
+        m = t > thr
+        if not m.any():
+            out[name] = {"n": 0}
+            continue
+        d = p[m] - t[m]
+        r = float(np.corrcoef(p[m], t[m])[0, 1]) if m.sum() > 1 else None
+        out[name] = {
+            "n": int(m.sum()),
+            "mae": float(np.abs(d).mean()),
+            "rmse": float(np.sqrt((d**2).mean())),
+            "pearson_r": r,
+        }
+    return out
+
+
 def _summarize_extensions(ext_tiles):
     """Aggregate the per-tile Phase-5 extensions into a report block."""
     if not ext_tiles:
@@ -192,8 +218,10 @@ def evaluate_split_adapter(model, ds, device: str, dataset: str):
     functions) but sources samples through the adapter pipeline and feeds
     the net's full input contract (Dn | RGB | SEM). ``model`` is a
     tifops.LoadedModel (single source for checkpoint rebuilding — works
-    for BOTH architectures; the RDAH backend additionally consumes the
-    dn_stats 4-vector to reconstruct the RAW DAv2 depth scale).
+    for ALL architectures; the RDAH backend additionally consumes the
+    dn_stats 4-vector to reconstruct the RAW DAv2 depth scale; TerraHeight
+    consumes RGB only — dn/stats stay None and the sample's Dn, when
+    present, is simply not fed to the net).
     """
     import time as _time
 
@@ -204,6 +232,7 @@ def evaluate_split_adapter(model, ds, device: str, dataset: str):
     use_rgb = model.use_rgb
     use_sem = model.use_sem
     needs_stats = getattr(model, "needs_stats", False) or model.film_stats
+    is_terraheight = model.architecture == "terraheight_s"
     gsd = 0.33 if dataset == "gamus" else None  # documented / unknown
 
     pooled_p, pooled_t, pooled_m = [], [], []
@@ -212,7 +241,7 @@ def evaluate_split_adapter(model, ds, device: str, dataset: str):
     fwd_secs = []
     for i in range(len(ds)):
         s = ds[i]
-        dn = s["dn"].to(device)
+        dn = s["dn"].to(device) if s.get("dn") is not None else None
         rgb = s["rgb"].to(device) if use_rgb else None
         sem = (
             s["sem_onehot"].to(device)
@@ -228,7 +257,32 @@ def evaluate_split_adapter(model, ds, device: str, dataset: str):
             torch.cuda.synchronize()
         t_fwd = _time.perf_counter()
         with torch.no_grad():
-            pred = net(dn, rgb, None, sem, stats)["pred"][0, 0].cpu().numpy()
+            if is_terraheight:
+                # RGB -> AGL through the SAME deployed tiled path
+                # (predict_agl_tiled: 630 training-crop windows, seam-free
+                # stitching) — the GAMUS tiles are 1024x1024, which the ViT
+                # cannot consume directly (patch-14 multiple constraint).
+                # The adapter sample's RGB is ImageNet-normalized float;
+                # de-normalize back to uint8 for the tiler (exact roundtrip).
+                from depthwizard.dataset import IMAGENET_MEAN, IMAGENET_STD
+                from depthwizard.terraheight import (
+                    TERRAHEIGHT_DEFAULT_OVERLAP,
+                    TERRAHEIGHT_TILE_SIZE,
+                    predict_agl_tiled,
+                )
+
+                rgb_u8 = np.clip(
+                    (s["rgb"].permute(1, 2, 0).numpy() * IMAGENET_STD
+                     + IMAGENET_MEAN) * 255.0,
+                    0, 255,
+                ).astype(np.uint8)
+                pred, _n_tiles = predict_agl_tiled(
+                    model, rgb_u8, device=device,
+                    tile_size=TERRAHEIGHT_TILE_SIZE,
+                    overlap=TERRAHEIGHT_DEFAULT_OVERLAP, log=lambda *_: None,
+                )
+            else:
+                pred = net(dn, rgb, None, sem, stats)["pred"][0, 0].cpu().numpy()
         if device.startswith("cuda"):
             torch.cuda.synchronize()
         fwd_secs.append(_time.perf_counter() - t_fwd)
@@ -247,6 +301,12 @@ def evaluate_split_adapter(model, ds, device: str, dataset: str):
         )
     pooled = pooled_metrics(pooled_p, pooled_t, pooled_m)
     pooled["n_tiles"] = len(ds)
+    if is_terraheight:
+        # TerraHeight published validation protocol reports >1 m / >5 m
+        # bands (valid-target pixels where the GT height exceeds the
+        # threshold) — computed here with the SAME metric implementation,
+        # clearly labelled as our local reproduction.
+        pooled["thresholds"] = _threshold_metrics(pooled_p, pooled_t)
     summary = mean_std_over_tiles(per_tile)
     city_tab = {
         c: {k: float(np.mean(v)) for k, v in d.items()}
@@ -281,9 +341,14 @@ def _perf_block(model, fwd_secs, device: str) -> dict:
 
 def _error_map(stem, rgb, dn, pred, agl, out_png: Path) -> None:
     fig, axes = plt.subplots(1, 5, figsize=(22, 4.6), constrained_layout=True)
+    if dn is None:  # RGB-only backend (TerraHeight) — no Dn panel data
+        dn = np.zeros((1, 1), dtype=np.float32)
+        dn_title = "Dn n/a (RGB-only backend)"
+    else:
+        dn_title = "Dn (relative)"
     for ax, im, title, cmap in (
         (axes[0], rgb, f"{stem} RGB", None),
-        (axes[1], dn, "Dn (relative)", "viridis"),
+        (axes[1], dn, dn_title, "viridis"),
         (axes[2], pred, "pred H (m)", "magma"),
         (axes[3], agl, "AGL truth (m)", "magma"),
         (axes[4], np.abs(pred - agl), "|error| (m)", "inferno"),
@@ -310,10 +375,10 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
     add_config_arg(p, "configs/phase2.yaml")
     p.add_argument(
         "--model",
-        choices=("calibration_net", "rdah", "auto"),
+        choices=("calibration_net", "rdah", "terraheight_s", "auto"),
         default="auto",
         help="height-model backend for the A/B comparison (default: "
-        "auto-detect from the checkpoint). Both backends use the SAME "
+        "auto-detect from the checkpoint). All backends use the SAME "
         "split, preprocessing, target, masks and metrics.",
     )
     p.add_argument(
@@ -354,9 +419,15 @@ def _run_gamus(args, cfg, model, device, cache_dir, ckpt_dataset) -> int:
     dcfg["name"] = "gamus"
     sub_cfg = {"paths": paths, "dataset": dcfg}
     out_dir = Path(paths["outputs_dir"]) / (
-        "rdah_net" if model.architecture == "rdah" else "calib_net"
+        "rdah_net" if model.architecture == "rdah"
+        else "terraheight_s" if model.architecture == "terraheight_s"
+        else "calib_net"
     ) / (args.out_tag or "gamus_eval")
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # TerraHeight is RGB-only: it consumes NO Dn depth cache (load_depth
+    # False leaves dn as None in the samples — the TH branch never touches it).
+    needs_depth_cache = model.architecture != "terraheight_s"
 
     results, per_tile_all = {}, {}
     for split in args.splits:
@@ -368,7 +439,7 @@ def _run_gamus(args, cfg, model, device, cache_dir, ckpt_dataset) -> int:
             split=split,
             crop_size=None,
             augment=False,
-            load_depth=True,
+            load_depth=needs_depth_cache,
             depth_cache_dir=cache_dir,
         )
         pooled, summary, city_tab, per_tile, ext = evaluate_split_adapter(
@@ -386,6 +457,15 @@ def _run_gamus(args, cfg, model, device, cache_dir, ckpt_dataset) -> int:
             f"r={pooled['pearson_r']:.3f}  bias={pooled['bias']:+.3f}  "
             f"tiles={pooled['n_tiles']}"
         )
+        thr = pooled.get("thresholds")
+        if thr:
+            for name, tab in thr.items():
+                if tab.get("n"):
+                    print(
+                        f"        [{name} band] MAE={tab['mae']:.3f}  "
+                        f"RMSE={tab['rmse']:.3f}  r={tab['pearson_r']:.3f}  "
+                        f"n={tab['n']}"
+                    )
         print(
             f"        per-tile MAE {summary['mae_mean']:.3f} ± {summary['mae_std']:.3f}"
         )
@@ -441,8 +521,8 @@ def _run_gamus(args, cfg, model, device, cache_dir, ckpt_dataset) -> int:
         ds_test_any: Any = ds_test
         for i in range(min(args.error_maps, len(ds_test_any))):
             s = ds_test_any[i]
-            dn_np = s["dn"][0].numpy()
-            dn = s["dn"].to(device)
+            dn_np = s["dn"][0].numpy() if s.get("dn") is not None else None
+            dn = s["dn"].to(device) if s.get("dn") is not None else None
             rgb = s["rgb"].to(device) if model.use_rgb else None
             sem = (
                 s["sem_onehot"].to(device)
@@ -455,7 +535,10 @@ def _run_gamus(args, cfg, model, device, cache_dir, ckpt_dataset) -> int:
                 else None
             )
             with torch.no_grad():
-                pred = net(dn, rgb, None, sem, stats)["pred"][0, 0].cpu().numpy()
+                if model.architecture == "terraheight_s":
+                    pred = net(rgb, None, None, None, None)["pred"][0, 0].cpu().numpy()
+                else:
+                    pred = net(dn, rgb, None, sem, stats)["pred"][0, 0].cpu().numpy()
             # de-normalize rgb for display
             from depthwizard.dataset import IMAGENET_MEAN, IMAGENET_STD
 
@@ -500,10 +583,20 @@ def _run_gamus(args, cfg, model, device, cache_dir, ckpt_dataset) -> int:
                 "RDAH-Net (official HeightPredTransformer; depth input = "
                 "raw DAv2 x depth_scale; output nDSM metres)"
                 if model.architecture == "rdah"
+                else "TerraHeight-S (external pretrained GAMUS AGL model; "
+                "Depth Anything V2 Small backbone; RGB only, no depth cache; "
+                "output = raw x scale_m 8.4929 clamped to >= 0, metres AGL)"
+                if model.architecture == "terraheight_s"
                 else "CalibrationNet (clamp(a*Dn + b, 0), Dn min-max)"
             ),
         ],
     }
+    if model.architecture == "terraheight_s":
+        report["notes"].append(
+            "model.val_subset_mae is the RELEASED checkpoint's PUBLISHED "
+            "validation MAE (labelled reference value, not a local metric); "
+            "local numbers are the pooled/thresholds blocks above."
+        )
     dump_json(report, out_dir / "eval_calib_gamus.json")
 
     lines = [
@@ -559,7 +652,9 @@ def run(args) -> int:
     # = the released Track1 release (auto-downloads + MD5-verifies).
     architecture = None if args.model == "auto" else args.model
     mcfg = dict(cfg.get("model") or {})
-    if architecture is None and mcfg.get("architecture") in ("rdah", "calibration_net"):
+    if architecture is None and mcfg.get("architecture") in (
+        "rdah", "calibration_net", "terraheight_s"
+    ):
         architecture = mcfg["architecture"]
 
     ckpt_path = args.checkpoint
@@ -569,6 +664,14 @@ def run(args) -> int:
         ckpt_path = Path(mcfg.get("checkpoint") or "") or (
             RDAH_CKPT_DIR / RDAH_CHECKPOINTS["track1"]["filename"]
         )
+    if ckpt_path is None and architecture == "terraheight_s":
+        from depthwizard.terraheight import default_checkpoint_path
+
+        try:
+            ckpt_path = Path(mcfg.get("checkpoint") or "") or default_checkpoint_path()
+        except FileNotFoundError as e:
+            print(f"[error] {e}")
+            return 1
     if ckpt_path is None:
         ckpt_path = Path(paths["outputs_dir"]) / "calib_net" / "dn_only" / "best.pt"
     if not ckpt_path.exists() and (
@@ -596,7 +699,12 @@ def run(args) -> int:
     use_rgb = model.use_rgb
 
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    ckpt_dataset = str(ckpt.get("dataset", "gamus" if model.architecture == "rdah" else "dfc2019"))
+    ckpt_dataset = str(
+        ckpt.get(
+            "dataset",
+            "gamus" if model.architecture in ("rdah", "terraheight_s") else "dfc2019",
+        )
+    )
     print(
         f"[i] ckpt {ckpt_path} (epoch {model.epoch}, subset-MAE "
         f"{model.val_subset_mae if model.val_subset_mae is not None else float('nan'):.3f}, "

@@ -87,9 +87,10 @@ class ProcessingService:
 
     def _resolve_checkpoint(
         self, architecture: str = "auto", *, allow_download: bool = False
-    ) -> tuple[Path, str]:
+        ) -> tuple[Path, str]:
         """Resolve the checkpoint and CONCRETE architecture for the
-        requested height-model backend -> (checkpoint, "rdah"|"calibration_net").
+        requested height-model backend ->
+        (checkpoint, "rdah"|"calibration_net"|"terraheight_s").
 
         rdah: the released pretrained Track1 checkpoint. With
         ``allow_download`` (inference paths only — NEVER health probes) a
@@ -101,6 +102,11 @@ class ProcessingService:
         calibration_net: DW_CKPT_CALIB, else DW_CKPT, else the repo default
         below (mirrored in docker-compose), else the tiny tracked flagship
         at the repo root.
+        terraheight_s: DW_CKPT_TERRAHEIGHT, else the repo-relative
+        candidates in depthwizard.terraheight.DEFAULT_CHECKPOINT_CANDIDATES
+        (models/terraheight/best_model.pth, then repo-root best_model.pth).
+        NEVER auto-downloaded — a missing external checkpoint is a loud
+        FileNotFoundError naming the env var to set.
         auto (legacy clients and old job records): follow the checkpoint —
         the generic DW_CKPT's detected architecture when set, else the RDAH
         default.
@@ -149,6 +155,29 @@ class ProcessingService:
                     "`python model.py infer`."
                 )
             return default, "rdah"
+
+        if architecture == "terraheight_s":
+            env_checkpoint = self.settings.ckpt_terraheight or env_checkpoint
+            if env_checkpoint:
+                env_path = Path(env_checkpoint)
+                if not env_path.exists():
+                    raise FileNotFoundError(
+                        "the configured TerraHeight-S checkpoint override "
+                        f"points at a missing file: {env_path} (check "
+                        "DW_CKPT_TERRAHEIGHT / DW_CKPT)"
+                    )
+                from depthwizard.tifops import detect_architecture
+
+                if detect_architecture(str(env_path)) != "terraheight_s":
+                    raise ValueError(
+                        "the configured TerraHeight-S checkpoint override "
+                        f"({env_path}) is not a TerraHeight-S release "
+                        "checkpoint — check DW_CKPT_TERRAHEIGHT / DW_CKPT."
+                    )
+                return self._verify_checkpoint_sha(env_path), "terraheight_s"
+            from depthwizard.terraheight import default_checkpoint_path
+
+            return default_checkpoint_path(PROJECT_ROOT), "terraheight_s"
 
         env_checkpoint = self.settings.ckpt_calib or self.settings.checkpoint
         if env_checkpoint:
@@ -207,6 +236,12 @@ class ProcessingService:
                 "wls_max_iter": s.wls_max_iter,
             },
             "tta": s.tta,
+            # TerraHeight tiled-inference knobs (used only when the resolved
+            # backend is terraheight_s; run_inference ignores them otherwise)
+            "terraheight_tile_size": s.terraheight_tile_size,
+            "terraheight_overlap": max(
+                s.terraheight_tile_size - s.terraheight_tile_stride, 0
+            ),
         }
 
     # -- live validation (reference-grounded metrics) ------------------------
@@ -914,6 +949,9 @@ class ProcessingService:
             "semantic_meta.json", "refined_dsm.npy",
             "validation.json", "error_map.png", "validation_error_map.png",
             "heightmap.png",
+            # TerraHeight-S backend artifacts (AGL product + provenance)
+            "terraheight_agl.tif", "terraheight_agl.npy",
+            "terraheight_preview.png", "terraheight_meta.json",
         ]
         names += [
             (key) for key in (

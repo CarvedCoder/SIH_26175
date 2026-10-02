@@ -190,7 +190,25 @@ const BACKEND_OPTIONS = [
     label: 'CalibrationNet',
     note: 'Legacy per-tile affine calibration · clamped heights',
   },
+  {
+    value: 'terraheight_s',
+    label: 'TerraHeight-S',
+    note: 'Pretrained GAMUS AGL model · metres AGL · RGB only (no depth cache)',
+  },
 ];
+
+/** Model metadata shown under the selector for the ACTIVE backend
+ *  (TerraHeight integration). `metrics` lines are labelled as PUBLISHED
+ *  reference values — never presented as current-scene accuracy. */
+const BACKEND_METADATA = {
+  terraheight_s: [
+    ['Model', 'TerraHeight-S (external pretrained model)'],
+    ['Backbone', 'Depth Anything V2 Small'],
+    ['Task', 'Remote-sensing AGL height'],
+    ['Dataset', 'GAMUS'],
+    ['Output', 'Metres AGL (clamped ≥ 0)'],
+  ],
+};
 
 function ModelBackendSelector() {
   const { state, actions } = useApp();
@@ -262,6 +280,32 @@ function ModelBackendSelector() {
       }}>
         {active.note}
       </span>
+      {(BACKEND_METADATA[active.value] || []).length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'auto 1fr',
+          columnGap: 10,
+          rowGap: 2,
+          padding: '6px 8px',
+          border: '1px solid var(--dw-rim)',
+          borderRadius: 'var(--dw-radius-sm)',
+        }}>
+          {BACKEND_METADATA[active.value].map(([k, v]) => (
+            <Fragment key={k}>
+              <span style={{
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 11,
+                color: 'var(--dw-fg-ghost)',
+              }}>{k}</span>
+              <span style={{
+                fontFamily: 'var(--dw-font-data)',
+                fontSize: 11,
+                color: 'var(--dw-fg-muted)',
+              }}>{v}</span>
+            </Fragment>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

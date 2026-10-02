@@ -16,7 +16,7 @@ check — no GPU/model loading happens on any health request.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from backend.app.core.config import settings
 from backend.app.schemas.health import HealthResponse
@@ -79,3 +79,40 @@ def readiness() -> HealthResponse:
         version=settings.version,
         model_loaded=model_loaded,
     )
+
+
+@router.get("/health/models")
+def models_health(load_and_probe: bool = Query(default=False)) -> dict:
+    """Per-backend model health report (TerraHeight integration).
+
+    Cheap by default: each backend resolves its checkpoint and verifies it
+    EXISTS on the filesystem. ``?load_and_probe=true`` additionally loads
+    the TerraHeight-S weights and runs one small (154x154) forward with a
+    NaN/Inf check — deliberately NOT part of the plain health/readiness
+    contracts (no GPU work on ordinary health requests) and never a full
+    scene run."""
+    backends: dict = {}
+    for arch in ("rdah", "calibration_net", "terraheight_s"):
+        entry: dict = {"checkpoint": None, "checkpoint_exists": False}
+        try:
+            checkpoint, _ = processing_service._resolve_checkpoint(arch)
+            entry["checkpoint"] = str(checkpoint)
+            entry["checkpoint_exists"] = checkpoint.is_file()
+        except (FileNotFoundError, ValueError) as e:
+            entry["error"] = f"{type(e).__name__}: {e}"
+        backends[arch] = entry
+    report = {
+        "status": "ok",
+        "version": settings.version,
+        "backends": backends,
+        "terraheight_probe": None,
+    }
+    if load_and_probe:
+        from depthwizard.terraheight import terraheight_health
+
+        try:
+            checkpoint, _ = processing_service._resolve_checkpoint("terraheight_s")
+        except (FileNotFoundError, ValueError):
+            checkpoint = None
+        report["terraheight_probe"] = terraheight_health(checkpoint)
+    return report

@@ -57,11 +57,12 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--architecture",
-        choices=["auto", "calibration_net", "rdah"],
+        choices=["auto", "calibration_net", "rdah", "terraheight_s"],
         default=None,
         help="height-model backend: rdah (official RDAH-Net, default) | "
-        "calibration_net (legacy Phase-2 net) | auto (detect from the "
-        "checkpoint payload)",
+        "calibration_net (legacy Phase-2 net) | terraheight_s (external "
+        "pretrained GAMUS AGL model — RGB only, no depth cache) | auto "
+        "(detect from the checkpoint payload)",
     )
     p.add_argument(
         "--depth-scale",
@@ -131,6 +132,26 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
         help="flip/rotate test-time-augmentation ensemble inside the "
         "refinement (~3-4x inference cost; requires the live backbone)",
     )
+    p.add_argument(
+        "--terraheight-tile-size",
+        type=int,
+        default=None,
+        help="terraheight_s only: tiled-inference tile edge in px (default "
+        "630 = the published GAMUS training crop; must be a multiple of 14)",
+    )
+    p.add_argument(
+        "--terraheight-tile-stride",
+        type=int,
+        default=None,
+        help="terraheight_s only: step between tile windows in px (default "
+        "473 = 630 - 157 overlap; tile-stride < tile-size enables blending)",
+    )
+    p.add_argument(
+        "--terraheight-fp16",
+        action="store_true",
+        help="terraheight_s only: CUDA autocast fp16 for the tile forwards "
+        "(default off — deterministic fp32)",
+    )
     return p
 
 
@@ -157,25 +178,35 @@ def run(args) -> int:
         else float(mcfg.get("depth_scale", icfg.get("depth_scale", 40.0)))
     )
 
-    ckpt = (
-        args.checkpoint
-        or icfg.get("checkpoint")
-        or mcfg.get("checkpoint")
-    )
-    if ckpt is None:
-        if architecture == "rdah" or architecture is None:
-            # default backend after the RDAH integration: the pretrained
-            # official checkpoint (auto-downloads on first use)
-            from depthwizard.rdah import RDAH_CKPT_DIR, RDAH_CHECKPOINTS
+    if architecture == "terraheight_s":
+        # external pretrained model — explicit --checkpoint or an infer-scoped
+        # config checkpoint wins; otherwise resolve the repo-relative
+        # candidates (models/terraheight/best_model.pth, repo-root
+        # best_model.pth). NEVER downloaded automatically. The RDAH
+        # model.checkpoint in configs/infer.yaml does NOT leak in here.
+        from depthwizard.terraheight import default_checkpoint_path
 
-            ckpt = str(RDAH_CKPT_DIR / RDAH_CHECKPOINTS["track1"]["filename"])
-        else:
-            ckpt = str(
-                Path(paths.get("outputs_dir", "outputs"))
-                / "calib_net"
-                / "rgb_cos"
-                / "best.pt"
-            )
+        ckpt = args.checkpoint or icfg.get("checkpoint") or str(default_checkpoint_path())
+    else:
+        ckpt = (
+            args.checkpoint
+            or icfg.get("checkpoint")
+            or mcfg.get("checkpoint")
+        )
+        if ckpt is None:
+            if architecture == "rdah" or architecture is None:
+                # default backend after the RDAH integration: the pretrained
+                # official checkpoint (auto-downloads on first use)
+                from depthwizard.rdah import RDAH_CKPT_DIR, RDAH_CHECKPOINTS
+
+                ckpt = str(RDAH_CKPT_DIR / RDAH_CHECKPOINTS["track1"]["filename"])
+            else:
+                ckpt = str(
+                    Path(paths.get("outputs_dir", "outputs"))
+                    / "calib_net"
+                    / "rgb_cos"
+                    / "best.pt"
+                )
     if not Path(ckpt).exists():
         if architecture == "rdah" or (
             architecture is None and "rdah" in str(ckpt)
@@ -188,6 +219,14 @@ def run(args) -> int:
             except Exception as e:  # noqa: BLE001 — loud, actionable error
                 print(f"[error] {e}")
                 return 1
+        elif architecture == "terraheight_s":
+            print(
+                f"[error] TerraHeight-S checkpoint not found: {ckpt}\n"
+                f"        set DW_CKPT_TERRAHEIGHT (e.g. "
+                f"models/terraheight/best_model.pth) or pass --checkpoint — "
+                f"the external model is never downloaded automatically."
+            )
+            return 1
         else:
             print(
                 f"[error] checkpoint not found: {ckpt}\n"
@@ -222,6 +261,22 @@ def run(args) -> int:
             except json.JSONDecodeError:
                 pp_params[key] = raw  # strings pass through unquoted
 
+    # TerraHeight tiling knobs: --terraheight-tile-stride converts to the
+    # overlap convention used by depthwizard.tiling (overlap = tile - stride).
+    th_tile = args.terraheight_tile_size
+    th_overlap = None
+    if args.terraheight_tile_stride is not None:
+        from depthwizard.terraheight import TERRAHEIGHT_TILE_SIZE
+
+        th_overlap = (th_tile or TERRAHEIGHT_TILE_SIZE) - args.terraheight_tile_stride
+        if th_overlap < 0:
+            print(
+                f"[error] --terraheight-tile-stride "
+                f"{args.terraheight_tile_stride} exceeds the tile size "
+                f"{th_tile or TERRAHEIGHT_TILE_SIZE}."
+            )
+            return 1
+
     payload = run_inference(
         input_path,
         ckpt,
@@ -240,6 +295,9 @@ def run(args) -> int:
         tta=args.tta,
         architecture=architecture,
         depth_scale=depth_scale,
+        terraheight_tile_size=th_tile,
+        terraheight_overlap=th_overlap,
+        terraheight_fp16=args.terraheight_fp16,
     )
 
     if args.json_out:

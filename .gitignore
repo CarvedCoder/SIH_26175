@@ -132,3 +132,9 @@ native/build/
 # ONNX model files (external assets, not committed — typically 200MB–1.3GB).
 # Configure paths via DW_BUILDING_MODEL_ONNX / DW_DAMAGE_MODEL_ONNX env vars.
 *.onnx
+
+# TerraHeight-S external checkpoint (~99 MB) — user-provided, never committed
+# and never downloaded automatically. Point DW_CKPT_TERRAHEIGHT at it
+# (docs/terraheight_integration.md).
+models/terraheight/
+/best_model.pth

@@ -23,6 +23,8 @@ normalization                (per-tile min-max / raw×scale — per backend cont
         ↓
 height model                 RDAH-Net (pretrained, default)
                              or CalibrationNet (legacy affine)
+                             or TerraHeight-S (external pretrained GAMUS
+                             AGL model — RGB only, NO depth cache)
         ↓  per-pixel AGL height (metres)
 post-processing              (median / guided / bilateral / WLS / TTA — optional)
         ↓
@@ -49,9 +51,12 @@ The three elevation concepts are kept distinct everywhere in the product:
 
 - **Single-image processing jobs** — upload imagery, watch the pipeline
   stage-by-stage, cancel cooperatively at any checkpoint.
-- **Two switchable height-model backends** — pretrained RDAH-Net (default)
-  and the legacy CalibrationNet, switchable from the web UI, config, or CLI;
-  the choice is persisted per job and reused for refinements.
+- **Three switchable height-model backends** — pretrained RDAH-Net (default),
+  the legacy CalibrationNet, and the external pretrained **TerraHeight-S**
+  (GAMUS AGL, Depth Anything V2 Small backbone — computes metres AGL
+  directly from RGB, bypassing the relative-depth cache entirely),
+  switchable from the web UI, config, or CLI; the choice is persisted per
+  job and reused for refinements.
 - **3D terrain workspace** — custom three.js engine: quadtree LOD tile
   streaming, orbit and first-person walkthrough modes, camera minimap.
 - **Analysis tools** — elevation probe, distance/height/slope measurement,
@@ -201,6 +206,7 @@ Large first-time downloads, always confirmed before starting:
 | PyTorch + CUDA wheels (first `uv sync` only) | ~2–4 GB | `.venv` (uv cache) |
 | Depth Anything V2 weights | 0.3–1.3 GB | `~/.cache/huggingface/hub/` |
 | RDAH-Net released checkpoint | ~65 MB | `checkpoints/rdah/` (MD5-verified) |
+| TerraHeight-S checkpoint (optional, user-provided) | ~99 MB | `models/terraheight/best_model.pth` or repo root (`DW_CKPT_TERRAHEIGHT`) |
 | RustFS Docker image | ~60 MB | Docker |
 
 ## ML pipeline
@@ -216,10 +222,23 @@ RGB → Depth Anything V2 (frozen, ViT-B)
 
 The legacy CalibrationNet backend normalizes depth per 1024-tile
 (min-max) and predicts `H = clamp(a·Dn + b, 0)` with per-tile affine
-parameters. Both backends share the identical downstream path — tiling,
+parameters. All backends share the identical downstream path — tiling,
 anchoring, post-processing, DSM writer, storage — and the backend reports
 which one produced a result (`model_architecture`, `model_tag` in every
 payload).
+
+The third backend, **TerraHeight-S** (`architecture=terraheight_s`), is an
+*external pretrained* model (https://huggingface.co/benfox6515/TerraHeight-S,
+Apache-2.0) built on the official Depth Anything V2 Small architecture and
+trained on GAMUS. It consumes RGB ONLY — no relative-depth cache, no Dn
+input — and emits metres AGL directly (`AGL = clamp(raw × scale_m, 0)`,
+scale read from the checkpoint itself). Inference runs seam-free tiled
+windows at the published 630×630 training crop (overlap 157, batch 1,
+~325 MB VRAM per tile). It never replaces the semantic pipeline (it has no
+semantic head) and is never downloaded automatically — point
+`DW_CKPT_TERRAHEIGHT` at the local checkpoint. See
+[docs/terraheight_integration.md](docs/terraheight_integration.md) for the
+full compatibility report, evaluation and limitations.
 
 - **Datasets (training/research):** GAMUS (HDF5, lazy Hugging Face
   download) and DFC2019, with a mixing abstraction
@@ -349,6 +368,8 @@ set — the file contains only development placeholders):
 | `S3_BUCKET` | `depthwizard` | object bucket (auto-created) |
 | `DW_CKPT` | unset | serving checkpoint override (resolution order below) |
 | `DW_CKPT_RDAH` | unset | fine-tuned RDAH checkpoint override |
+| `DW_CKPT_TERRAHEIGHT` | unset | TerraHeight-S checkpoint (never auto-downloaded; falls back to `models/terraheight/best_model.pth`, then repo root) |
+| `DW_TERRHEIGHT_TILE_SIZE` / `_STRIDE` / `_BATCH_SIZE` | 630 / 473 / 1 | TerraHeight tiled-inference knobs |
 | `DW_CKPT_SHA256` | unset | optional checkpoint integrity pin |
 | `DW_DEVICE` | `auto` | `cuda` / `cpu` / `auto` |
 | `DW_BACKBONE` | `depth-anything/Depth-Anything-V2-Base-hf` | live DAv2 model |
@@ -360,6 +381,8 @@ set — the file contains only development placeholders):
 
 Serving checkpoint resolution order: `DW_CKPT` →
 `outputs/calib_net/postproc_flagship/best.pt` → `./best.pt`.
+TerraHeight resolution: `DW_CKPT_TERRAHEIGHT` → `models/terraheight/best_model.pth` → repo-root `best_model.pth` (a missing checkpoint fails loudly; never downloaded).
+
 RDAH resolution: `DW_CKPT_RDAH` → the released Track1 checkpoint
 (auto-downloaded and MD5-verified on first use).
 

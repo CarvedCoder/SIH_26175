@@ -100,5 +100,11 @@ RESULT_ARTIFACT_KEYS: Dict[str, str] = {
     "damage_meta": "damage_meta.json",
     # Region refinement product (isolated crop re-inference)
     "refined_dsm": "refined_dsm.npy",
+    # TerraHeight-S backend (AGL product + provenance; .npy twin exists for
+    # non-georeferenced scenes where no .tif is written)
+    "terraheight_agl": "terraheight_agl.tif",
+    "terraheight_agl_npy": "terraheight_agl.npy",
+    "terraheight_preview": "terraheight_preview.png",
+    "terraheight_meta": "terraheight_meta.json",
 }
 

@@ -692,11 +692,24 @@ def run_inference(
     should_cancel: Callable[[], bool] | None = None,
     architecture: str | None = None,
     depth_scale: float = 40.0,
+    terraheight_tile_size: int | None = None,
+    terraheight_overlap: int | None = None,
+    terraheight_fp16: bool = False,
 ) -> dict:
     """Full inference run -> scene payload dict (see build_scene_payload).
 
     ``architecture``: None (auto-detect from the checkpoint) | "rdah" |
-    "calibration_net" — the height-model backend registry.
+    "calibration_net" | "terraheight_s" — the height-model backend registry.
+
+    TerraHeight-S dispatch: when the resolved backend is ``terraheight_s``
+    this orchestrator delegates to
+    :func:`depthwizard.terraheight.run_terraheight_inference` — RGB ->
+    TerraHeight-S -> AGL metres, with NO depth-cache/Dn stage (the
+    ``dn_path``/``cache_dir``/``mode``/backbone knobs and the RDAH
+    post-processing/TTA path do not apply; requesting them prints an
+    honest note and they are ignored). The scene payload and artifact
+    contracts (dsm.npy/dsm.tif/previews + terraheight_* provenance) are
+    identical, so downstream consumers are unchanged.
 
     Post-processing (task Sec. 19 API):
         postprocess="none"    raw height passthrough — byte-identical legacy path
@@ -716,6 +729,47 @@ def run_inference(
     """
     t0 = time.perf_counter()
     input_path = Path(input_path)
+
+    # ---- backend dispatch (registry: tifops.load_height_model) ----------
+    from .tifops import detect_architecture
+
+    resolved_arch = architecture or detect_architecture(ckpt_path)
+    if resolved_arch == "terraheight_s":
+        ignored = [
+            name
+            for name, val in (
+                ("--dn/dn_path", dn_path),
+                ("cache_dir", cache_dir),
+                ("postprocess", postprocess if postprocess not in (None, "", "none") else None),
+                ("tta", tta if tta else None),
+            )
+            if val
+        ]
+        if ignored:
+            print(
+                f"[i] terraheight_s ignores {', '.join(ignored)} — TerraHeight "
+                "computes AGL directly from RGB (no depth cache, no RDAH "
+                "post-processing)."
+            )
+        from .terraheight import (
+            TERRAHEIGHT_DEFAULT_OVERLAP,
+            TERRAHEIGHT_TILE_SIZE,
+            run_terraheight_inference,
+        )
+
+        return run_terraheight_inference(
+            input_path,
+            ckpt_path,
+            out_dir=out_dir,
+            device=device,
+            tile_size=(terraheight_tile_size or TERRAHEIGHT_TILE_SIZE),
+            overlap=(terraheight_overlap or TERRAHEIGHT_DEFAULT_OVERLAP),
+            fp16=terraheight_fp16,
+            anchor_dem=anchor_dem,
+            ground_elev=ground_elev,
+            write_files=write_files,
+            should_cancel=should_cancel,
+        )
 
     predictor = DepthWizardPredictor(
         ckpt_path=ckpt_path,

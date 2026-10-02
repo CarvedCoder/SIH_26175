@@ -136,6 +136,25 @@ class Settings:
         # the same time (a generic DW_CKPT only fits one architecture).
         self.ckpt_rdah: str | None = os.environ.get("DW_CKPT_RDAH") or None
         self.ckpt_calib: str | None = os.environ.get("DW_CKPT_CALIB") or None
+        # TerraHeight-S (external pretrained GAMUS AGL model): its own
+        # override follows the same pattern. NEVER auto-downloaded — when
+        # unset, the backend falls back to the repo-relative candidates in
+        # depthwizard.terraheight.DEFAULT_CHECKPOINT_CANDIDATES.
+        self.ckpt_terraheight: str | None = (
+            os.environ.get("DW_CKPT_TERRAHEIGHT") or None
+        )
+        # TerraHeight tiled-inference knobs (published training crop 630;
+        # stride 473 = 630 - 157 overlap; batch 1 is the verified 6 GB
+        # memory-safe default and intentionally not configurable).
+        self.terraheight_tile_size: int = int(
+            os.environ.get("DW_TERRHEIGHT_TILE_SIZE") or 630
+        )
+        self.terraheight_tile_stride: int = int(
+            os.environ.get("DW_TERRHEIGHT_TILE_STRIDE") or 473
+        )
+        self.terraheight_batch_size: int = int(
+            os.environ.get("DW_TERRHEIGHT_BATCH_SIZE") or 1
+        )
         self.checkpoint_sha256: str | None = (
             os.environ.get("DW_CKPT_SHA256") or None
         )
