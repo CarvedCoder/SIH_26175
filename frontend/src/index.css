@@ -6,27 +6,27 @@
   --dw-void:    #09090b; /* canvas / page background */
   --dw-panel:   #101012; /* header, side panels, bottom toolbar */
   --dw-surface: #18181b; /* cards, input fields, popovers */
-  --dw-hover:   #1f1f23; /* one-step hover lightening */
-  --dw-rim:     #27272a; /* 1px borders, dividers */
-  --dw-rim-strong: #3f3f46; /* hover borders, active tracks */
+  --dw-hover:   #232327; /* one-step hover lightening */
+  --dw-rim:     #2e2e33; /* 1px borders, dividers */
+  --dw-rim-strong: #4a4a52; /* hover borders, active tracks */
 
   /* Foreground — high-clarity contrast for mission-control readability */
   --dw-fg:       #fafafa; /* primary text — crisp and luminous */
-  --dw-fg-muted: #a1a1aa; /* secondary labels, metadata — clearly legible */
-  --dw-fg-ghost: #71717a; /* tertiary, placeholders, units — readable */
+  --dw-fg-muted: #b6b6bd; /* secondary labels, metadata — clearly legible */
+  --dw-fg-ghost: #8d8d96; /* tertiary, placeholders, units — readable */
   --dw-fg-invert: #09090b; /* text on ivory / white primary surfaces */
 
   /* Status / accent — accent is ivory; interactive states are luminance, not hue */
   --dw-accent:      #fafafa;             /* active state, selection, progress */
   --dw-accent-soft: rgba(250,250,250,0.10); /* subtle active washes, hover fills */
-  --dw-confirm: #22c55e; /* completed, valid */
-  --dw-live:    #f59e0b; /* active processing, warnings */
-  --dw-fault:   #ef4444; /* errors, failures */
+  --dw-confirm: #4ade80; /* completed, valid */
+  --dw-live:    #fbbf24; /* active processing, warnings */
+  --dw-fault:   #f87171; /* errors, failures */
 
   /* Terrain-specific */
   --dw-probe:  #fafafa;                  /* elevation probe marker */
   --dw-fov:    rgba(250,250,250,0.16);   /* minimap FOV cone fill */
-  --dw-marker: #f59e0b;                  /* minimap camera position dot */
+  --dw-marker: #fbbf24;                  /* minimap camera position dot */
 
   /* Typography */
   --dw-font-ui:   'Geist Variable', ui-sans-serif, system-ui, sans-serif;
@@ -102,21 +102,21 @@
   width: 5px;
   height: 5px;
 }
-::-webkit-scrollbar-track {
-  background: #09090b;
-}
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: #2e2e33;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: #4a4a52;
+}
+::-webkit-scrollbar-track {
+  background: #09090b;
 }
 
 /* Minimalist scrollbar — Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #27272a #09090b;
+  scrollbar-color: #2e2e33 #09090b;
 }
 
 /* Cross-browser keyframe animations */

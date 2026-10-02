@@ -38,7 +38,7 @@ function StatusDot({ status }) {
         background: colors[status],
         flexShrink: 0,
         ...(status === 'online' && {
-          boxShadow: `0 0 0 2px rgba(34,197,94,0.2)`,
+          boxShadow: `0 0 0 2px rgba(74,222,128,0.2)`,
         }),
       }}
     />

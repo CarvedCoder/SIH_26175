@@ -412,8 +412,8 @@ export default function DetailMode({
       {status === 'completed' && (
         <div style={{
           padding: '10px 12px',
-          background: 'rgba(34, 197, 94, 0.08)',
-          border: '1px solid rgba(34, 197, 94, 0.25)',
+          background: 'rgba(74, 222, 128, 0.08)',
+          border: '1px solid rgba(74, 222, 128, 0.25)',
           borderRadius: 'var(--dw-radius-sm)',
           display: 'flex',
           alignItems: 'center',
@@ -452,8 +452,8 @@ export default function DetailMode({
       {status === 'error' && (
         <div style={{
           padding: '10px 12px',
-          background: 'rgba(239, 68, 68, 0.08)',
-          border: '1px solid rgba(239, 68, 68, 0.25)',
+          background: 'rgba(248, 113, 113, 0.08)',
+          border: '1px solid rgba(248, 113, 113, 0.25)',
           borderRadius: 'var(--dw-radius-sm)',
           display: 'flex',
           alignItems: 'center',

@@ -105,7 +105,7 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
           background: 'rgba(16, 16, 18, 0.90)',
           backdropFilter: 'blur(10px)',
           WebkitBackdropFilter: 'blur(10px)',
-          border: '1px solid var(--dw-rim, #27272a)',
+          border: '1px solid var(--dw-rim, #2e2e33)',
           borderRadius: 6,
           boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
           overflow: 'hidden',
@@ -126,7 +126,7 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
             padding: '6px 10px',
             cursor: 'pointer',
             userSelect: 'none',
-            borderBottom: collapsed ? 'none' : '1px solid var(--dw-rim, #27272a)',
+            borderBottom: collapsed ? 'none' : '1px solid var(--dw-rim, #2e2e33)',
             background: 'rgba(255, 255, 255, 0.02)',
           }}
           title={collapsed ? 'Expand Controls' : 'Collapse Controls'}
@@ -170,7 +170,7 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
             style={{
               background: 'none',
               border: 'none',
-              color: 'var(--dw-fg-ghost, #71717a)',
+              color: 'var(--dw-fg-ghost, #8d8d96)',
               display: 'flex',
               alignItems: 'center',
               cursor: 'pointer',
@@ -221,7 +221,7 @@ export default function ControlsHint({ cameraMode = 'orbit', leftOffset = 16 }) 
                   style={{
                     fontFamily: 'var(--dw-font-ui, sans-serif)',
                     fontSize: 11,
-                    color: 'var(--dw-fg-muted, #a1a1aa)',
+                    color: 'var(--dw-fg-muted, #b6b6bd)',
                     letterSpacing: '0.02em',
                   }}
                 >

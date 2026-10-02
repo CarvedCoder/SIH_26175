@@ -437,6 +437,7 @@ def predict_agl_tiled(
     fp16: bool = False,
     batch_size: int = 1,
     should_cancel: Callable[[], bool] | None = None,
+    progress_cb: Callable[[int, int], None] | None = None,
     log: Callable[[str], None] = print,
 ) -> tuple[np.ndarray, int]:
     """RGB uint8 [H,W,3] -> (AGL metres float32 [H,W], n_tiles).
@@ -511,6 +512,8 @@ def predict_agl_tiled(
             )
         stitcher.add_tile(window, pred)
         done += 1
+        if progress_cb is not None:
+            progress_cb(done, n_tiles)
         if n_tiles > 1 and (done % 25 == 0 or done == n_tiles):
             log(f"[i] terraheight: tile {done}/{n_tiles}")
 
@@ -600,6 +603,7 @@ def run_terraheight_inference(
     ground_elev: float | None = None,
     write_files: bool = True,
     should_cancel: Callable[[], bool] | None = None,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> dict:
     """TerraHeight-S end-to-end run -> scene payload (build_scene_payload).
 
@@ -657,6 +661,7 @@ def run_terraheight_inference(
         overlap=overlap,
         fp16=fp16,
         should_cancel=should_cancel,
+        progress_cb=progress_cb,
     )
     inference_sec = time.perf_counter() - infer_t0
     peak_vram_mb = None

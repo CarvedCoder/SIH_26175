@@ -49,9 +49,9 @@ function Tag({ label, positive }) {
       fontFamily: 'var(--dw-font-data)',
       fontSize: 12,
       letterSpacing: '0.04em',
-      background: positive ? 'rgba(34,197,94,0.1)' : 'rgba(107,125,150,0.1)',
+      background: positive ? 'rgba(74,222,128,0.1)' : 'rgba(107,125,150,0.1)',
       color: positive ? 'var(--dw-confirm)' : 'var(--dw-fg-muted)',
-      border: `1px solid ${positive ? 'rgba(34,197,94,0.25)' : 'var(--dw-rim)'}`,
+      border: `1px solid ${positive ? 'rgba(74,222,128,0.25)' : 'var(--dw-rim)'}`,
     }}>
       {label}
     </span>
