@@ -128,7 +128,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
 
       {/* vehicle fleet selection */}
       <div style={{ marginBottom: 10 }}>
-        <div style={{ color: '#71717a', marginBottom: 4, fontSize: 10, letterSpacing: 1 }}>
+        <div style={{ color: 'var(--dw-fg-ghost)', marginBottom: 4, fontSize: 10, letterSpacing: 1 }}>
           FLEET
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -145,7 +145,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   cursor: 'pointer',
                   border: `1px solid ${on ? '#fafafa' : 'rgba(250,250,250,0.10)'}`,
                   background: on ? 'rgba(250,250,250,0.10)' : 'transparent',
-                  color: on ? '#fafafa' : '#71717a',
+                  color: on ? '#fafafa' : 'var(--dw-fg-ghost)',
                 }}
               >
                 {v.label}
@@ -163,7 +163,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
         <div style={{ color: '#d4d4d8' }}>
           Click the DESTINATION point…
           {vehicles.includes('rescue_chopper') && (
-            <span style={{ color: '#71717a' }}>
+            <span style={{ color: 'var(--dw-fg-ghost)' }}>
               {' '}the chopper will look for a landing zone near it.
             </span>
           )}
@@ -202,11 +202,11 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
               >
                 {meta.glyph} {meta.label}
               </span>
-              <span style={{ marginLeft: 'auto', color: '#a1a1aa' }}>{v.vehicle_label}</span>
+              <span style={{ marginLeft: 'auto', color: 'var(--dw-fg-muted)' }}>{v.vehicle_label}</span>
             </div>
 
             {v.reasons?.map((r, i) => (
-              <div key={i} style={{ marginTop: 4, color: '#a1a1aa' }}>
+              <div key={i} style={{ marginTop: 4, color: 'var(--dw-fg-muted)' }}>
                 • {r}
               </div>
             ))}
@@ -218,7 +218,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   display: 'grid',
                   gridTemplateColumns: '1fr 1fr',
                   gap: '2px 10px',
-                  color: '#a1a1aa',
+                  color: 'var(--dw-fg-muted)',
                 }}
               >
                 {v.path_length_m != null && (
@@ -267,7 +267,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   border: '1px solid rgba(161, 161, 170, 0.25)',
                 }}
               >
-                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#a1a1aa', letterSpacing: 0.8, marginBottom: 5 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--dw-fg-muted)', letterSpacing: 0.8, marginBottom: 5 }}>
                   ROUTE SEMANTICS
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -320,7 +320,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                   border: '1px solid rgba(161, 161, 170, 0.25)',
                 }}
               >
-                <div style={{ fontSize: 9.5, fontWeight: 700, color: '#a1a1aa', letterSpacing: 0.8, marginBottom: 5 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--dw-fg-muted)', letterSpacing: 0.8, marginBottom: 5 }}>
                   DAMAGE EXPOSURE
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}>
@@ -352,7 +352,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
                 <div style={{ fontWeight: 700, letterSpacing: 1, fontSize: 10 }}>
                   ⛉ LANDING ZONE (pix {v.landing_zone.pixel?.x}, {v.landing_zone.pixel?.y})
                 </div>
-                <div style={{ marginTop: 2, color: '#a1a1aa' }}>
+                <div style={{ marginTop: 2, color: 'var(--dw-fg-muted)' }}>
                   Slope {v.landing_zone.slope_deg}° ·
                   {' '}{v.landing_zone.distance_to_goal_m != null
                     ? `${fmtDistance(v.landing_zone.distance_to_goal_m)} from target`
@@ -377,7 +377,7 @@ const RouteAssist = forwardRef(function RouteAssist({ active = true }, ref) {
             marginTop: 10,
             paddingTop: 8,
             borderTop: '1px solid rgba(250,250,250,0.10)',
-            color: '#71717a',
+            color: 'var(--dw-fg-ghost)',
             fontSize: 10,
             lineHeight: 1.5,
           }}

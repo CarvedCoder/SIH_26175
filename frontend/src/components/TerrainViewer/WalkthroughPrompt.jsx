@@ -53,7 +53,7 @@ export default function WalkthroughPrompt({ cameraMode = 'orbit' }) {
         background: 'rgba(16, 16, 18, 0.90)',
         backdropFilter: 'blur(10px)',
         WebkitBackdropFilter: 'blur(10px)',
-        border: '1px solid var(--dw-rim, #27272a)',
+        border: '1px solid var(--dw-rim, #2e2e33)',
         borderRadius: 6,
         boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
         padding: '8px 14px',
@@ -75,14 +75,14 @@ export default function WalkthroughPrompt({ cameraMode = 'orbit' }) {
         }}>
           <MousePointerClick size={13} color="var(--dw-accent, #fafafa)" aria-hidden="true" />
           Walkthrough
-          <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: '0.02em', color: 'var(--dw-fg-muted, #a1a1aa)' }}>
+          <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: '0.02em', color: 'var(--dw-fg-muted, #b6b6bd)' }}>
             Click the terrain to capture the cursor
           </span>
         </span>
         <span style={{
           fontFamily: 'var(--dw-font-data, monospace)',
           fontSize: 10.5,
-          color: 'var(--dw-fg-ghost, #71717a)',
+          color: 'var(--dw-fg-ghost, #8d8d96)',
           letterSpacing: '0.04em',
           whiteSpace: 'nowrap',
         }}>

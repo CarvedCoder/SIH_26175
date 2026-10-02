@@ -8,7 +8,6 @@
 import { useCallback, useState } from 'react';
 import Header from '../components/common/Header.jsx';
 import PipelineProgress from '../components/Processing/PipelineProgress.jsx';
-import ProcessingStatus from '../components/Processing/ProcessingStatus.jsx';
 import { useApp } from '../store/appStore.jsx';
 import { useProcessing } from '../hooks/useProcessing.js';
 
@@ -61,21 +60,45 @@ export default function Processing() {
 
         {/* Scene identifier */}
         {scene && (
-          <p style={{
-            fontFamily: 'var(--dw-font-data)',
-            fontSize: 13.5,
-            fontWeight: 500,
-            color: 'var(--dw-fg)',
-            letterSpacing: '0.04em',
-            margin: 0,
-          }}>
-            {scene.filename}
-          </p>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 12px',
+              background: 'var(--dw-panel)',
+              border: '1px solid var(--dw-rim)',
+              borderRadius: '999px',
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: 'var(--dw-live)',
+                flexShrink: 0,
+                animation: 'dw-pulse 1.2s ease-in-out infinite',
+              }}
+            />
+            <span style={{
+              fontFamily: 'var(--dw-font-data)',
+              fontSize: 13,
+              fontWeight: 500,
+              color: 'var(--dw-fg)',
+              letterSpacing: '0.04em',
+              maxWidth: 420,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}>
+              {scene.filename}
+            </span>
+          </div>
         )}
 
         <PipelineProgress />
-
-        <ProcessingStatus />
 
         {/* Cancel — request, confirm, and cancellation-pending states */}
         {cancelling ? (
@@ -86,8 +109,8 @@ export default function Processing() {
               alignItems: 'center',
               gap: 10,
               padding: '10px 14px',
-              background: 'rgba(245, 158, 11, 0.08)',
-              border: '1px solid rgba(245, 158, 11, 0.25)',
+              background: 'rgba(251, 191, 36, 0.08)',
+              border: '1px solid rgba(251, 191, 36, 0.25)',
               borderRadius: 'var(--dw-radius-sm)',
               maxWidth: 520,
             }}
@@ -214,8 +237,8 @@ function FailurePanel({ error }) {
         width: '100%',
         maxWidth: 520,
         padding: '20px 24px',
-        background: 'rgba(239,68,68,0.06)',
-        border: '1px solid rgba(239,68,68,0.25)',
+        background: 'rgba(248,113,113,0.06)',
+        border: '1px solid rgba(248,113,113,0.25)',
         borderRadius: 'var(--dw-radius)',
         display: 'flex',
         flexDirection: 'column',

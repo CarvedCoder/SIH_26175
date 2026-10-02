@@ -62,8 +62,8 @@ export default function DisasterAssessmentPanel({
       {/* Disclaimer Badge (§23) */}
       <div style={{
         padding: '10px 12px',
-        background: 'rgba(245, 158, 11, 0.08)',
-        border: '1px solid rgba(245, 158, 11, 0.25)',
+        background: 'rgba(251, 191, 36, 0.08)',
+        border: '1px solid rgba(251, 191, 36, 0.25)',
         borderRadius: 'var(--dw-radius-sm)',
         display: 'flex',
         flexDirection: 'column',
@@ -169,8 +169,8 @@ export default function DisasterAssessmentPanel({
               <div style={{
                 marginTop: 4,
                 padding: '6px 8px',
-                background: isSteep ? 'rgba(245, 158, 11, 0.1)' : isLowBasin ? 'rgba(250, 250, 250, 0.08)' : 'transparent',
-                border: '1px solid ' + (isSteep ? 'rgba(245, 158, 11, 0.25)' : isLowBasin ? 'rgba(250, 250, 250, 0.28)' : 'var(--dw-rim)'),
+                background: isSteep ? 'rgba(251, 191, 36, 0.1)' : isLowBasin ? 'rgba(250, 250, 250, 0.08)' : 'transparent',
+                border: '1px solid ' + (isSteep ? 'rgba(251, 191, 36, 0.25)' : isLowBasin ? 'rgba(250, 250, 250, 0.28)' : 'var(--dw-rim)'),
                 borderRadius: 'var(--dw-radius-sm)',
                 fontSize: 12,
                 fontFamily: 'var(--dw-font-ui)',
@@ -445,8 +445,8 @@ export default function DisasterAssessmentPanel({
           <div style={{
             marginTop: 8,
             padding: '8px 10px',
-            background: 'rgba(245, 158, 11, 0.05)',
-            border: '1px solid rgba(245, 158, 11, 0.15)',
+            background: 'rgba(251, 191, 36, 0.05)',
+            border: '1px solid rgba(251, 191, 36, 0.15)',
             borderRadius: 'var(--dw-radius-sm)',
             fontFamily: 'var(--dw-font-ui)',
             fontSize: 11,

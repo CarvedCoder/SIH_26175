@@ -372,7 +372,9 @@ class DepthWizardPredictor:
         return self.model.architecture
 
     # ------------------------------------------------------------------
-    def _backbone_raw_per_tile(self, rgb_u8: np.ndarray) -> np.ndarray:
+    def _backbone_raw_per_tile(
+        self, rgb_u8: np.ndarray, progress_cb: Callable[[int, int], None] | None = None
+    ) -> np.ndarray:
         """RAW relative depth for multi-tile images, computed per 1024 window.
 
         Mirrors the cache-builder recipe (precompute_depth.py): the backbone
@@ -384,18 +386,25 @@ class DepthWizardPredictor:
         """
         h, w = rgb_u8.shape[:2]
         cfg = TilingConfig(tile_size=TILE)
+        windows = list(iter_tile_windows(h, w, cfg))
         stitcher = OverlapStitcher(h, w, cfg)
-        for window in iter_tile_windows(h, w, cfg):
+        for done, window in enumerate(windows, start=1):
             tile_rgb = _window_tile(rgb_u8, window, TILE)
             raw_tile = self._backbone.raw_depth(tile_rgb)
             stitcher.add_tile(window, raw_tile)
+            if progress_cb is not None:
+                progress_cb(done, len(windows))
         out = stitcher.finalize()
         if np.isnan(out).any():
             raise RuntimeError("backbone returned NaN raw depth in a covered window")
         return out
 
     def resolve_dn(
-        self, rgb_u8: np.ndarray, stem: str = "", dn_path: Path | str | None = None
+        self,
+        rgb_u8: np.ndarray,
+        stem: str = "",
+        dn_path: Path | str | None = None,
+        progress_cb: Callable[[int, int], None] | None = None,
     ) -> DnResolution:
         h, w = rgb_u8.shape[:2]
 
@@ -431,7 +440,7 @@ class DepthWizardPredictor:
             # granularity: multi-tile scenes get per-tile backbone passes at
             # the SAME effective resolution the net was calibrated on.
             if h > TILE or w > TILE:
-                raw = self._backbone_raw_per_tile(rgb_u8)
+                raw = self._backbone_raw_per_tile(rgb_u8, progress_cb=progress_cb)
             else:
                 raw = self._backbone.raw_depth(rgb_u8)
             return DnResolution(raw=raw, source="live")
@@ -447,6 +456,7 @@ class DepthWizardPredictor:
     def predict(
         self, rgb_u8: np.ndarray, raw_dn: np.ndarray, mode: str = "auto",
         should_cancel: Callable[[], bool] | None = None,
+        progress_cb: Callable[[int, int], None] | None = None,
     ) -> np.ndarray:
         """AGL metres [H,W] float32. Modes: auto|crop|resize|tiles.
 
@@ -466,12 +476,14 @@ class DepthWizardPredictor:
                  stitched (depthwizard.tiling) — seam-free, full coverage.
         """
         return self._predict_impl(
-            rgb_u8, raw_dn, mode, want_semantics=False, should_cancel=should_cancel
+            rgb_u8, raw_dn, mode, want_semantics=False,
+            should_cancel=should_cancel, progress_cb=progress_cb,
         )
 
     def predict_with_semantics(
         self, rgb_u8: np.ndarray, raw_dn: np.ndarray, mode: str = "auto",
         should_cancel: Callable[[], bool] | None = None,
+        progress_cb: Callable[[int, int], None] | None = None,
     ) -> dict:
         """Like predict(), but ALSO returns predicted semantic probabilities.
 
@@ -485,7 +497,8 @@ class DepthWizardPredictor:
         returns True, InferenceCancelled is raised (never silently ignored).
         """
         return self._predict_impl(
-            rgb_u8, raw_dn, mode, want_semantics=True, should_cancel=should_cancel
+            rgb_u8, raw_dn, mode, want_semantics=True,
+            should_cancel=should_cancel, progress_cb=progress_cb,
         )
 
     def _predict_impl(
@@ -495,6 +508,7 @@ class DepthWizardPredictor:
         mode: str = "auto",
         want_semantics: bool = False,
         should_cancel: Callable[[], bool] | None = None,
+        progress_cb: Callable[[int, int], None] | None = None,
     ):
         from .imgio import validate_rgb_u8
 
@@ -547,11 +561,11 @@ class DepthWizardPredictor:
 
         if mode == "tiles":
             cfg = TilingConfig(tile_size=TILE)
-            windows = iter_tile_windows(h, w, cfg)
+            windows = list(iter_tile_windows(h, w, cfg))
             stitcher = OverlapStitcher(h, w, cfg)
             sem_stitchers: list[OverlapStitcher] | None = []
             print(f"[i] tiles: {len(windows)} windows of {TILE} (overlap {cfg.overlap})")
-            for window in windows:
+            for done, window in enumerate(windows, start=1):
                 if should_cancel is not None and should_cancel():
                     raise InferenceCancelled(
                         "cancelled between tiles"
@@ -565,6 +579,8 @@ class DepthWizardPredictor:
                 dn_n, stats = minmax_normalize_with_stats(tile_dn)
                 pred, sem = _forward(dn_n, tile_rgb, stats)
                 stitcher.add_tile(window, pred)
+                if progress_cb is not None:
+                    progress_cb(done, len(windows))
                 if want_semantics and sem is not None:
                     if not sem_stitchers:
                         sem_stitchers = [
@@ -695,6 +711,7 @@ def run_inference(
     terraheight_tile_size: int | None = None,
     terraheight_overlap: int | None = None,
     terraheight_fp16: bool = False,
+    progress_cb: Callable[[int, int], None] | None = None,
 ) -> dict:
     """Full inference run -> scene payload dict (see build_scene_payload).
 
@@ -720,6 +737,10 @@ def run_inference(
         should_cancel         cooperative cancel hook — polled between tiles
                               and at every stage boundary; True raises
                               InferenceCancelled (service-backed cancellation)
+        progress_cb           optional (done, total) hook called after each
+                              tiled forward (backbone Dn windows, prediction
+                              tiles, TerraHeight AGL tiles) — lets callers
+                              surface REAL tile progress; never fabricated
 
     Order is FROZEN: height_raw -> refine -> (anchor) -> write. The raw
     heights are always preserved (agl_raw.npy) and the anchored DSM is
@@ -769,6 +790,7 @@ def run_inference(
             ground_elev=ground_elev,
             write_files=write_files,
             should_cancel=should_cancel,
+            progress_cb=progress_cb,
         )
 
     predictor = DepthWizardPredictor(
@@ -794,7 +816,9 @@ def run_inference(
     if _cancelled():
         raise InferenceCancelled("cancelled before inference started")
 
-    resolution = predictor.resolve_dn(rgb_u8, stem=input_path.stem, dn_path=dn_path)
+    resolution = predictor.resolve_dn(
+        rgb_u8, stem=input_path.stem, dn_path=dn_path, progress_cb=progress_cb
+    )
     print(f"[i] Dn source: {resolution.source}")
 
     pp_active = postprocess not in (None, "", "none")
@@ -809,7 +833,8 @@ def run_inference(
 
     if pp_active or has_sem_head:
         out = predictor.predict_with_semantics(
-            rgb_u8, resolution.raw, mode=mode, should_cancel=should_cancel
+            rgb_u8, resolution.raw, mode=mode, should_cancel=should_cancel,
+            progress_cb=progress_cb,
         )
         if pp_active:
             from .postprocess import config_from_preset, refine_agl
@@ -872,7 +897,8 @@ def run_inference(
             sem_probs = out.get("sem_probs")
     else:
         dsm = predictor.predict(
-            rgb_u8, resolution.raw, mode=mode, should_cancel=should_cancel
+            rgb_u8, resolution.raw, mode=mode, should_cancel=should_cancel,
+            progress_cb=progress_cb,
         )
 
     if _cancelled():

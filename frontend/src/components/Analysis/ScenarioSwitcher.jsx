@@ -55,8 +55,8 @@ export default function ScenarioSwitcher({
             fontFamily: 'var(--dw-font-data)',
             fontSize: 10.5,
             color: 'var(--dw-live)',
-            background: 'rgba(245, 158, 11, 0.08)',
-            border: '1px solid rgba(245, 158, 11, 0.25)',
+            background: 'rgba(251, 191, 36, 0.08)',
+            border: '1px solid rgba(251, 191, 36, 0.25)',
             padding: '2px 6px',
             borderRadius: 'var(--dw-radius-sm)',
           }}>
@@ -141,8 +141,8 @@ export default function ScenarioSwitcher({
       {scenario === 'disaster' && (
         <div style={{
           padding: '8px 10px',
-          background: 'rgba(245, 158, 11, 0.05)',
-          border: '1px solid rgba(245, 158, 11, 0.18)',
+          background: 'rgba(251, 191, 36, 0.05)',
+          border: '1px solid rgba(251, 191, 36, 0.18)',
           borderRadius: 'var(--dw-radius-sm)',
           fontFamily: 'var(--dw-font-ui)',
           fontSize: 12,

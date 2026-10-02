@@ -19,21 +19,21 @@ The signature element is the **minimap as live mirror**: the uploaded photograph
 | Ground | `--dw-void` | `#09090b` | Page / canvas background |
 | Panel | `--dw-panel` | `#101012` | Side panels, bottom toolbar, header |
 | Surface | `--dw-surface` | `#18181b` | Cards, input fields, popovers |
-| Hover | `--dw-hover` | `#1f1f23` | One-step hover lightening on surfaces |
-| Rim | `--dw-rim` | `#27272a` | Thin 1px borders, dividers |
-| Rim / Strong | `--dw-rim-strong` | `#3f3f46` | Hover borders, secondary control outlines |
+| Hover | `--dw-hover` | `#232327` | One-step hover lightening on surfaces |
+| Rim | `--dw-rim` | `#2e2e33` | Thin 1px borders, dividers |
+| Rim / Strong | `--dw-rim-strong` | `#4a4a52` | Hover borders, secondary control outlines |
 | Text / Primary | `--dw-fg` | `#fafafa` | Body copy, panel labels |
-| Text / Secondary | `--dw-fg-muted` | `#a1a1aa` | Metadata, secondary labels |
-| Text / Tertiary | `--dw-fg-ghost` | `#71717a` | Disabled, placeholder |
+| Text / Secondary | `--dw-fg-muted` | `#b6b6bd` | Metadata, secondary labels |
+| Text / Tertiary | `--dw-fg-ghost` | `#8d8d96` | Disabled, placeholder |
 | Text / Inverted | `--dw-fg-invert` | `#09090b` | Text on ivory primary surfaces |
 | Accent / Instrument | `--dw-accent` | `#fafafa` | Active states, selected elements, progress indicators |
 | Accent / Wash | `--dw-accent-soft` | `rgba(250,250,250,0.10)` | Subtle active backgrounds, hover fills |
-| Accent / Confirm | `--dw-confirm` | `#22c55e` | Processing complete, validation pass |
-| Accent / Live | `--dw-live` | `#f59e0b` | Active processing stage, warnings |
-| Accent / Fault | `--dw-fault` | `#ef4444` | Errors, failed stages |
+| Accent / Confirm | `--dw-confirm` | `#4ade80` | Processing complete, validation pass |
+| Accent / Live | `--dw-live` | `#fbbf24` | Active processing stage, warnings |
+| Accent / Fault | `--dw-fault` | `#f87171` | Errors, failed stages |
 | Terrain / Probe | `--dw-probe` | `#fafafa` | Elevation probe crosshair, measurement markers |
 | Minimap / Cone | `--dw-fov` | `rgba(250,250,250,0.16)` | FOV cone fill on minimap |
-| Minimap / Marker | `--dw-marker` | `#f59e0b` | Camera position dot |
+| Minimap / Marker | `--dw-marker` | `#fbbf24` | Camera position dot |
 
 Colour strategy: **Monochrome ivory (restrained)**. Neutral graphite surfaces carry the UI with no hue; interactive states are luminance, not colour — the ivory accent (`--dw-accent`) is a white-filled button, a white border, a white marker. Primary actions invert: ivory surface, near-black text (`--dw-fg-invert`). Fault, confirm, and live are the only hues in the chrome, reserved strictly for status; the remaining colour on screen belongs to the data itself (imagery, colormaps, semantic classes).
 
@@ -83,7 +83,8 @@ Structure is functional: the sidebar labels its own sections with a compact uppe
 - **Input fields:** `border-radius: 4px`, `border: 1px solid --dw-rim`, `background: --dw-surface`. Focus: `border-color: --dw-accent`.
 - **Sliders:** Custom track 2px high, `--dw-rim` unfilled, `--dw-accent` filled. Thumb 12px, `--dw-fg`, no border-radius on the track container.
 - **Status dots:** 6px circle: `--dw-confirm` (online), `--dw-live` (processing), `--dw-fault` (error), `--dw-fg-ghost` (unknown).
-- **Pipeline stages:** monospace label, status icon left (✓ / ● / ○), no card chrome — a list, not a set of cards.
+- **Pipeline stages:** monospace label, status icon left (✓ / ● / ○), no card chrome — a list, not a set of cards. A 1px `--dw-rim` connector rail runs through the icon column.
+- **Progress bar:** 4px track, `--dw-rim` unfilled, status-coloured fill (`--dw-live` while processing, `--dw-confirm` complete, `--dw-fault` failed). Width is driven ONLY by backend-reported `job.progress` — never animated synthetically; the bar never moves backwards.
 - **Minimap:** `border: 1px solid --dw-rim`, `border-radius: 4px`, canvas overlay for FOV cone + markers drawn directly in 2D canvas context.
 - **Layer control:** radio group, no cards — a labelled list with a left indicator dot, `--dw-accent` when active.
 - **Measurement readouts:** two-column table, left column `--dw-fg-muted` (label), right column data face (value + unit).
@@ -94,7 +95,7 @@ Structure is functional: the sidebar labels its own sections with a compact uppe
 
 Single authored moment per surface:
 
-- **Processing view:** stage items animate in as each stage completes (slide + fade, 200ms `ease-out`). Tile progress counter counts up numerically — no progress bar, just the number.
+- **Processing view:** the progress bar eases to each newly reported backend percentage over 600ms `ease-out`; stage items animate in as each stage completes (slide + fade, 200ms `ease-out`). The tile counter counts up numerically from the backend's live message.
 - **Terrain load:** mesh fades in from flat plane to full displacement over 600ms on first load (vertex shader lerp).
 - **Layer switch:** active texture cross-fades on the terrain mesh over 250ms.
 - **Minimap marker:** position interpolated with lerp(0.15) every frame — smooth, instrument-needle feel.

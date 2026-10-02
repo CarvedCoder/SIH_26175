@@ -19,7 +19,7 @@
  * DESIGN.md:
  *   - 200×200px, top-left of terrain viewport
  *   - border: 1px solid --dw-rim, border-radius: 4px
- *   - Camera position in amber (--dw-marker: #f59e0b)
+ *   - Camera position in amber (--dw-marker: #fbbf24)
  *   - FOV cone: rgba(250,250,250,0.16) fill (--dw-fov)
  *   - Marker interpolated with lerp(0.15) per frame (instrument-needle feel)
  *   - No backdrop blur on minimap itself — blur only inside canvas overlay elements
@@ -270,7 +270,7 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMe
         const arrowLen = 12;
         const ax = yaw - Math.PI / 2; // offset so 0 = north = up on canvas
         ctx.save();
-        ctx.strokeStyle = '#f59e0b'; // --dw-marker
+        ctx.strokeStyle = '#fbbf24'; // --dw-marker
         ctx.lineWidth = 1.5;
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -305,12 +305,12 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMe
       // Outer ring
       ctx.beginPath();
       ctx.arc(mx, my, 5.5, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(245,158,11,0.2)';
+      ctx.fillStyle = 'rgba(251,191,36,0.2)';
       ctx.fill();
       // Inner dot
       ctx.beginPath();
       ctx.arc(mx, my, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = '#f59e0b'; // --dw-marker
+      ctx.fillStyle = '#fbbf24'; // --dw-marker
       ctx.fill();
       ctx.restore();
     }

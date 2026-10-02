@@ -43,7 +43,7 @@ export default function ApiErrorAlert({
         width: '100%',
         maxWidth: 580,
         background: 'var(--dw-panel)',
-        border: '1px solid rgba(239,68,68,0.3)',
+        border: '1px solid rgba(248,113,113,0.3)',
         borderRadius: 'var(--dw-radius-md)',
         padding: '16px 20px',
         display: 'flex',
@@ -77,9 +77,9 @@ export default function ApiErrorAlert({
           fontSize: 12,
           color: 'var(--dw-fault)',
           padding: '2px 8px',
-          background: 'rgba(239,68,68,0.08)',
+          background: 'rgba(248,113,113,0.08)',
           borderRadius: 3,
-          border: '1px solid rgba(239,68,68,0.2)',
+          border: '1px solid rgba(248,113,113,0.2)',
         }}>
           {diagnosis.code}
         </span>

@@ -105,7 +105,7 @@ export default function Joystick({ onMove, onVertical }) {
           onPointerCancel={() => pressVertical(0)}
           style={{
             width: 44, height: 36, borderRadius: 8,
-            background: vertical === 1 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(24, 24, 27, 0.75)',
+            background: vertical === 1 ? 'rgba(251, 191, 36, 0.25)' : 'rgba(24, 24, 27, 0.75)',
             border: '1px solid rgba(161, 161, 170, 0.35)',
             color: '#d4d4d8', fontSize: 16, cursor: 'pointer',
             ...controlStyle,
@@ -120,7 +120,7 @@ export default function Joystick({ onMove, onVertical }) {
           onPointerCancel={() => pressVertical(0)}
           style={{
             width: 44, height: 36, borderRadius: 8,
-            background: vertical === -1 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(24, 24, 27, 0.75)',
+            background: vertical === -1 ? 'rgba(251, 191, 36, 0.25)' : 'rgba(24, 24, 27, 0.75)',
             border: '1px solid rgba(161, 161, 170, 0.35)',
             color: '#d4d4d8', fontSize: 16, cursor: 'pointer',
             ...controlStyle,
@@ -164,7 +164,7 @@ export default function Joystick({ onMove, onVertical }) {
           width: 44, height: 44,
           transform: 'translate(-50%, -50%)',
           borderRadius: '50%',
-          background: 'rgba(245, 158, 11, 0.85)',
+          background: 'rgba(251, 191, 36, 0.85)',
           boxShadow: '0 2px 8px rgba(0, 0, 0, 0.45)',
           pointerEvents: 'none',
         }} />

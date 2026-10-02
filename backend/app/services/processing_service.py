@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -465,6 +466,53 @@ class ProcessingService:
         job = self.jobs.get_job(job_id)
         return bool(job and job.cancel_requested)
 
+    # -- live progress ---------------------------------------------------------
+
+    #: Overall job progress band owned by tiled inference (5% -> 80%).
+    _INFERENCE_PROGRESS_START = 5.0
+    _INFERENCE_PROGRESS_SPAN = 75.0
+    #: Minimum seconds between persisted progress writes (polls read every 2.5s).
+    _PROGRESS_EMIT_INTERVAL = 0.5
+
+    def _progress_reporter(self, job_id: str):
+        """Map inference tile callbacks -> durable job progress.
+
+        ``run_inference`` reports (done, total) after every tiled forward
+        (backbone Dn windows, prediction tiles, TerraHeight AGL tiles).
+        That fraction is mapped onto the 5%–80% band, clamped monotonic
+        (the backbone pass and the prediction pass each restart at
+        done=1), and persisted at most twice a second. No fabricated
+        percentages: every emitted value comes from real completed tiles.
+        """
+        state = {
+            "last_emit": 0.0,
+            "last_progress": self._INFERENCE_PROGRESS_START,
+        }
+
+        def report(done: int, total: int) -> None:
+            if total <= 0 or done <= 0:
+                return
+            now = time.monotonic()
+            if done < total and now - state["last_emit"] < self._PROGRESS_EMIT_INTERVAL:
+                return
+            state["last_emit"] = now
+            frac = min(done / total, 1.0)
+            progress = max(
+                self._INFERENCE_PROGRESS_START + frac * self._INFERENCE_PROGRESS_SPAN,
+                state["last_progress"],
+            )
+            state["last_progress"] = progress
+            try:
+                self.jobs.update_job(
+                    job_id,
+                    progress=round(progress, 1),
+                    message=f"Tile {done} / {total}",
+                )
+            except Exception:  # noqa: BLE001 — progress must never kill a job
+                logger.warning("progress update failed for job %s", job_id)
+
+        return report
+
     # -- processing -----------------------------------------------------------
 
     def process_scene(
@@ -485,6 +533,14 @@ class ProcessingService:
         process_dir.mkdir(parents=True, exist_ok=True)
 
         checkpoint, architecture = self._resolve_checkpoint(architecture, allow_download=True)
+
+        self.jobs.update_job(
+            job_id,
+            status="processing",
+            stage="preprocessing",
+            progress=2.0,
+            message="Preparing input & loading checkpoint",
+        )
 
         self.jobs.update_job(
             job_id,
@@ -520,6 +576,7 @@ class ProcessingService:
                     ground_elev=ground_elev,
                     write_files=True,
                     should_cancel=lambda: self._check_cancelled(job_id),
+                    progress_cb=self._progress_reporter(job_id),
                     **self._inference_kwargs(),
                 )
             except InferenceCancelled:
@@ -540,6 +597,9 @@ class ProcessingService:
         # Live validation: if the scene carries a ground-truth reference
         # raster, produce reference.npy / validation.json / error_map.png
         # NOW — get_validation only reports what actually exists on disk.
+        self.jobs.update_job(
+            job_id, progress=82.0, message="Writing validation artifacts"
+        )
         self._write_validation_artifacts(scene_id, input_path, output_dir)
 
         # ── Disaster assessment (optional, non-blocking) ──────────────
@@ -645,6 +705,7 @@ class ProcessingService:
                     architecture=architecture,
                     write_files=True,
                     should_cancel=lambda: self._check_cancelled(job_id),
+                    progress_cb=self._progress_reporter(job_id),
                     **self._inference_kwargs(),
                 )
             except InferenceCancelled:
