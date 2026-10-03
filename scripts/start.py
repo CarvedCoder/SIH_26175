@@ -684,7 +684,11 @@ def start_backend() -> None:
         "--port",
         str(backend_port()),
         "--reload",
-    ]   
+        # Watch ONLY backend sources: the default (whole repo) pulls
+        # node_modules/.venv into the watcher (~1 CPU core of churn) and
+        # lets runtime writes under data/ restart the backend mid-job.
+        "--reload-dir", "backend",
+    ]
 
     log(f"starting backend on :{backend_port()}…")
 
