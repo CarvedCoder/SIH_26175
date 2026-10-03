@@ -78,6 +78,10 @@ async def get_buildings3d_meta(scene_id: str):
         "ground_heightmap_url": _artifact_url(
             scene_id, "ground_heightmap.png", f"{base}/ground-heightmap"
         ) if reconstruction.get("has_ground") else None,
+        "has_clean": bool(reconstruction.get("has_clean")),
+        "clean_heightmap_url": _artifact_url(
+            scene_id, "clean_heightmap.png", f"{base}/clean-heightmap"
+        ) if reconstruction.get("has_clean") else None,
         "url": _artifact_url(scene_id, "buildings3d.json", f"{base}/buildings3d"),
         "preview_url": _artifact_url(
             scene_id, "buildings3d_preview.png", f"{base}/buildings3d-preview"

@@ -148,8 +148,8 @@ export class TerrainEngine {
     // Buildings-3D mode state: the ORIGINAL heightfield is preserved so
     // toggling off restores the full DSM relief (buildings included).
     this._savedHeightTiles = this.heightStreamer ? { streamer: this.heightStreamer } : null;
+    this._heightFields = {};
     this._originalHeightData = null;
-    this.groundHeightData = null;
     // True once an RGB/layer texture has been applied (drives hybrid view)
     this.textureReady = false;
     this.disposed = false;
@@ -217,52 +217,54 @@ export class TerrainEngine {
   }
 
   /**
-   * Provide the building-removed ground heightfield (normalized [0,1],
-   * SAME grid as the loaded height data) for the Buildings-3D mode.
-   * @param {Float32Array} data
+   * Register a named heightfield variant (normalized [0,1], SAME grid as
+   * the loaded height data):
+   *   'ground' — building-removed ground (Buildings-3D blocks mode)
+   *   'clean'  — elevated rendering with building tops LEVELLED to their
+   *              model-derived heights (Buildings-3D off state)
+   * @param {string} kind @param {Float32Array} data
    * @param {number} width @param {number} height
    * @returns {boolean} false when the grid does not match
    */
-  setGroundHeightField(data, width, height) {
-    const dw = width ?? this.dataset.width;
-    const dh = height ?? this.dataset.height;
-    if (!data || dw !== this.dataset.width || dh !== this.dataset.height) {
-      console.warn('[buildings3d] ground heightfield grid mismatch — flat fallback');
+  setHeightField(kind, data, width, height) {
+    if (!data || width !== this.dataset.width || height !== this.dataset.height) {
+      console.warn(`[buildings3d] ${kind} heightfield grid mismatch — variant unavailable`);
       return false;
     }
-    this.groundHeightData = data;
+    this._heightFields = this._heightFields || {};
+    this._heightFields[kind] = data;
     return true;
   }
 
-  get hasGroundHeightField() {
-    return !!this.groundHeightData;
+  hasHeightField(kind) {
+    return !!this._heightFields?.[kind];
   }
 
   /**
-   * Buildings-3D terrain mode. ON: the terrain renders from the
-   * building-removed ground field — ONLY the structures leave the relief;
-   * mountains/hills keep their elevation. OFF: the original DSM field
-   * (buildings back in the relief) is restored and all detection overlays
-   * drape it exactly as before.
-   * @param {boolean} on
-   * @returns {boolean} true when the heightfield was swapped
+   * Switch the rendered heightfield:
+   *   'ground' — flat ground under the 3D blocks (blocks mode)
+   *   'clean'  — elevated rendering, building tops LEVELLED to their
+   *              model-derived heights (the default off-state view)
+   *   'raw'    — the original DSM as predicted (fallback)
+   * Streaming is disabled for non-raw modes: streamed patches would
+   * re-introduce the raw bumps.
+   * @param {'ground'|'clean'|'raw'} mode
+   * @returns {boolean} true when the heightfield changed
    */
-  setBuildings3DTerrain(on) {
-    if (on) {
-      if (!this.groundHeightData) return false;
-      if (this.dataset.heightData === this.groundHeightData) return true;
-      if (!this._originalHeightData) this._originalHeightData = this.dataset.heightData;
-      this.dataset.heightData = this.groundHeightData;
-      this.lodManager.heightTiles = null; // streamed bumps would undo the swap
-      this.lodManager.resetTiles();
-      return true;
-    }
-    if (this._originalHeightData && this.dataset.heightData !== this._originalHeightData) {
-      this.dataset.heightData = this._originalHeightData;
-      this.lodManager.heightTiles = this._savedHeightTiles;
-      this.lodManager.resetTiles();
-    }
-    return false;
+  setTerrainHeightMode(mode) {
+    this._heightFields = this._heightFields || {};
+    if (!this._originalHeightData) this._originalHeightData = this.dataset.heightData;
+    const target = this._heightFields[mode] ?? this._originalHeightData;
+    if (this.dataset.heightData === target) return true;
+    this.dataset.heightData = target;
+    this.lodManager.heightTiles =
+      target === this._originalHeightData ? this._savedHeightTiles : null;
+    this.lodManager.resetTiles();
+    return true;
+  }
+
+  hasHeightField(kind) {
+    return !!this._heightFields?.[kind];
   }
 
   /**

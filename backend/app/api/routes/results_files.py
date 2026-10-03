@@ -31,6 +31,7 @@ _EXTRA_ALLOWED_FILES = {
     "rgb": ("rgb_preview.png",),
     "buildings3d": ("buildings3d.json",),
     "ground-heightmap": ("ground_heightmap.png",),
+    "clean-heightmap": ("clean_heightmap.png",),
     "buildings3d-preview": ("buildings3d_preview.png",),
     "error-map": (
         "error_map.png",

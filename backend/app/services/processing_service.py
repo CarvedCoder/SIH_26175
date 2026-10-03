@@ -1100,6 +1100,8 @@ class ProcessingService:
                 if dmg_conf_path.is_file():
                     damage_conf = np.load(dmg_conf_path).astype(np.float32)
 
+            from PIL import Image as _Image, ImageDraw as _ImageDraw
+
             from scipy import ndimage as _nd
 
             reconstruction = reconstruct_buildings_3d(
@@ -1275,6 +1277,61 @@ class ProcessingService:
             reconstruction["object_count"] = len(objects)
             reconstruction["fusion_extra_px"] = extra_count
 
+            # -- clean elevated heightfield: every reconstructed building's
+            # roof region is LEVELLED to its model-derived height (base +
+            # robust median), so the elevated rendering shows clean flat
+            # tops in the detected footprints instead of noisy per-pixel
+            # spikes. Streets/ground/mountains keep the raw DSM. This is
+            # the OFF-state rendering companion to the ground heightfield.
+            try:
+                clean_dsm = dsm.copy()
+                _draw_img = _Image.new("L", (dsm.shape[1], dsm.shape[0]), 0)
+                _dr = _ImageDraw.Draw(_draw_img)
+                for _b in reconstruction.get("buildings", []):
+                    _pts = [(float(x), float(y)) for x, y in _b.get("footprint_px", [])]
+                    if len(_pts) >= 3:
+                        _dr.polygon(_pts, outline=1, fill=1)
+                    for _lvl in _b.get("levels", []):
+                        _lp = [(float(x), float(y)) for x, y in _lvl.get("polygon_px", [])]
+                        if len(_lp) >= 3:
+                            _dr.polygon(_lp, outline=1, fill=1)
+                bmask_clean = np.asarray(_draw_img, dtype=bool)
+                if bmask_clean.any():
+                    for _b in reconstruction.get("buildings", []):
+                        _pts = [(float(x), float(y)) for x, y in _b.get("footprint_px", [])]
+                        if len(_pts) < 3:
+                            continue
+                        _img = _Image.new("L", (dsm.shape[1], dsm.shape[0]), 0)
+                        _ImageDraw.Draw(_img).polygon(_pts, outline=1, fill=1)
+                        _m = np.asarray(_img, dtype=bool)
+                        clean_dsm[_m] = _b["base_elevation_m"] + _b["height_m"]
+                        for _lvl in _b.get("levels", []):
+                            _lp = [(float(x), float(y)) for x, y in _lvl.get("polygon_px", [])]
+                            if len(_lp) >= 3:
+                                _li = _Image.new("L", (dsm.shape[1], dsm.shape[0]), 0)
+                                _ImageDraw.Draw(_li).polygon(_lp, outline=1, fill=1)
+                                _lm = np.asarray(_li, dtype=bool)
+                                clean_dsm[_lm] = _b["base_elevation_m"] + _lvl["height_m"]
+                    _lo = float(np.nanmin(dsm)) if np.isfinite(dsm).any() else 0.0
+                    _hi = float(np.nanmax(dsm)) if np.isfinite(dsm).any() else 1.0
+                    if _hi - _lo < 1e-6:
+                        _hi = _lo + 1.0
+                    _cnorm = np.clip(
+                        (np.nan_to_num(clean_dsm, nan=_lo) - _lo) / (_hi - _lo),
+                        0.0, 1.0,
+                    )
+                    _cimg = _Image.fromarray((_cnorm * 65535.0).astype(np.uint16))
+                    if max(_cimg.size) > 1024:
+                        _cimg = _cimg.resize(
+                            (int(_cimg.width * 1024 / max(_cimg.size)),
+                             int(_cimg.height * 1024 / max(_cimg.size))),
+                            _Image.LANCZOS,
+                        )
+                    _cimg.save(output_dir / "clean_heightmap.png")
+                    reconstruction["has_clean"] = True
+            except Exception as _clean_err:  # noqa: BLE001 — rendering nicety
+                logger.warning("clean heightfield generation failed: %s", _clean_err)
+
             with open(output_dir / "buildings3d.json", "w", encoding="utf-8") as f:
                 json.dump(reconstruction, f)
 
@@ -1306,6 +1363,7 @@ class ProcessingService:
                 "damage_classes": reconstruction.get("damage_classes", []),
                 "tree_count": int(reconstruction.get("tree_count", 0)),
                 "has_ground": bool(reconstruction.get("has_ground")),
+                "has_clean": bool(reconstruction.get("has_clean")),
             }
 
         except Exception as exc:
@@ -1332,6 +1390,7 @@ class ProcessingService:
             "heightmap.png",
             # Geometry-aware 3D building reconstruction artifacts
             "buildings3d.json", "buildings3d_preview.png", "ground_heightmap.png",
+            "clean_heightmap.png",
             # TerraHeight-S backend artifacts (AGL product + provenance)
             "terraheight_agl.tif", "terraheight_agl.npy",
             "terraheight_preview.png", "terraheight_meta.json",

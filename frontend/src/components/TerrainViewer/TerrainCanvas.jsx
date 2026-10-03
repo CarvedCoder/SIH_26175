@@ -335,7 +335,10 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           retryBuildings3D(g, g.scene, sceneId).then(() => {
             g.buildingsLayer?.setExaggeration(g.exaggeration ?? 1.0);
             g.buildingsLayer?.setVisible(true);
-            if (!g.engine.setBuildings3DTerrain(true)) {
+            if (g.engine.hasHeightField('ground')) {
+              g.engine.setTerrainHeightMode('ground');
+              liftCameraAboveSurface(g);
+            } else {
               g.engine.setElevationVisible(false);
             }
           });
@@ -347,12 +350,17 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       // leave the relief), falling back to the flat datum when no ground
       // field exists. OFF -> the original DSM returns with every detection
       // overlay (semantics, footprints, damage) draping it as before.
-      const swapped = g.engine?.setBuildings3DTerrain(!!enabled);
-      if (!swapped) {
-        g.engine?.setElevationVisible(!!enabled);
-      }
-      if (swapped && enabled) {
-        liftCameraAboveSurface(g);
+      if (enabled) {
+        if (g.engine?.hasHeightField('ground')) {
+          g.engine.setTerrainHeightMode('ground');
+          liftCameraAboveSurface(g);
+        } else {
+          g.engine?.setElevationVisible(true); // flat fallback (no ground field)
+        }
+      } else if (g.engine?.hasHeightField('clean')) {
+        g.engine.setTerrainHeightMode('clean'); // elevated, flat building tops
+      } else {
+        g.engine?.setElevationVisible(true);
       }
     },
     setSemanticLayerActive(active) {
@@ -1160,31 +1168,40 @@ async function loadBuildings3D(g, scene, sceneId) {
     // blocks and trees sit exactly on the surface, never floating.
     // Mountains/hills keep their elevation; only structures leave the
     // relief. Scenes without a ground field fall back to the flat datum.
+    // Heightfield variants (same grid as the terrain height data):
+    //   'ground' — building-removed ground for the blocks mode
+    //   'clean'  — elevated rendering with building tops LEVELLED to their
+    //              model-derived heights (the off-state view)
     if (data.has_ground && data.ground_heightmap_url) {
       try {
         const ground = await decodeHeightmap(
           resolveAssetUrl(data.ground_heightmap_url)
         );
-        if (ground.width === g.hmWidth && ground.height === g.hmHeight) {
-          g.engine.setGroundHeightField(ground.data, ground.width, ground.height);
-        } else {
-          console.warn(
-            `[buildings3d] ground grid ${ground.width}x${ground.height} != ` +
-            `terrain ${g.hmWidth}x${g.hmHeight} (hmW=${g.hmWidth}, hmH=${g.hmHeight}, ` +
-            `dsW=${g.engine.dataset.width}) — swap skipped`
-          );
-        }
+        g.engine.setHeightField('ground', ground.data, ground.width, ground.height);
       } catch (err) {
         console.warn('[buildings3d] ground heightfield unavailable:', err?.message ?? err);
       }
     }
+    if (data.has_clean && data.clean_heightmap_url) {
+      try {
+        const clean = await decodeHeightmap(
+          resolveAssetUrl(data.clean_heightmap_url)
+        );
+        g.engine.setHeightField('clean', clean.data, clean.width, clean.height);
+      } catch (err) {
+        console.warn('[buildings3d] clean heightfield unavailable:', err?.message ?? err);
+      }
+    }
 
     if (layerWillBeVisible(g.buildings3dEnabled)) {
-      if (!g.engine.setBuildings3DTerrain(true)) {
-        g.engine.setElevationVisible(false); // flat fallback (no ground field)
-      } else {
+      if (g.engine.hasHeightField('ground')) {
+        g.engine.setTerrainHeightMode('ground');
         liftCameraAboveSurface(g);
+      } else {
+        g.engine.setElevationVisible(false); // flat fallback (no ground field)
       }
+    } else if (g.engine.hasHeightField('clean')) {
+      g.engine.setTerrainHeightMode('clean'); // elevated, flat building tops
     }
 
     const layer = new BuildingsLayer(scene, g.engine.geoRef, (u, v) =>
