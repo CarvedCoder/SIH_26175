@@ -328,6 +328,19 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     setBuildings3DEnabled(enabled) {
       const g = glRef.current;
       g.buildings3dEnabled = !!enabled;
+      if (enabled && !g.buildingsLayer) {
+        // layer failed to mount earlier (network blip) — retry now
+        const sceneId = g.sceneId;
+        if (sceneId && g.engine) {
+          retryBuildings3D(g, g.scene, sceneId).then(() => {
+            g.buildingsLayer?.setExaggeration(g.exaggeration ?? 1.0);
+            g.buildingsLayer?.setVisible(true);
+            if (!g.engine.setBuildings3DTerrain(true)) {
+              g.engine.setElevationVisible(false);
+            }
+          });
+        }
+      }
       g.buildingsLayer?.setVisible(!!enabled);
       // Buildings-3D ON  -> the terrain renders from the building-removed
       // ground field (mountains keep their elevation; only structures
@@ -921,6 +934,7 @@ export default TerrainCanvas;
 /* ─── Async terrain data loader ────────────────────────────────────────── */
 
 async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
+  g.sceneId = sceneId;
   try {
     console.info('[terrain-engine] loading terrain metadata for', sceneId);
     const terrainMeta = await getTerrain(sceneId);
@@ -1154,5 +1168,17 @@ async function loadBuildings3D(g, scene, sceneId) {
       window.__b3dError = String(err?.stack ?? err?.message ?? err);
     }
     console.warn('[buildings3d] reconstruction layer unavailable:', err?.message ?? err);
+  }
+}
+
+/** Self-healing: a transient failure (object store blip, expired presign)
+ *  must not permanently lose the layer — the next toggle retries. */
+async function retryBuildings3D(g, scene, sceneId) {
+  if (g.buildingsLayer || g.buildings3dRetrying) return;
+  g.buildings3dRetrying = true;
+  try {
+    await loadBuildings3D(g, scene, sceneId);
+  } finally {
+    g.buildings3dRetrying = false;
   }
 }
