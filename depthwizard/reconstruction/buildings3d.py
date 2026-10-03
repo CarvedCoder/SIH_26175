@@ -875,6 +875,96 @@ def _as_single_polygon(geom):
     return None
 
 
+def fuse_building_candidates(dsm, primary_mask, *, rgb=None, ground_dsm=None,
+                             config=None):
+    """Recall-fusion detection pass (the 'detect EVERYTHING' layer).
+
+    The primary semantic/ONNX mask is the PRECISION source; this pass adds
+    RECALL: every region standing above the local ground that the primary
+    mask does not cover becomes a candidate — missed buildings, trees,
+    vehicles, containers. Candidates come from height discontinuities
+    (DSM − local ground), which is exactly where structure edges live;
+    an optional RGB frame adds a green-dominance check for vegetation.
+
+    Returns (extra_mask, objects):
+        extra_mask  bool [H,W] — additional building-candidate pixels
+                    (clusters large enough to be structures)
+        objects     list of {x_px, y_px, height_m, ground_elevation_m,
+                    kind: 'tree'|'object', pixel_count} — small compact
+                    clusters (canopies, vehicles, containers)
+    """
+    cfg = config or Building3DConfig()
+    h, w = dsm.shape[:2]
+    pm = primary_mask.astype(bool)
+    if pm.shape != (h, w):
+        raise ValueError("primary mask grid != DSM grid")
+
+    # local ground (same recipe as the stage's inpaint)
+    if ground_dsm is None:
+        med = float(np.nanmedian(dsm))
+        ground = ndimage.median_filter(np.nan_to_num(dsm, nan=med), size=64)
+    else:
+        ground = ground_dsm
+    rel = dsm - ground
+
+    structure = np.ones((3, 3), bool)
+    cand = (
+        np.isfinite(rel)
+        & (rel > 1.2)
+        & ~ndimage.binary_dilation(pm, structure=structure, iterations=2)
+    )
+    cand = ndimage.binary_opening(cand, structure=structure)
+    labels, n = ndimage.label(cand)
+    extra = np.zeros((h, w), dtype=bool)
+    objects = []
+    if not n:
+        return extra, objects
+
+    sizes = ndimage.sum_labels(np.ones_like(cand, np.int32), labels,
+                               np.arange(1, n + 1))
+
+    # green-dominance raster (when RGB exists) for tree vs object
+    green = None
+    if rgb is not None and rgb.shape[:2] == (h, w):
+        r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        green = (g > r * 1.05) & (g > b * 1.05) & (g > 40)
+
+    order = np.argsort(sizes)[::-1]
+    for idx in order:
+        comp = labels == (idx + 1)
+        area = int(sizes[idx])
+        vals = rel[comp]
+        vals = vals[np.isfinite(vals)]
+        if vals.size == 0:
+            continue
+        rel_h = float(np.median(vals))
+        if area >= cfg.min_area_px and rel_h > 1.5:
+            extra |= comp                      # missed building/structure
+        elif area >= 25 and 0.8 <= rel_h <= 12.0:
+            # small compact object: tree (canopy) or vehicle/container
+            core = ndimage.binary_erosion(comp, structure=structure)
+            use = core if core.sum() >= 12 else comp
+            ys, xs = np.nonzero(use)
+            cy, cx = int(ys.mean()), int(xs.mean())
+            kind = "object"
+            if green is not None:
+                gshare = float(green[comp].mean())
+                kind = "tree" if gshare > 0.25 else "object"
+            else:
+                # no RGB evidence: compact elevated clusters in residential
+                # aerial scenes are overwhelmingly tree canopies
+                kind = "tree" if rel_h > 1.6 else "object"
+            objects.append({
+                "x_px": round(float(xs.mean()), 1),
+                "y_px": round(float(ys.mean()), 1),
+                "height_m": round(rel_h, 2),
+                "ground_elevation_m": round(float(ground[cy, cx]), 2),
+                "kind": kind,
+                "pixel_count": area,
+            })
+    return extra, objects
+
+
 def reconstruct_buildings_3d(
     building_mask: np.ndarray,
     dsm: np.ndarray,
@@ -886,6 +976,7 @@ def reconstruct_buildings_3d(
     config: Building3DConfig | None = None,
     damage_labels: np.ndarray | None = None,
     damage_confidence: np.ndarray | None = None,
+    source_ref_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Full geometry-aware reconstruction -> JSON-serializable dict.
 
@@ -989,9 +1080,17 @@ def reconstruct_buildings_3d(
         footprint = _as_single_polygon(footprint) or footprint
         ext_px = [[round(float(x), 2), round(float(y), 2)]
                   for x, y in footprint.exterior.coords[:-1]]
+        # provenance: did the PRIMARY detector see this footprint, or is
+        # it a recall-fusion candidate (DSM elevation evidence only)?
+        if source_ref_mask is not None:
+            overlap = float((comp & source_ref_mask).sum()) / max(int(comp.sum()), 1)
+            comp_source = mask_source if overlap > 0.3 else "dsm_edge_fusion"
+        else:
+            comp_source = mask_source
+
         building: dict[str, Any] = {
             "id": len(buildings) + 1,
-            "mask_source": mask_source,
+            "mask_source": comp_source,
             "primitive": fit["primitive"],
             "confidence": round(confidence, 3),
             "confidence_parts": {

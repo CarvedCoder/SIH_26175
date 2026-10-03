@@ -171,7 +171,7 @@ export default function TerrainWorkspace() {
 
   // ── Disaster metadata & GeoJSON features ──
   const [buildingsMeta, setBuildingsMeta] = useState(null);
-  const [buildings3d, setBuildings3d] = useState({ available: false, count: 0, damageClassified: 0, damageClasses: [], treeCount: 0, enabled: true });
+  const [buildings3d, setBuildings3d] = useState({ available: false, count: 0, damageClassified: 0, damageClasses: [], treeCount: 0, objectCount: 0, fusionBuildings: 0, enabled: true });
   const [damageMeta, setDamageMeta]       = useState(null);
   const damageGeoJsonRef                  = useRef(null);
 
@@ -239,6 +239,8 @@ export default function TerrainWorkspace() {
           damageClassified: b3dMeta.damage_classified ?? 0,
           damageClasses: b3dMeta.damage_classes ?? [],
           treeCount: b3dMeta.tree_count ?? 0,
+          objectCount: b3dMeta.object_count ?? 0,
+          fusionBuildings: b3dMeta.fusion_buildings ?? 0,
           enabled: true, // auto-on when available; toggle lives in Layers
         });
       }
@@ -961,6 +963,28 @@ export default function TerrainWorkspace() {
                   Trees ({buildings3d.treeCount}) — estimated height
                 </span>
               </div>
+            )}
+            {(buildings3d.objectCount ?? 0) > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  width: 10, height: 10, borderRadius: 2,
+                  background: '#9aa7b8', flexShrink: 0,
+                }} />
+                <span style={{
+                  fontFamily: 'var(--dw-font-ui)', fontSize: 12,
+                  color: 'var(--dw-fg)',
+                }}>
+                  Small objects ({buildings3d.objectCount})
+                </span>
+              </div>
+            )}
+            {(buildings3d.fusionBuildings ?? 0) > 0 && (
+              <p style={{
+                fontFamily: 'var(--dw-font-data)', fontSize: 10.5,
+                color: 'var(--dw-fg-ghost)', margin: 0,
+              }}>
+                +{buildings3d.fusionBuildings} recovered by DSM-edge fusion
+              </p>
             )}
             <p style={{
               fontFamily: 'var(--dw-font-data)', fontSize: 10.5,

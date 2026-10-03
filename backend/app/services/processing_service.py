@@ -1114,6 +1114,71 @@ class ProcessingService:
                 damage_confidence=damage_conf,
             )
 
+            # -- recall-fusion pass: catch structures the primary detector
+            # missed (DSM elevation evidence + optional RGB), and small
+            # compact objects (tree canopies, vehicles, containers).
+            # The reconstruction is re-run on the FUSED mask when the pass
+            # adds candidates, so missed buildings go through the exact
+            # same regularization + fitting + DSM-height path.
+            try:
+                from depthwizard.reconstruction import fuse_building_candidates
+
+                bmask_bool = building_mask.astype(bool)
+                _med = float(np.nanmedian(dsm))
+                ground_est = _nd.median_filter(
+                    np.nan_to_num(dsm, nan=_med), size=64
+                )
+                rgb_frame = None
+                try:
+                    from backend.app.application.scenes.service import (
+                        scene_service,
+                    )
+
+                    _input = scene_service.find_scene_input(scene_id)
+                    if _input is not None:
+                        import rasterio
+
+                        with rasterio.open(_input) as _ds:
+                            _arr = _ds.read(list(range(1, min(3, _ds.count) + 1)))
+                        rgb_frame = np.moveaxis(_arr, 0, -1).astype(np.float32)
+                        if rgb_frame.shape[:2] != dsm.shape[:2]:
+                            from PIL import Image as _Image
+
+                            rgb_frame = np.asarray(
+                                _Image.fromarray(rgb_frame.astype(np.uint8)).resize(
+                                    (dsm.shape[1], dsm.shape[0]), _Image.BILINEAR
+                                ),
+                                dtype=np.float32,
+                            )
+                except Exception as _rgb_err:
+                    logger.info("fusion pass without RGB: %s", _rgb_err)
+
+                extra_mask, objects = fuse_building_candidates(
+                    dsm.astype(np.float32),
+                    building_mask,
+                    rgb=rgb_frame,
+                    config=self._building3d_config(),
+                )
+                extra_count = int(extra_mask.sum())
+                if extra_count > 0:
+                    fused = np.logical_or(building_mask.astype(bool), extra_mask)
+                    reconstruction = reconstruct_buildings_3d(
+                        fused.astype(np.uint8),
+                        dsm.astype(np.float32),
+                        confidence_raster=confidence,
+                        mask_source=mask_source,
+                        crs=crs,
+                        transform=transform,
+                        config=self._building3d_config(),
+                        damage_labels=damage_labels,
+                        damage_confidence=damage_conf,
+                        source_ref_mask=bmask_bool,
+                    )
+            except Exception as _fus_err:  # noqa: BLE001 — recall is additive
+                logger.warning("fusion detection pass failed: %s", _fus_err)
+                objects = []
+                extra_count = 0
+
             # -- ground DSM: building regions replaced by their nearest
             # surrounding ground so the Buildings-3D mode can remove ONLY
             # the structures from the relief while mountains/hills keep
@@ -1206,6 +1271,9 @@ class ProcessingService:
             reconstruction["trees"] = trees
             reconstruction["tree_count"] = len(trees)
             reconstruction["trees_source"] = "heuristic_greenery_height"
+            reconstruction["objects"] = objects
+            reconstruction["object_count"] = len(objects)
+            reconstruction["fusion_extra_px"] = extra_count
 
             with open(output_dir / "buildings3d.json", "w", encoding="utf-8") as f:
                 json.dump(reconstruction, f)

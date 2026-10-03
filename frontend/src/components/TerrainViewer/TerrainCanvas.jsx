@@ -1144,6 +1144,9 @@ async function loadBuildings3D(g, scene, sceneId) {
       `(heights from ${data.height_source ?? 'predicted DSM'})`
     );
   } catch (err) {
+    if (typeof window !== 'undefined') {
+      window.__b3dError = String(err?.stack ?? err?.message ?? err);
+    }
     console.warn('[buildings3d] reconstruction layer unavailable:', err?.message ?? err);
   }
 }

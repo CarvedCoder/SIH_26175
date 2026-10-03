@@ -236,6 +236,29 @@ export class BuildingsLayer {
       this._labels.push(label);
     }
 
+    // Fusion-detected small objects: tree canopies (custom tree object)
+    // and compact structures (vehicles/containers -> small neutral box)
+    const objMat = new THREE.MeshStandardMaterial({
+      color: 0x9aa7b8, roughness: 0.6, flatShading: true,
+    });
+    for (const obj of data.objects ?? []) {
+      if (!(obj.height_m > 0.4)) continue;
+      const { x, z } = this.geoRef.pixelToLocal(obj.x_px, obj.y_px, 0);
+      const base = (obj.ground_elevation_m ?? minElevation) - minElevation;
+      let mesh;
+      if (obj.kind === 'tree') {
+        mesh = new THREE.Mesh(buildTreeGeometry(obj.height_m, treeR), [trunkMat, treeMat]);
+      } else {
+        const box = new THREE.BoxGeometry(treeR * 1.4, obj.height_m, treeR * 0.9);
+        mesh = new THREE.Mesh(box, objMat);
+        mesh.position.y = obj.height_m / 2;
+      }
+      mesh.position.x = x;
+      mesh.position.z = z;
+      this.group.add(mesh);
+      this._trees.push(mesh);
+    }
+
     // Custom tree objects from vegetation candidates (green + elevated)
     const treeMat = new THREE.MeshStandardMaterial({
       color: 0x2fbf71, roughness: 0.85, flatShading: true,

@@ -69,6 +69,11 @@ async def get_buildings3d_meta(scene_id: str):
         "damage_classified": int(reconstruction.get("damage_classified", 0)),
         "damage_classes": reconstruction.get("damage_classes", []),
         "tree_count": int(reconstruction.get("tree_count", 0)),
+        "object_count": int(reconstruction.get("object_count", 0)),
+        "fusion_buildings": sum(
+            1 for b in reconstruction.get("buildings", [])
+            if b.get("mask_source") == "dsm_edge_fusion"
+        ),
         "has_ground": bool(reconstruction.get("has_ground")),
         "ground_heightmap_url": _artifact_url(
             scene_id, "ground_heightmap.png", f"{base}/ground-heightmap"

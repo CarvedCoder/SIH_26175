@@ -6,6 +6,7 @@ Public API: :mod:`depthwizard.reconstruction.buildings3d`
 
 from .buildings3d import (
     Building3DConfig,
+    fuse_building_candidates,
     extrude_prism,
     reconstruct_buildings_3d,
     regularize_mask,
@@ -14,6 +15,7 @@ from .buildings3d import (
 
 __all__ = [
     "Building3DConfig",
+    "fuse_building_candidates",
     "extrude_prism",
     "reconstruct_buildings_3d",
     "regularize_mask",
