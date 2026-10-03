@@ -351,6 +351,9 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       if (!swapped) {
         g.engine?.setElevationVisible(!!enabled);
       }
+      if (swapped && enabled) {
+        liftCameraAboveSurface(g);
+      }
     },
     setSemanticLayerActive(active) {
       const g = glRef.current;
@@ -1112,6 +1115,30 @@ function layerWillBeVisible(enabledFlag) {
   return enabledFlag !== false;
 }
 
+/** After the ground-heightfield swap the surface under the camera can drop
+ *  by the height of the buildings that used to be there — the camera then
+ *  sits at/below the flat plane and the ground renders edge-on (invisible
+ *  void). Lift the camera (and the orbit target) above the new surface. */
+function liftCameraAboveSurface(g) {
+  const engine = g.engine;
+  const cam = g.camera;
+  if (!engine?.spatial || !cam) return;
+  try {
+    const elev = engine.spatial.sampleElevation(cam.position.x, cam.position.z);
+    const minSafe = elev + 3.0;
+    if (cam.position.y < minSafe) {
+      cam.position.y = minSafe + 0.12 * Math.max(g.worldWidth || 0, g.worldDepth || 0);
+    }
+    const target = g.orbit?.target;
+    if (target && target.y < elev) {
+      target.y = elev;
+      g.orbit.update?.();
+    }
+  } catch (err) {
+    console.warn('[buildings3d] camera lift failed:', err?.message ?? err);
+  }
+}
+
 /** Fetch and mount the 3D building reconstruction layer for a scene.
  * Availability follows the artifact on disk — scenes processed before
  * this feature (or with no building candidates) simply render without it. */
@@ -1149,6 +1176,8 @@ async function loadBuildings3D(g, scene, sceneId) {
     if (layerWillBeVisible(g.buildings3dEnabled)) {
       if (!g.engine.setBuildings3DTerrain(true)) {
         g.engine.setElevationVisible(false); // flat fallback (no ground field)
+      } else {
+        liftCameraAboveSurface(g);
       }
     }
 
