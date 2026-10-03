@@ -930,6 +930,8 @@ export default function TerrainWorkspace() {
             onToggleAnalysis={() => setAnalysisPanelOpen(v => !v)}
             panelsHidden={panelsHidden}
             onTogglePanels={() => setPanelsHidden(v => !v)}
+            buildings3d={buildings3d}
+            onToggleBuildings3d={handleToggleBuildings3d}
           />
         )}
 
