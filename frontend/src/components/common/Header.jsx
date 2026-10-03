@@ -52,22 +52,22 @@ function NavItem({ label, active, onClick, disabled }) {
       onClick={onClick}
       disabled={disabled}
       style={{
-        background: active ? 'var(--dw-surface)' : 'none',
-        border: active ? '1px solid var(--dw-accent)' : '1px solid transparent',
+        background: active ? 'var(--dw-accent-soft)' : 'none',
+        border: active ? '1px solid var(--dw-accent-dim)' : '1px solid transparent',
         padding: '0 14px',
         height: 34,
         borderRadius: 'var(--dw-radius-sm)',
         fontFamily: 'var(--dw-font-ui)',
         fontSize: 14,
         fontWeight: active ? 600 : 450,
-        color: active ? 'var(--dw-fg)' : 'var(--dw-fg-muted)',
+        color: active ? 'var(--dw-accent)' : 'var(--dw-fg-muted)',
         cursor: disabled ? 'not-allowed' : 'pointer',
         letterSpacing: '0em',
         transition: 'color 150ms ease, background 150ms ease, border-color 150ms ease',
         outline: 'none',
       }}
       onMouseEnter={e => { if (!disabled && !active) e.currentTarget.style.color = 'var(--dw-fg)'; }}
-      onMouseLeave={e => { if (!active) e.currentTarget.style.color = active ? 'var(--dw-fg)' : 'var(--dw-fg-muted)'; }}
+      onMouseLeave={e => { if (!active) e.currentTarget.style.color = 'var(--dw-fg-muted)'; }}
       onFocus={e => { e.currentTarget.style.outline = '2px solid var(--dw-accent)'; e.currentTarget.style.outlineOffset = '2px'; }}
       onBlur={e => { e.currentTarget.style.outline = 'none'; }}
       aria-current={active ? 'page' : undefined}

@@ -20,7 +20,7 @@
  *   - 200×200px, top-left of terrain viewport
  *   - border: 1px solid --dw-rim, border-radius: 4px
  *   - Camera position in amber (--dw-marker: #fbbf24)
- *   - FOV cone: rgba(250,250,250,0.16) fill (--dw-fov)
+ *   - FOV cone: rgba(56,189,248,0.18) fill (--dw-fov)
  *   - Marker interpolated with lerp(0.15) per frame (instrument-needle feel)
  *   - No backdrop blur on minimap itself — blur only inside canvas overlay elements
  *
@@ -177,7 +177,7 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMe
 
       // ─ 6.1: Background image ─
       ctx.save();
-      ctx.fillStyle = '#101012'; // --dw-panel fallback
+      ctx.fillStyle = '#0f1522'; // --dw-panel fallback
       ctx.fillRect(0, 0, SIZE, SIZE);
       if (bgRef.current) {
         // Cover-fit: scale to fill the square minimap while preserving
@@ -260,7 +260,7 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMe
         ctx.lineTo(mx + Math.cos(leftAngle) * coneLen, my + Math.sin(leftAngle) * coneLen);
         ctx.arc(mx, my, coneLen, leftAngle, rightAngle);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(250,250,250,0.16)'; // --dw-fov
+        ctx.fillStyle = 'rgba(56,189,248,0.18)'; // --dw-fov
         ctx.fill();
         ctx.restore();
       }
@@ -292,9 +292,9 @@ export default function Minimap({ terrainRef, cameraMode, minimapMeta, terrainMe
         ctx.save();
         ctx.beginPath();
         ctx.arc(sp.x, sp.y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(250,250,250,0.9)'; // --dw-probe
+        ctx.fillStyle = 'rgba(56,189,248,0.95)'; // --dw-probe
         ctx.fill();
-        ctx.strokeStyle = 'rgba(250,250,250,0.4)';
+        ctx.strokeStyle = 'rgba(56,189,248,0.5)';
         ctx.lineWidth = 1;
         ctx.stroke();
         ctx.restore();

@@ -1,31 +1,32 @@
-/* DepthWizard design tokens — instrument-panel / geospatial world */
-/* Monochrome ivory system: neutral graphite surfaces, white primary actions,
-   colour reserved for status. See DESIGN.md for the full visual system rationale */
+/* DepthWizard design tokens — deep-field instrument / geospatial world */
+/* Deep blue-slate surfaces with a cyan instrument accent: interactive
+   states carry HUE, not just luminance. See DESIGN.md for the palette */
 :root {
-  /* Palette — neutral zinc graphite, no hue */
-  --dw-void:    #09090b; /* canvas / page background */
-  --dw-panel:   #101012; /* header, side panels, bottom toolbar */
-  --dw-surface: #18181b; /* cards, input fields, popovers */
-  --dw-hover:   #232327; /* one-step hover lightening */
-  --dw-rim:     #2e2e33; /* 1px borders, dividers */
-  --dw-rim-strong: #4a4a52; /* hover borders, active tracks */
+  /* Palette — blue-tinted graphite (never pure black/white) */
+  --dw-void:    #0a0e17; /* canvas / page background — deep field */
+  --dw-panel:   #0f1522; /* header, side panels, bottom toolbar */
+  --dw-surface: #151d2e; /* cards, input fields, popovers */
+  --dw-hover:   #1c2639; /* one-step hover lightening */
+  --dw-rim:     #273650; /* 1px borders, dividers */
+  --dw-rim-strong: #3d5375; /* hover borders, active tracks */
 
-  /* Foreground — high-clarity contrast for mission-control readability */
-  --dw-fg:       #fafafa; /* primary text — crisp and luminous */
-  --dw-fg-muted: #b6b6bd; /* secondary labels, metadata — clearly legible */
-  --dw-fg-ghost: #8d8d96; /* tertiary, placeholders, units — readable */
-  --dw-fg-invert: #09090b; /* text on ivory / white primary surfaces */
+  /* Foreground — high-clarity contrast on the blue-slate field */
+  --dw-fg:       #f1f5f9; /* primary text — crisp and luminous */
+  --dw-fg-muted: #a9b7cd; /* secondary labels, metadata — clearly legible */
+  --dw-fg-ghost: #7f90ab; /* tertiary, placeholders, units — readable */
+  --dw-fg-invert: #06121f; /* text on cyan / bright primary surfaces */
 
-  /* Status / accent — accent is ivory; interactive states are luminance, not hue */
-  --dw-accent:      #fafafa;             /* active state, selection, progress */
-  --dw-accent-soft: rgba(250,250,250,0.10); /* subtle active washes, hover fills */
-  --dw-confirm: #4ade80; /* completed, valid */
+  /* Accent — instrument cyan; interactive states are cyan, always visible */
+  --dw-accent:      #38bdf8;             /* active state, selection, progress, primary buttons */
+  --dw-accent-soft: rgba(56,189,248,0.14); /* subtle active washes, hover fills */
+  --dw-accent-dim:  rgba(56,189,248,0.45);  /* active borders, secondary highlights */
+  --dw-confirm: #34d399; /* completed, valid */
   --dw-live:    #fbbf24; /* active processing, warnings */
   --dw-fault:   #f87171; /* errors, failures */
 
   /* Terrain-specific */
-  --dw-probe:  #fafafa;                  /* elevation probe marker */
-  --dw-fov:    rgba(250,250,250,0.16);   /* minimap FOV cone fill */
+  --dw-probe:  #38bdf8;                  /* elevation probe marker */
+  --dw-fov:    rgba(56,189,248,0.18);    /* minimap FOV cone fill */
   --dw-marker: #fbbf24;                  /* minimap camera position dot */
 
   /* Typography */
@@ -85,11 +86,11 @@
 
   /* Text selection */
   ::selection {
-    background-color: #3f3f46;
+    background-color: rgba(56, 189, 248, 0.35);
     color: var(--dw-fg);
   }
   ::-moz-selection {
-    background-color: #3f3f46;
+    background-color: rgba(56, 189, 248, 0.35);
     color: var(--dw-fg);
   }
   * {
@@ -103,20 +104,20 @@
   height: 5px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2e2e33;
+  background: #273650;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a4a52;
+  background: #3d5375;
 }
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: #0a0e17;
 }
 
 /* Minimalist scrollbar — Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2e2e33 #09090b;
+  scrollbar-color: #273650 #0a0e17;
 }
 
 /* Cross-browser keyframe animations */
@@ -218,37 +219,37 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.871 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.922 0 0);
-  --sidebar-primary-foreground: oklch(0.205 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: #0a0e17;
+  --foreground: #f1f5f9;
+  --card: #151d2e;
+  --card-foreground: #f1f5f9;
+  --popover: #10192b;
+  --popover-foreground: #f1f5f9;
+  --primary: #38bdf8;
+  --primary-foreground: #06121f;
+  --secondary: #1c2639;
+  --secondary-foreground: #f1f5f9;
+  --muted: #1c2639;
+  --muted-foreground: #a9b7cd;
+  --accent: #1c2639;
+  --accent-foreground: #f1f5f9;
+  --destructive: #f87171;
+  --border: #273650;
+  --input: #273650;
+  --ring: #38bdf8;
+  --chart-1: #38bdf8;
+  --chart-2: #34d399;
+  --chart-3: #fbbf24;
+  --chart-4: #a78bfa;
+  --chart-5: #f87171;
+  --sidebar: #0f1522;
+  --sidebar-foreground: #f1f5f9;
+  --sidebar-primary: #38bdf8;
+  --sidebar-primary-foreground: #06121f;
+  --sidebar-accent: #1c2639;
+  --sidebar-accent-foreground: #f1f5f9;
+  --sidebar-border: #273650;
+  --sidebar-ring: #38bdf8;
 }
 
 /* DepthWizard Responsive Utilities (Phase 17, §29) */
