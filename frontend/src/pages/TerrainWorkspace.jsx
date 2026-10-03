@@ -163,6 +163,9 @@ export default function TerrainWorkspace() {
     const sceneId = state.scene?.scene_id;
     if (!sceneId || isLoading) return;
     let cancelled = false;
+    // NOTE: isLoading is in the dependency array — during TERRAIN_LOADING
+    // this effect bails (early return); it must re-run the moment loading
+    // finishes or the buildings3d metadata (and legend) never arrive.
     getMinimap(sceneId)
       .then(meta => { if (!cancelled) setMinimapMeta(meta); })
       .catch(() => { /* minimap is optional — silently skip */ });
@@ -217,6 +220,9 @@ export default function TerrainWorkspace() {
     const sceneId = state.scene?.scene_id;
     if (!sceneId || isLoading) return;
     let cancelled = false;
+    // NOTE: isLoading is in the dependency array — during TERRAIN_LOADING
+    // this effect bails (early return); it must re-run the moment loading
+    // finishes or the buildings3d metadata (and legend) never arrive.
     // Optimistic defaults keep the menu responsive; the fetches below then
     // disable exactly the products the scene is missing.
     setLayerAvail({ dsm: true, reference: true, error: true, semantics: true, route_risk: true, buildings: true, damage: true });
@@ -336,6 +342,9 @@ export default function TerrainWorkspace() {
     const sceneId = state.scene?.scene_id;
     if (!sceneId || isLoading) return;
     let cancelled = false;
+    // NOTE: isLoading is in the dependency array — during TERRAIN_LOADING
+    // this effect bails (early return); it must re-run the moment loading
+    // finishes or the buildings3d metadata (and legend) never arrive.
 
     const applyStats = (stats) => {
       if (cancelled || !stats) return;
@@ -930,6 +939,7 @@ export default function TerrainWorkspace() {
         {!isLoading && (
           <TerrainRightPanel
             hidden={panelsHidden}
+            buildings3d={buildings3d}
             exaggeration={exaggeration}
             onExaggeration={handleExaggeration}
             contourEnabled={contourEnabled}
@@ -1088,7 +1098,6 @@ export default function TerrainWorkspace() {
             onSelectScenario={setScenario}
             damageMeta={damageMeta}
             buildingsMeta={buildingsMeta}
-            buildings3d={buildings3d}
           />
         )}
 
