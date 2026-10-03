@@ -68,6 +68,8 @@ export default function Toolbar({
   onOpenValidation,
   onCaptureSnapshot,
   layerAvailability,
+  buildings3d = null,
+  onToggleBuildings3d,
 }) {
   // Real per-layer availability, fetched from the backend by the workspace
   // (results + reference endpoints). Defaults to "available" so the popover
@@ -240,6 +242,20 @@ export default function Toolbar({
                   onClick={() => {
                     onOpenValidation();
                     setOpenMenu(null);
+                  }}
+                />
+              </>
+            )}
+            {buildings3d?.available && (
+              <>
+                <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
+                <PopoverButton
+                  label={`Buildings 3D (${buildings3d.count} · DSM heights)`}
+                  icon={Building2}
+                  active={buildings3d.enabled}
+                  onClick={() => {
+                    onToggleBuildings3d?.();
+                    // keep the menu open so the user sees the state flip
                   }}
                 />
               </>

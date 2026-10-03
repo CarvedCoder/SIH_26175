@@ -18,6 +18,7 @@ from backend.app.api.routes.semantic import router as semantic_router
 from backend.app.api.routes.terrain import router as terrain_router
 from backend.app.api.routes.validation import router as validation_router
 from backend.app.api.routes.disaster import router as disaster_router
+from backend.app.api.routes.buildings3d import router as buildings3d_router
 from backend.app.core.auth import get_current_user
 
 api_router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -33,4 +34,5 @@ api_router.include_router(validation_router)
 api_router.include_router(route_router)
 api_router.include_router(semantic_router)
 api_router.include_router(disaster_router)
+api_router.include_router(buildings3d_router)
 

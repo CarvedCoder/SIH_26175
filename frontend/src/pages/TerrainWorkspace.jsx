@@ -54,6 +54,7 @@ import {
   getDamageMeta,
   getDamageGeoJsonUrl,
 } from '../api/disaster.js';
+import { getBuildings3DMeta } from '../api/buildings3d.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 import {
   RotateCcw,
@@ -170,6 +171,7 @@ export default function TerrainWorkspace() {
 
   // ── Disaster metadata & GeoJSON features ──
   const [buildingsMeta, setBuildingsMeta] = useState(null);
+  const [buildings3d, setBuildings3d] = useState({ available: false, count: 0, enabled: true });
   const [damageMeta, setDamageMeta]       = useState(null);
   const damageGeoJsonRef                  = useRef(null);
 
@@ -224,11 +226,19 @@ export default function TerrainWorkspace() {
       getSemanticMeta(sceneId).catch(() => null),
       getBuildingsMeta(sceneId).catch(() => null),
       getDamageMeta(sceneId).catch(() => null),
-    ]).then(([results, reference, semMeta, bldMeta, dmgMeta]) => {
+      getBuildings3DMeta(sceneId).catch(() => null),
+    ]).then(([results, reference, semMeta, bldMeta, dmgMeta, b3dMeta]) => {
       if (cancelled) return;
       const semAvail = !!semMeta?.available;
       setBuildingsMeta(bldMeta);
       setDamageMeta(dmgMeta);
+      if (b3dMeta) {
+        setBuildings3d({
+          available: !!b3dMeta.available,
+          count: b3dMeta.count ?? 0,
+          enabled: true, // auto-on when available; toggle lives in Layers
+        });
+      }
       setLayerAvail({
         dsm: !!(results?.dsm?.available ?? results?.dsm),
         reference: !!reference?.available,
@@ -468,6 +478,14 @@ export default function TerrainWorkspace() {
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
   /** Fetch the texture URL for a layer and swap the terrain texture (task 8.2) */
+  function handleToggleBuildings3d() {
+    setBuildings3d(curr => {
+      const next = { ...curr, enabled: !curr.enabled };
+      terrainRef.current?.setBuildings3DEnabled(next.enabled);
+      return next;
+    });
+  }
+
   async function handleLayerChange(layerId) {
     if (layerId === activeLayer) return;
     setActiveLayer(layerId);
@@ -1128,6 +1146,8 @@ export default function TerrainWorkspace() {
         onSelectTool={handleSelectTool}
         disabled={isLoading}
         layerAvailability={layerAvail}
+        buildings3d={buildings3d}
+        onToggleBuildings3d={handleToggleBuildings3d}
         onOpenValidation={() => {
           setAnalysisPanelOpen(true);
           setAnalysisPanelTab('validation');

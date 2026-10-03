@@ -23,6 +23,8 @@ import { TerrainEngine } from '../../engine/TerrainEngine.js';
 import TerrainDebugHUD from '../../engine/debug/TerrainDebugHUD.jsx';
 import { decodeHeightPng16 } from '../../engine/streaming/heightDecode.js';
 import { decodeHeightmap } from '../../engine/streaming/heightFetch.js';
+import { BuildingsLayer } from '../../engine/buildings/BuildingsLayer.js';
+import { getBuildings3D } from '../../api/buildings3d.js';
 import { overviewToHeightfield } from '../../engine/streaming/PatchHeightfield.js';
 
 /* ─── Streaming thresholds ─────────────────────────────────────────────────
@@ -134,6 +136,10 @@ function SceneBridge({ canvasRef, glRef, orbitControlsRef, sceneState, actions, 
         scene.remove(g.routeGroup);
         g.routeGroup = null;
       }
+      if (g.buildingsLayer) {
+        g.buildingsLayer.dispose();
+        g.buildingsLayer = null;
+      }
     };
   }, [sceneState?.scene?.scene_id, scene, actions, glRef, onEngineReady]);
 
@@ -226,6 +232,8 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     isGeoreferencedScale: false,
     measureGroup: null,
     routeGroup: null,
+    buildingsLayer: null,
+    buildings3dEnabled: true,
   });
 
   // Toggle debug HUD with backtick or 'H'
@@ -317,6 +325,11 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       }
       g.semanticTextures = confTex ? [tex, confTex] : [tex];
     },
+    setBuildings3DEnabled(enabled) {
+      const g = glRef.current;
+      g.buildings3dEnabled = !!enabled;
+      g.buildingsLayer?.setVisible(!!enabled);
+    },
     setSemanticLayerActive(active) {
       const g = glRef.current;
       g.semanticLayerActive = !!active;
@@ -327,6 +340,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       const prev = g.exaggeration ?? 1;
       g.exaggeration = v;
       g.engine?.setExaggeration(v);
+      g.buildingsLayer?.setExaggeration(v);
       // Raising exaggeration raises the rendered surface — an orbit camera
       // framed at the old scale can end up UNDER the mesh, viewing mirrored
       // backface shards (the "melted/shredded terrain" failure). Lift the
@@ -1036,6 +1050,11 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
     // Mark terrain ready in store
     actions.terrainReady(terrainMeta);
 
+    // Geometry-aware 3D building reconstruction overlay (footprints +
+    // DSM-derived heights from the backend's buildings3d.json). Purely
+    // additive: a missing/failed payload leaves the terrain untouched.
+    loadBuildings3D(g, scene, sceneId);
+
     // Load diffuse texture if available (authenticated fetch — TextureLoader
     // cannot send the Authorization header and result files are auth-gated)
     if (texture_url) {
@@ -1063,5 +1082,34 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
         recoverable: true,
       });
     }
+  }
+}
+
+/** Fetch and mount the 3D building reconstruction layer for a scene.
+ * Availability follows the artifact on disk — scenes processed before
+ * this feature (or with no building candidates) simply render without it. */
+async function loadBuildings3D(g, scene, sceneId) {
+  try {
+    const data = await getBuildings3D(sceneId);
+    if (g.disposed || !g.engine) return;
+    if (!data?.available || !data.buildings?.length) return;
+
+    // dispose a previous scene's layer
+    if (g.buildingsLayer) {
+      g.buildingsLayer.dispose();
+      g.buildingsLayer = null;
+    }
+
+    const layer = new BuildingsLayer(scene, g.engine.geoRef);
+    layer.load(data);
+    layer.setExaggeration(g.exaggeration ?? 1.0);
+    layer.setVisible(g.buildings3dEnabled !== false);
+    g.buildingsLayer = layer;
+    console.info(
+      `[buildings3d] ${layer.count} structure(s) reconstructed ` +
+      `(heights from ${data.height_source ?? 'predicted DSM'})`
+    );
+  } catch (err) {
+    console.warn('[buildings3d] reconstruction layer unavailable:', err?.message ?? err);
   }
 }

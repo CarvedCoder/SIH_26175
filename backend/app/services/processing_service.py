@@ -612,6 +612,10 @@ class ProcessingService:
         if disaster_result:
             payload["disaster"] = disaster_result
 
+        buildings3d = self._run_buildings3d_stage(job_id, output_dir)
+        if buildings3d:
+            payload["buildings3d"] = buildings3d
+
         self._publish_artifacts(scene_id, output_dir)
 
         self.jobs.update_job(
@@ -995,6 +999,143 @@ class ProcessingService:
                 "errors": [f"Disaster pipeline error: {exc}"],
             }
 
+    # -- geometry-aware 3D building reconstruction ---------------------------
+
+    def _building3d_config(self):
+        """Map Settings -> depthwizard.reconstruction Building3DConfig."""
+        from depthwizard.reconstruction import Building3DConfig
+
+        s = self.settings
+        return Building3DConfig(
+            min_area_px=s.buildings3d_min_area_px,
+            simplify_tol_px=s.buildings3d_simplify_tol_px,
+            rect_iou=s.buildings3d_rect_iou,
+            circle_circularity=s.buildings3d_circle_circularity,
+            stadium_iou=s.buildings3d_stadium_iou,
+            max_parts=s.buildings3d_max_parts,
+            max_vertices=s.buildings3d_max_vertices,
+            height_mad_trim=s.buildings3d_mad_trim,
+            piecewise_gap_m=s.buildings3d_piecewise_gap_m,
+            min_confidence_for_primitive=s.buildings3d_min_building_conf,
+        )
+
+    def _run_buildings3d_stage(self, job_id: str, output_dir: Path) -> dict | None:
+        """Geometry-aware 3D building reconstruction (optional stage).
+
+        Consumes EXISTING outputs only — the disaster ONNX building mask
+        when available, else the semantic `building` class — plus the
+        predicted metric DSM (dsm.npy). Never fails the job: any error is
+        logged and the stage reports honestly unavailable.
+        """
+        s = self.settings
+        if not s.buildings3d_enabled:
+            return None
+
+        dsm_path = output_dir / "dsm.npy"
+        if not dsm_path.is_file():
+            return None
+
+        # -- building candidate: ONNX detector mask, else semantic class 0
+        building_mask_path = output_dir / "building_mask.npy"
+        confidence = None
+        if building_mask_path.is_file():
+            building_mask = np.load(building_mask_path)
+            mask_source = "onnx_building_detector"
+            conf_path = output_dir / "building_confidence.npy"
+            if conf_path.is_file():
+                confidence = np.load(conf_path).astype(np.float32)
+        elif (output_dir / "semantic_labels.npy").is_file():
+            labels = np.load(output_dir / "semantic_labels.npy")
+            if labels.shape != dsm.shape:
+                logger.warning(
+                    "buildings3d skipped for job %s: semantic grid %s != "
+                    "DSM grid %s", job_id, labels.shape, dsm.shape,
+                )
+                return None
+            building_mask = labels == 0  # PROJECT_CLASSES[0] = 'building'
+            mask_source = "semantic_building_class"
+            probs_path = output_dir / "semantic_probs.npy"
+            if probs_path.is_file():
+                probs = np.load(probs_path)
+                if probs.ndim == 3 and probs.shape[0] >= 1:
+                    confidence = np.asarray(probs[0], dtype=np.float32)
+        else:
+            return None  # no building candidate exists — honest skip
+
+        try:
+            import rasterio
+
+            from depthwizard.reconstruction import (
+                reconstruct_buildings_3d,
+                render_buildings3d_preview,
+            )
+
+            self.jobs.update_job(
+                job_id, message="Reconstructing building geometry"
+            )
+
+            dsm = np.load(dsm_path)
+            if building_mask.shape != dsm.shape:
+                logger.warning(
+                    "buildings3d skipped for job %s: mask grid %s != "
+                    "DSM grid %s", job_id, building_mask.shape, dsm.shape,
+                )
+                return None
+
+            crs = transform = None
+            tif_path = output_dir / "dsm.tif"
+            if tif_path.is_file():
+                with rasterio.open(tif_path) as ds:
+                    if ds.crs is not None:
+                        crs = ds.crs.to_string()
+                        transform = ds.transform
+
+            reconstruction = reconstruct_buildings_3d(
+                building_mask.astype(np.uint8),
+                dsm.astype(np.float32),
+                confidence_raster=confidence,
+                mask_source=mask_source,
+                crs=crs,
+                transform=transform,
+                config=self._building3d_config(),
+            )
+
+            with open(output_dir / "buildings3d.json", "w", encoding="utf-8") as f:
+                json.dump(reconstruction, f)
+
+            # preview needs the RGB — reuse the saved preview artifact when
+            # present (rgb is not kept in memory on this path)
+            preview_path = output_dir / "dsm_preview.png"
+            if reconstruction.get("available") and preview_path.is_file():
+                from PIL import Image
+
+                rgb = np.asarray(Image.open(preview_path).convert("RGB"))
+                if rgb.shape[:2] == dsm.shape[:2]:
+                    overlay = render_buildings3d_preview(rgb, reconstruction)
+                    Image.fromarray(overlay).save(
+                        output_dir / "buildings3d_preview.png"
+                    )
+
+            logger.info(
+                "buildings3d: %d structure(s) reconstructed for job %s "
+                "(source=%s)", reconstruction.get("count", 0), job_id,
+                mask_source,
+            )
+            return {
+                "available": bool(reconstruction.get("available")),
+                "count": int(reconstruction.get("count", 0)),
+                "mask_source": mask_source,
+                "height_source": reconstruction.get("height_source"),
+                "georeferenced": bool(reconstruction.get("georeferenced")),
+            }
+
+        except Exception as exc:
+            logger.warning(
+                "buildings3d reconstruction failed for job %s: %s",
+                job_id, exc,
+            )
+            return None
+
     def _discard_outputs(self, output_dir: Path) -> None:
         """Remove partial outputs of a cancelled run (idempotent).
 
@@ -1010,6 +1151,8 @@ class ProcessingService:
             "semantic_meta.json", "refined_dsm.npy",
             "validation.json", "error_map.png", "validation_error_map.png",
             "heightmap.png",
+            # Geometry-aware 3D building reconstruction artifacts
+            "buildings3d.json", "buildings3d_preview.png",
             # TerraHeight-S backend artifacts (AGL product + provenance)
             "terraheight_agl.tif", "terraheight_agl.npy",
             "terraheight_preview.png", "terraheight_meta.json",

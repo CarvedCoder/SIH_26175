@@ -29,6 +29,8 @@ _EXTRA_ALLOWED_FILES = {
     "minimap": ("minimap.png",),
     "heightmap": ("heightmap.png",),
     "rgb": ("rgb_preview.png",),
+    "buildings3d": ("buildings3d.json",),
+    "buildings3d-preview": ("buildings3d_preview.png",),
     "error-map": (
         "error_map.png",
         "validation_error_map.png",
