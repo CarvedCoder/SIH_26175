@@ -1094,6 +1094,10 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
   }
 }
 
+function layerWillBeVisible(enabledFlag) {
+  return enabledFlag !== false;
+}
+
 /** Fetch and mount the 3D building reconstruction layer for a scene.
  * Availability follows the artifact on disk — scenes processed before
  * this feature (or with no building candidates) simply render without it. */
@@ -1109,15 +1113,12 @@ async function loadBuildings3D(g, scene, sceneId) {
       g.buildingsLayer = null;
     }
 
-    const layer = new BuildingsLayer(scene, g.engine.geoRef);
-    layer.load(data);
-    layer.setExaggeration(g.exaggeration ?? 1.0);
-    layer.setVisible(g.buildings3dEnabled !== false);
-
-    // Ground heightfield: the DSM with building regions replaced by their
-    // surrounding ground. Buildings-3D mode swaps THIS in — mountains and
-    // hills keep their elevation; only the structures leave the relief.
-    // Scenes without one fall back to the flat datum (uFlatten).
+    // Ground heightfield FIRST: the DSM with building regions replaced by
+    // their surrounding ground. Swapping BEFORE the layer is built lets
+    // every object sample the rendered ground surface at its own pixel —
+    // blocks and trees sit exactly on the surface, never floating.
+    // Mountains/hills keep their elevation; only structures leave the
+    // relief. Scenes without a ground field fall back to the flat datum.
     if (data.has_ground) {
       try {
         const ground = await decodeHeightmap(
@@ -1131,13 +1132,18 @@ async function loadBuildings3D(g, scene, sceneId) {
       }
     }
 
-    if (layer.visible) {
-      // auto-activated on load: swap to the ground field (mountains stay),
-      // falling back to the flat datum when no ground field exists
+    if (layerWillBeVisible(g.buildings3dEnabled)) {
       if (!g.engine.setBuildings3DTerrain(true)) {
-        g.engine.setElevationVisible(false);
+        g.engine.setElevationVisible(false); // flat fallback (no ground field)
       }
     }
+
+    const layer = new BuildingsLayer(scene, g.engine.geoRef, (u, v) =>
+      g.engine.dataset.sampleElevation(u, v)
+    );
+    layer.load(data);
+    layer.setExaggeration(g.exaggeration ?? 1.0);
+    layer.setVisible(g.buildings3dEnabled !== false);
     g.buildingsLayer = layer;
     console.info(
       `[buildings3d] ${layer.count} structure(s) reconstructed ` +

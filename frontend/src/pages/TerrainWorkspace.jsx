@@ -903,17 +903,19 @@ export default function TerrainWorkspace() {
             aria-label="Buildings 3D colour legend"
             style={{
               position: 'absolute',
-              left: 16,
-              bottom: 72,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              bottom: 64,
               zIndex: 30,
               background: 'rgba(10,14,23,0.82)',
               border: '1px solid var(--dw-rim)',
               borderRadius: 'var(--dw-radius-sm)',
-              padding: '10px 12px',
+              padding: '10px 14px',
               display: 'flex',
               flexDirection: 'column',
               gap: 6,
               pointerEvents: 'none',
+              maxWidth: 'min(320px, calc(100vw - 40px))',
             }}
           >
             <p style={{

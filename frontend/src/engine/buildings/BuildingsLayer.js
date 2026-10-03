@@ -66,9 +66,19 @@ function ringToShapePath(ringPx, geoRef) {
  * (position.y = minElevation, scale.y = exaggeration) reproduces the
  * terrain shader's exaggeration formula exactly. Levels are prisms from
  * the SAME base up to their own DSM height (podium + tower geometry). */
-function buildingGeometries(building, geoRef, minElevation) {
+function buildingGeometries(building, geoRef, minElevation, surfaceSampler) {
   const geoms = [];
-  const base = (building.base_elevation_m ?? minElevation) - minElevation;
+  // base = the CURRENT rendered surface under the footprint centre (the
+  // ground heightfield while Buildings-3D is active) — blocks sit exactly
+  // on it, never floating.
+  let base = (building.base_elevation_m ?? minElevation) - minElevation;
+  if (surfaceSampler) {
+    const first = building.footprint_px?.[0] ?? [0, 0];
+    const c = geoRef.pixelToLocal(first[0], first[1], 0);
+    const u = c.x / geoRef.worldWidth + 0.5;
+    const v = c.z / geoRef.worldDepth + 0.5;
+    base = surfaceSampler(u, v) - minElevation;
+  }
 
   const addPrism = (ringPx, heightM) => {
     if (!ringPx || ringPx.length < 3 || !(heightM > 0)) return;
@@ -95,6 +105,7 @@ function buildingGeometries(building, geoRef, minElevation) {
 
 /** Canvas sprite carrying a building's estimated height (metres). */
 function makeHeightLabel(text, worldSpan) {
+  if (typeof document === 'undefined') return null; // non-DOM test env
   const c = document.createElement('canvas');
   c.width = 160; c.height = 56;
   const ctx = c.getContext('2d');
@@ -141,10 +152,15 @@ export class BuildingsLayer {
   /**
    * @param {THREE.Scene} scene
    * @param {import('../geo/GeoReference.js').GeoReference} geoRef
+   * @param {(u: number, v: number) => number} [surfaceSampler] - samples
+   *   the CURRENT terrain surface (the ground heightfield while
+   *   Buildings-3D is active) in metres, so every object sits exactly on
+   *   the rendered surface and never floats.
    */
-  constructor(scene, geoRef) {
+  constructor(scene, geoRef, surfaceSampler = null) {
     this.scene = scene;
     this.geoRef = geoRef;
+    this.surfaceSampler = surfaceSampler;
     this.group = new THREE.Group();
     this.group.name = 'Buildings3D';
     this.group.visible = false;
@@ -169,7 +185,15 @@ export class BuildingsLayer {
     const minElevation = this.geoRef.minElevation ?? 0;
 
     for (const building of data.buildings) {
-      const geoms = buildingGeometries(building, this.geoRef, minElevation);
+      // per-entity isolation: one malformed footprint can never kill the
+      // whole layer
+      let geoms = [];
+      try {
+        geoms = buildingGeometries(building, this.geoRef, minElevation, this.surfaceSampler);
+      } catch (err) {
+        console.warn('[buildings3d] skipping malformed footprint', building.id, err);
+        continue;
+      }
       if (!geoms.length) continue;
 
       const merged = mergeGeometries(geoms, false) ?? geoms[0];
@@ -227,6 +251,7 @@ export class BuildingsLayer {
     for (const entry of this.buildings) {
       const b = entry.building;
       const label = makeHeightLabel(`${b.height_m.toFixed(1)} m`, worldSpan);
+      if (!label) continue;
       label.position.copy(entry.mesh.position);
       // place above the building's tallest point
       entry.mesh.geometry.computeBoundingBox();
@@ -243,20 +268,23 @@ export class BuildingsLayer {
     });
     for (const obj of data.objects ?? []) {
       if (!(obj.height_m > 0.4)) continue;
-      const { x, z } = this.geoRef.pixelToLocal(obj.x_px, obj.y_px, 0);
-      const base = (obj.ground_elevation_m ?? minElevation) - minElevation;
-      let mesh;
-      if (obj.kind === 'tree') {
-        mesh = new THREE.Mesh(buildTreeGeometry(obj.height_m, treeR), [trunkMat, treeMat]);
-      } else {
-        const box = new THREE.BoxGeometry(treeR * 1.4, obj.height_m, treeR * 0.9);
-        mesh = new THREE.Mesh(box, objMat);
-        mesh.position.y = obj.height_m / 2;
+      try {
+        const { x, z } = this.geoRef.pixelToLocal(obj.x_px, obj.y_px, 0);
+        const base = placeOnSurface(obj.x_px, obj.y_px) - minElevation;
+        let mesh;
+        if (obj.kind === 'tree') {
+          mesh = new THREE.Mesh(buildTreeGeometry(obj.height_m, crownFor(obj.pixel_count)), [trunkMat, treeMat]);
+          mesh.position.set(x, base, z);
+        } else {
+          const box = new THREE.BoxGeometry(treeR * 1.4, obj.height_m, treeR * 0.9);
+          mesh = new THREE.Mesh(box, objMat);
+          mesh.position.set(x, base + obj.height_m / 2, z);
+        }
+        this.group.add(mesh);
+        this._trees.push(mesh);
+      } catch (err) {
+        console.warn('[buildings3d] skipping malformed object', err);
       }
-      mesh.position.x = x;
-      mesh.position.z = z;
-      this.group.add(mesh);
-      this._trees.push(mesh);
     }
 
     // Custom tree objects from vegetation candidates (green + elevated)
@@ -266,17 +294,34 @@ export class BuildingsLayer {
     const trunkMat = new THREE.MeshStandardMaterial({
       color: 0x6b4a2f, roughness: 0.9, flatShading: true,
     });
-    const treeR = Math.max(1.6, worldSpan * 0.004);
+    // crown radius follows the ACTUAL canopy extent: the cluster's pixel
+    // footprint converted to metres via the ground sampling distance
+    const gsd = Math.max(this.geoRef.gsdX || 1, this.geoRef.gsdY || 1);
+    const crownFor = (px) => Math.min(14, Math.max(1.2, Math.sqrt(px || 0) * 0.5 * gsd));
+    const placeOnSurface = (px, py) => {
+      if (!this.surfaceSampler) {
+        return minElevation;
+      }
+      const { x, z } = this.geoRef.pixelToLocal(px, py, 0);
+      const u = x / this.geoRef.worldWidth + 0.5;
+      const v = z / this.geoRef.worldDepth + 0.5;
+      return this.surfaceSampler(u, v);
+    };
     for (const tree of data.trees ?? []) {
       if (!(tree.height_m > 0.5)) continue;
-      const { x, z } = this.geoRef.pixelToLocal(tree.x_px, tree.y_px, 0);
-      const geom = buildTreeGeometry(tree.height_m, treeR);
-      const mesh = new THREE.Mesh(geom, [trunkMat, treeMat]);
-      // geometry is Y-up with base at 0; place relative to min elevation,
-      // standing on the GROUND surface (buildings removed under trees too)
-      mesh.position.set(x, (tree.ground_elevation_m ?? minElevation) - minElevation, z);
-      this.group.add(mesh);
-      this._trees.push(mesh);
+      try {
+        const { x, z } = this.geoRef.pixelToLocal(tree.x_px, tree.y_px, 0);
+        const base = placeOnSurface(tree.x_px, tree.y_px) - minElevation;
+        const geom = buildTreeGeometry(tree.height_m, crownFor(tree.pixel_count));
+        const mesh = new THREE.Mesh(geom, [trunkMat, treeMat]);
+        // standing exactly on the rendered ground surface (buildings
+        // removed beneath trees too) — never floating
+        mesh.position.set(x, base, z);
+        this.group.add(mesh);
+        this._trees.push(mesh);
+      } catch (err) {
+        console.warn('[buildings3d] skipping malformed tree', err);
+      }
     }
 
     this.group.position.y = minElevation;

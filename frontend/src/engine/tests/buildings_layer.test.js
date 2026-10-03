@@ -73,7 +73,8 @@ test('loads buildings: one mesh + edge lines per building', () => {
   const { layer } = makeLayer();
   layer.load(makePayload());
   assert.equal(layer.count, 2);
-  assert.equal(layer.group.children.length, 4); // 2 meshes + 2 line segments
+  // 2 meshes + 2 edge lines + 3 scoped lights (terrain has no scene lights)
+  assert.equal(layer.group.children.length, 7);
   assert.equal(layer.loaded, true);
   assert.equal(layer.group.visible, true);
 });
