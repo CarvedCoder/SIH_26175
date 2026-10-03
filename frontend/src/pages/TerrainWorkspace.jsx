@@ -896,107 +896,6 @@ export default function TerrainWorkspace() {
           />
         )}
 
-        {/* Buildings-3D legend — what each colour represents */}
-        {buildings3d.available && buildings3d.enabled && !isLoading && (
-          <div
-            role="note"
-            aria-label="Buildings 3D colour legend"
-            style={{
-              position: 'absolute',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              bottom: 64,
-              zIndex: 30,
-              background: 'rgba(10,14,23,0.82)',
-              border: '1px solid var(--dw-rim)',
-              borderRadius: 'var(--dw-radius-sm)',
-              padding: '10px 14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 6,
-              pointerEvents: 'none',
-              maxWidth: 'min(320px, calc(100vw - 40px))',
-            }}
-          >
-            <p style={{
-              fontFamily: 'var(--dw-font-ui)', fontSize: 10.5, fontWeight: 600,
-              letterSpacing: '0.08em', textTransform: 'uppercase',
-              color: 'var(--dw-fg-muted)', margin: 0,
-            }}>
-              3D buildings — {buildings3d.count}
-            </p>
-            {(buildings3d.damageClasses?.length
-              ? [
-                  ['no-damage', '#4CAF50', 'No damage'],
-                  ['minor-damage', '#FFC107', 'Minor damage'],
-                  ['major-damage', '#FF5722', 'Major damage'],
-                  ['destroyed', '#D32F2F', 'Destroyed'],
-                ].filter(([cls]) => buildings3d.damageClasses.includes(cls))
-              : [
-                  ['high', '#34d399', 'High confidence'],
-                  ['mid', '#38bdf8', 'Medium confidence'],
-                  ['low', '#fbbf24', 'Low confidence'],
-                ]
-            ).map(([key, color, label]) => (
-              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                  width: 10, height: 10, borderRadius: 2,
-                  background: color, flexShrink: 0,
-                }} />
-                <span style={{
-                  fontFamily: 'var(--dw-font-ui)', fontSize: 12,
-                  color: 'var(--dw-fg)',
-                }}>
-                  {label}
-                </span>
-              </div>
-            ))}
-            {(buildings3d.treeCount ?? 0) > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
-                <span style={{
-                  width: 0, height: 0, borderLeft: '5px solid transparent',
-                  borderRight: '5px solid transparent',
-                  borderBottom: '11px solid #2fbf71', flexShrink: 0,
-                }} />
-                <span style={{
-                  fontFamily: 'var(--dw-font-ui)', fontSize: 12,
-                  color: 'var(--dw-fg)',
-                }}>
-                  Trees ({buildings3d.treeCount}) — estimated height
-                </span>
-              </div>
-            )}
-            {(buildings3d.objectCount ?? 0) > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                  width: 10, height: 10, borderRadius: 2,
-                  background: '#9aa7b8', flexShrink: 0,
-                }} />
-                <span style={{
-                  fontFamily: 'var(--dw-font-ui)', fontSize: 12,
-                  color: 'var(--dw-fg)',
-                }}>
-                  Small objects ({buildings3d.objectCount})
-                </span>
-              </div>
-            )}
-            {(buildings3d.fusionBuildings ?? 0) > 0 && (
-              <p style={{
-                fontFamily: 'var(--dw-font-data)', fontSize: 10.5,
-                color: 'var(--dw-fg-ghost)', margin: 0,
-              }}>
-                +{buildings3d.fusionBuildings} recovered by DSM-edge fusion
-              </p>
-            )}
-            <p style={{
-              fontFamily: 'var(--dw-font-data)', fontSize: 10.5,
-              color: 'var(--dw-fg-ghost)', margin: 0,
-            }}>
-              heights from predicted DSM
-            </p>
-          </div>
-        )}
-
         {/* Top in-viewport control bar — view tabs, camera, interaction mode */}
         {!isLoading && (
           <ViewModeBar
@@ -1189,6 +1088,7 @@ export default function TerrainWorkspace() {
             onSelectScenario={setScenario}
             damageMeta={damageMeta}
             buildingsMeta={buildingsMeta}
+            buildings3d={buildings3d}
           />
         )}
 

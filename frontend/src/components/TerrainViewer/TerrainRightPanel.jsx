@@ -83,6 +83,8 @@ export default function TerrainRightPanel({
   downloads,           // [{ id, label, sub, run, state }]
   // legends
   legendRange,         // { min, max }
+  // 3D buildings legend payload ({ available, count, damageClasses, treeCount, objectCount, fusionBuildings })
+  buildings3d,
 }) {
   const [downloadingId, setDownloadingId] = useState(null);
   const [doneIds, setDoneIds] = useState(() => new Set());
@@ -235,23 +237,69 @@ export default function TerrainRightPanel({
         </div>
       </Section>
 
-      <Section title="Slope Legend">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-          {[
-            { c: '#31688e', l: '0°' },
-            { c: '#5ec962', l: '10°' },
-            { c: '#addc30', l: '20°' },
-            { c: '#fde725', l: '30°' },
-            { c: '#f46d43', l: '40°' },
-            { c: '#a50026', l: '50°+' },
-          ].map(({ c, l }) => (
-            <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 2, background: c, display: 'inline-block' }} />
-              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 10.5, color: 'var(--dw-fg-muted)' }}>{l}</span>
+      {/* 3D Buildings legend (replaces the slope legend) — colours match
+          the reconstruction overlay: DINOv3 4-class damage when the damage
+          model ran, confidence otherwise, plus trees/objects/fusion. */}
+      {buildings3d?.available && (
+        <Section title="3D Buildings Legend">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {(buildings3d.damageClasses?.length
+              ? [
+                  ['no-damage', '#4CAF50', 'No damage'],
+                  ['minor-damage', '#FFC107', 'Minor damage'],
+                  ['major-damage', '#FF5722', 'Major damage'],
+                  ['destroyed', '#D32F2F', 'Destroyed'],
+                ].filter(([cls]) => buildings3d.damageClasses.includes(cls))
+              : [
+                  ['high', '#34d399', 'High confidence'],
+                  ['mid', '#38bdf8', 'Medium confidence'],
+                  ['low', '#fbbf24', 'Low confidence'],
+                ]
+            ).map(([key, color, label]) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 2, background: color, display: 'inline-block', flexShrink: 0 }} />
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11.5, color: 'var(--dw-fg)' }}>
+                  {label}
+                </span>
+              </div>
+            ))}
+            {(buildings3d.treeCount ?? 0) > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span aria-hidden="true" style={{
+                  width: 0, height: 0, borderLeft: '5px solid transparent',
+                  borderRight: '5px solid transparent',
+                  borderBottom: '10px solid #2fbf71', display: 'inline-block', flexShrink: 0,
+                }} />
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11.5, color: 'var(--dw-fg)' }}>
+                  Trees ({buildings3d.treeCount})
+                </span>
+              </div>
+            )}
+            {(buildings3d.objectCount ?? 0) > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 2, background: '#9aa7b8', display: 'inline-block', flexShrink: 0 }} />
+                <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11.5, color: 'var(--dw-fg)' }}>
+                  Small objects ({buildings3d.objectCount})
+                </span>
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 2, border: '1px solid var(--dw-rim-strong)', display: 'inline-block', flexShrink: 0 }} />
+              <span style={{ fontFamily: 'var(--dw-font-ui)', fontSize: 11.5, color: 'var(--dw-fg)' }}>
+                Buildings ({buildings3d.count})
+              </span>
+            </div>
+            {(buildings3d.fusionBuildings ?? 0) > 0 && (
+              <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 10.5, color: 'var(--dw-fg-muted)' }}>
+                +{buildings3d.fusionBuildings} recovered by DSM-edge fusion
+              </span>
+            )}
+            <span style={{ fontFamily: 'var(--dw-font-data)', fontSize: 10.5, color: 'var(--dw-fg-muted)' }}>
+              heights from predicted DSM
             </span>
-          ))}
-        </div>
-      </Section>
+          </div>
+        </Section>
+      )}
     </aside>
   );
 }
