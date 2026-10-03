@@ -259,6 +259,58 @@ class TestConfidence:
         assert lo["vertex_count"] >= hi["vertex_count"] - 1
 
 
+class TestDamageClassification:
+    """Disaster scenes: reconstructed 3D buildings carry the damage
+    model's classification; heights stay 100% DSM-derived."""
+
+    def test_destroyed_and_intact_buildings_are_classified(self):
+        # two buildings: one intact (no-damage), one destroyed
+        mask = _draw(
+            lambda d: d.rectangle([40, 40, 140, 90], fill=255),
+            lambda d: d.rectangle([200, 40, 280, 90], fill=255),
+        )
+        dsm = np.zeros((H, W), dtype=np.float32)
+        dsm[40:90, 40:140] = 12.5
+        dsm[40:90, 200:280] = 3.2   # rubble heap, still model-derived
+
+        # damage_labels encoding: 0=background, 1=no-damage .. 4=destroyed
+        damage = np.zeros((H, W), dtype=np.uint8)
+        damage[40:90, 40:140] = 1       # no-damage
+        damage[40:90, 200:280] = 4      # destroyed
+
+        rec = reconstruct_buildings_3d(
+            mask, dsm,
+            damage_labels=damage,
+            config=Building3DConfig())
+        assert rec["damage_classified"] == 2
+        by_height = {b["height_m"]: b for b in rec["buildings"]}
+        assert by_height[12.5]["damage_class"] == "no-damage"
+        assert by_height[3.2]["damage_class"] == "destroyed"
+        # heights remain exactly the DSM values
+        assert abs(by_height[3.2]["height_m"] - 3.2) < 0.05
+
+    def test_damage_confidence_averaged_from_raster(self):
+        mask = _draw(lambda d: d.rectangle(RECT, fill=255))
+        dsm = np.where(mask, TRUE_HEIGHTS["rect"], 0).astype(np.float32)
+        damage = np.where(mask, 3, 0).astype(np.uint8)      # major-damage (1-based)
+        conf = np.where(mask, 0.77, 0).astype(np.float32)
+        rec = reconstruct_buildings_3d(
+            mask, dsm, damage_labels=damage, damage_confidence=conf,
+            config=Building3DConfig())
+        b = rec["buildings"][0]
+        assert b["damage_class"] == "major-damage"
+        assert abs(b["damage_confidence"] - 0.77) < 0.02
+
+    def test_unlabelled_footprint_is_honest_not_defaulted(self):
+        mask = _draw(lambda d: d.rectangle(RECT, fill=255))
+        dsm = np.where(mask, TRUE_HEIGHTS["rect"], 0).astype(np.float32)
+        damage = np.zeros((H, W), dtype=np.uint8)  # nothing labelled
+        rec = reconstruct_buildings_3d(
+            mask, dsm, damage_labels=damage, config=Building3DConfig())
+        assert "damage_class" not in rec["buildings"][0]
+        assert rec["damage_classified"] == 0
+
+
 class TestExtrusion:
     def test_prism_is_watertight(self):
         mask = _draw(lambda d: d.rectangle(RECT, fill=255))

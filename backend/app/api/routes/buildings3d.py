@@ -66,6 +66,8 @@ async def get_buildings3d_meta(scene_id: str):
         "georeferenced": bool(reconstruction.get("georeferenced")),
         "crs": reconstruction.get("crs"),
         "units": reconstruction.get("units", "m"),
+        "damage_classified": int(reconstruction.get("damage_classified", 0)),
+        "damage_classes": reconstruction.get("damage_classes", []),
         "url": _artifact_url(scene_id, "buildings3d.json", f"{base}/buildings3d"),
         "preview_url": _artifact_url(
             scene_id, "buildings3d_preview.png", f"{base}/buildings3d-preview"

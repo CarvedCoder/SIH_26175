@@ -1090,6 +1090,16 @@ class ProcessingService:
                         crs = ds.crs.to_string()
                         transform = ds.transform
 
+            # disaster damage rasters (when the damage model ran) travel
+            # along so each 3D building carries its classified damage state
+            damage_labels = damage_conf = None
+            dmg_labels_path = output_dir / "damage_labels.npy"
+            if dmg_labels_path.is_file():
+                damage_labels = np.load(dmg_labels_path)
+                dmg_conf_path = output_dir / "damage_confidence.npy"
+                if dmg_conf_path.is_file():
+                    damage_conf = np.load(dmg_conf_path).astype(np.float32)
+
             reconstruction = reconstruct_buildings_3d(
                 building_mask.astype(np.uint8),
                 dsm.astype(np.float32),
@@ -1098,6 +1108,8 @@ class ProcessingService:
                 crs=crs,
                 transform=transform,
                 config=self._building3d_config(),
+                damage_labels=damage_labels,
+                damage_confidence=damage_conf,
             )
 
             with open(output_dir / "buildings3d.json", "w", encoding="utf-8") as f:
@@ -1127,6 +1139,8 @@ class ProcessingService:
                 "mask_source": mask_source,
                 "height_source": reconstruction.get("height_source"),
                 "georeferenced": bool(reconstruction.get("georeferenced")),
+                "damage_classified": int(reconstruction.get("damage_classified", 0)),
+                "damage_classes": reconstruction.get("damage_classes", []),
             }
 
         except Exception as exc:

@@ -250,7 +250,9 @@ export default function Toolbar({
               <>
                 <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
                 <PopoverButton
-                  label={`Buildings 3D (${buildings3d.count} · DSM heights)`}
+                  label={buildings3d.damageClassified > 0
+                    ? `Buildings 3D (${buildings3d.count} · damage-classified)`
+                    : `Buildings 3D (${buildings3d.count} · DSM heights)`}
                   icon={Building2}
                   active={buildings3d.enabled}
                   onClick={() => {

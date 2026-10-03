@@ -329,6 +329,11 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       const g = glRef.current;
       g.buildings3dEnabled = !!enabled;
       g.buildingsLayer?.setVisible(!!enabled);
+      // Buildings-3D ON  -> terrain relief collapses to the flat datum so
+      // only the reconstructed 3D structures stand; OFF -> full elevation
+      // returns with every detection overlay (semantics, footprints,
+      // damage) draping it exactly as before.
+      g.engine?.setElevationVisible(!!enabled);
     },
     setSemanticLayerActive(active) {
       const g = glRef.current;
@@ -1104,6 +1109,10 @@ async function loadBuildings3D(g, scene, sceneId) {
     layer.load(data);
     layer.setExaggeration(g.exaggeration ?? 1.0);
     layer.setVisible(g.buildings3dEnabled !== false);
+    if (layer.visible) {
+      // auto-activated on load: collapse relief so the 3D structures read
+      g.engine.setElevationVisible(false);
+    }
     g.buildingsLayer = layer;
     console.info(
       `[buildings3d] ${layer.count} structure(s) reconstructed ` +

@@ -197,6 +197,19 @@ export class TerrainEngine {
   }
 
   /**
+   * Buildings-3D mode: collapse terrain relief to the flat datum plane so
+   * the reconstructed 3D structures are the only standing geometry. The
+   * RGB/semantic drapes stay on the flat ground; toggling back restores
+   * the full elevation surface (and every detection overlay on it).
+   *
+   * @param {boolean} visible - false flattens the terrain
+   */
+  setElevationVisible(visible) {
+    this.material.uniforms.uFlatten.value = visible ? 0.0 : 1.0;
+    this.material.needsUpdate = true;
+  }
+
+  /**
    * Toggle wireframe display.
    *
    * SINGLE wireframe system: the shader's per-tile mesh-grid overlay

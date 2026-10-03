@@ -31,7 +31,20 @@ const CONF_COLORS = {
   low:  0xfbbf24,
 };
 
-function colorForConfidence(confidence) {
+// Disaster damage classes (matches depthwizard.disaster DAMAGE_COLORS_HEX
+// and the backend preview) — override confidence colors when the damage
+// model classified the scene.
+const DAMAGE_COLORS = {
+  'no-damage':    0x4caf50,
+  'minor-damage': 0xffc107,
+  'major-damage': 0xff5722,
+  'destroyed':    0xd32f2f,
+};
+
+function colorForBuilding(building) {
+  const dc = building?.damage_class;
+  if (dc && DAMAGE_COLORS[dc]) return DAMAGE_COLORS[dc];
+  const confidence = building?.confidence ?? 0.5;
   if (confidence >= 0.7) return CONF_COLORS.high;
   if (confidence >= 0.45) return CONF_COLORS.mid;
   return CONF_COLORS.low;
@@ -120,7 +133,7 @@ export class BuildingsLayer {
       // = exaggeration reproduce the terrain shader exactly
       merged.computeVertexNormals();
 
-      const color = colorForConfidence(building.confidence ?? 0.5);
+      const color = colorForBuilding(building);
       const material = new THREE.MeshStandardMaterial({
         color,
         roughness: 0.55,
@@ -131,6 +144,7 @@ export class BuildingsLayer {
       });
       const mesh = new THREE.Mesh(merged, material);
       mesh.userData.building = building;
+      mesh.name = `building_${building.id}_${building.damage_class ?? 'ok'}`;
       mesh.renderOrder = 2;
       this.group.add(mesh);
 

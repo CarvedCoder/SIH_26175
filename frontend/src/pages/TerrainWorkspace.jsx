@@ -171,7 +171,7 @@ export default function TerrainWorkspace() {
 
   // ── Disaster metadata & GeoJSON features ──
   const [buildingsMeta, setBuildingsMeta] = useState(null);
-  const [buildings3d, setBuildings3d] = useState({ available: false, count: 0, enabled: true });
+  const [buildings3d, setBuildings3d] = useState({ available: false, count: 0, damageClassified: 0, damageClasses: [], enabled: true });
   const [damageMeta, setDamageMeta]       = useState(null);
   const damageGeoJsonRef                  = useRef(null);
 
@@ -236,6 +236,8 @@ export default function TerrainWorkspace() {
         setBuildings3d({
           available: !!b3dMeta.available,
           count: b3dMeta.count ?? 0,
+          damageClassified: b3dMeta.damage_classified ?? 0,
+          damageClasses: b3dMeta.damage_classes ?? [],
           enabled: true, // auto-on when available; toggle lives in Layers
         });
       }

@@ -819,6 +819,48 @@ def extrude_prism(footprint: Polygon, base_elev: float, top_elev: float
 # ---------------------------------------------------------------------------
 
 
+#: canonical damage class order (depthwizard.disaster.types.DAMAGE_CLASSES)
+DAMAGE_CLASS_NAMES = ("no-damage", "minor-damage", "major-damage", "destroyed")
+
+#: share of footprint pixels that must carry a label for classification
+_DAMAGE_MIN_SHARE = 0.25
+
+
+def _classify_damage(footprint_mask, damage_labels, damage_confidence):
+    """Majority-vote damage classification for ONE footprint.
+
+    Returns {damage_class, damage_confidence, pixel_share} or None when no
+    damage raster exists or too few footprint pixels carry a label.
+    Absence is reported honestly, never folded into a default class.
+    """
+    if damage_labels is None:
+        return None
+    # damage_labels encoding (depthwizard.disaster.damage_assessor):
+    # 0 = background/unassessed, 1..4 = DAMAGE_CLASSES index + 1
+    vals = damage_labels[footprint_mask]
+    vals = vals[np.isfinite(vals)]
+    labelled = vals[vals > 0]
+    share = float(labelled.size) / float(vals.size) if vals.size else 0.0
+    if labelled.size == 0 or share < _DAMAGE_MIN_SHARE:
+        return None
+    counts = np.bincount(labelled.astype(np.int64), minlength=5)
+    winner = int(np.argmax(counts))
+    if winner < 1 or winner > len(DAMAGE_CLASS_NAMES):
+        return None
+    conf = 1.0
+    if damage_confidence is not None:
+        mask_vals = damage_labels[footprint_mask]
+        cvals = damage_confidence[footprint_mask]
+        keep = np.isfinite(cvals) & (mask_vals == winner)
+        if keep.any():
+            conf = float(np.mean(cvals[keep]))
+    return {
+        "damage_class": DAMAGE_CLASS_NAMES[winner - 1],
+        "damage_confidence": round(conf, 3),
+        "pixel_share": round(share, 3),
+    }
+
+
 def reconstruct_buildings_3d(
     building_mask: np.ndarray,
     dsm: np.ndarray,
@@ -828,6 +870,8 @@ def reconstruct_buildings_3d(
     crs: str | None = None,
     transform: Any = None,
     config: Building3DConfig | None = None,
+    damage_labels: np.ndarray | None = None,
+    damage_confidence: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Full geometry-aware reconstruction -> JSON-serializable dict.
 
@@ -907,6 +951,15 @@ def reconstruct_buildings_3d(
             height_stats["height_m"], cfg,
         )
 
+        # -- disaster damage classification (when the damage model ran) -----
+        # Majority vote of the damage model's per-pixel labels inside the
+        # footprint. Heights stay 100% DSM-derived regardless of class: a
+        # destroyed structure's debris height is the model's honest
+        # estimate, never replaced by an assumed value.
+        damage_entry = _classify_damage(
+            footprint_mask, damage_labels, damage_confidence
+        )
+
         # -- confidence -----------------------------------------------------
         boundary_iou = _polygon_iou(
             _polygon_from_mask(comp) or footprint, footprint, w, h)
@@ -943,6 +996,11 @@ def reconstruct_buildings_3d(
             "footprint_area_m2": round(float(footprint.area), 2),
             "vertex_count": len(ext_px),
         }
+        if damage_entry is not None:
+            building["damage_class"] = damage_entry["damage_class"]
+            building["damage_confidence"] = damage_entry["damage_confidence"]
+            building["damage_pixel_share"] = damage_entry["pixel_share"]
+
         if levels:
             building["levels"] = [
                 {
@@ -955,11 +1013,15 @@ def reconstruct_buildings_3d(
             ]
         buildings.append(building)
 
+    damage_classified = sum(1 for b in buildings if "damage_class" in b)
     return {
         "available": len(buildings) > 0,
         "count": len(buildings),
         "mask_source": mask_source,
         "height_source": "dsm.npy (predicted metric height)",
+        "damage_classified": damage_classified,
+        "damage_classes": sorted({b["damage_class"] for b in buildings
+                                  if "damage_class" in b}),
         "units": "m",
         "georeferenced": georeferenced,
         "crs": crs,
@@ -977,6 +1039,14 @@ def render_buildings3d_preview(rgb: np.ndarray, reconstruction: dict[str, Any]) 
     """RGB + footprint overlay colored by confidence (visual QA artifact)."""
     from PIL import Image as PILImage
 
+    # damage classes override confidence colors in disaster scenes
+    DAMAGE_COLORS = {
+        "no-damage":     (76, 175, 80, 220),
+        "minor-damage":  (255, 193, 7, 220),
+        "major-damage":  (255, 87, 34, 220),
+        "destroyed":     (211, 47, 47, 220),
+    }
+
     base = PILImage.fromarray(rgb.astype(np.uint8)).convert("RGBA")
     overlay = PILImage.new("RGBA", base.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -984,15 +1054,20 @@ def render_buildings3d_preview(rgb: np.ndarray, reconstruction: dict[str, Any]) 
         pts = [tuple(p) for p in b["footprint_px"]]
         if len(pts) < 3:
             continue
-        conf = b.get("confidence", 0.0)
-        if conf >= 0.7:
-            color = (52, 211, 153, 220)     # green — high confidence
-        elif conf >= 0.45:
-            color = (56, 189, 248, 220)     # cyan — medium
+        if b.get("damage_class") in DAMAGE_COLORS:
+            color = DAMAGE_COLORS[b["damage_class"]]
         else:
-            color = (251, 191, 36, 220)     # amber — low
+            conf = b.get("confidence", 0.0)
+            if conf >= 0.7:
+                color = (52, 211, 153, 220)     # green — high confidence
+            elif conf >= 0.45:
+                color = (56, 189, 248, 220)     # cyan — medium
+            else:
+                color = (251, 191, 36, 220)     # amber — low
         draw.polygon(pts, outline=color, width=2)
-        draw.text((pts[0][0] + 3, pts[0][1] + 3),
-                  f"{b['primitive']} {b['height_m']:.1f}m", fill=color)
+        label = b["primitive"] + f" {b['height_m']:.1f}m"
+        if b.get("damage_class"):
+            label += f" {b['damage_class']}"
+        draw.text((pts[0][0] + 3, pts[0][1] + 3), label, fill=color)
     out = PILImage.alpha_composite(base, overlay)
     return np.asarray(out)

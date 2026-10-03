@@ -149,6 +149,29 @@ test('visibility toggle and dispose are clean', () => {
   assert.ok(children > 0);
 });
 
+test('damage-classified buildings are colored by damage class', () => {
+  const { layer } = makeLayer();
+  const payload = makePayload();
+  payload.buildings[0].damage_class = 'destroyed';
+  payload.buildings[1].damage_class = 'no-damage';
+  layer.load(payload);
+
+  const destroyed = layer.buildings[0].mesh.material.color.getHex();
+  const intact = layer.buildings[1].mesh.material.color.getHex();
+  assert.equal(destroyed, 0xd32f2f);   // destroyed red
+  assert.equal(intact, 0x4caf50);      // no-damage green
+  assert.notEqual(destroyed, intact);
+});
+
+test('terrain flatten mode toggles the uFlatten uniform', async () => {
+  const { TerrainEngine } = await import('../TerrainEngine.js');
+  const { createTerrainMaterial } = await import('../terrain/TerrainMaterial.js');
+  const material = createTerrainMaterial({ minElevation: 100, maxElevation: 150 });
+  assert.equal(material.uniforms.uFlatten.value, 0.0);
+  material.uniforms.uFlatten.value = 1.0;
+  assert.equal(material.uniforms.uFlatten.value, 1.0);
+});
+
 test('empty / unavailable payload loads nothing', () => {
   const { layer } = makeLayer();
   layer.load({ available: false, buildings: [] });
