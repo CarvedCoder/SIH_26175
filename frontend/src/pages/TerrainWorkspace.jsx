@@ -171,7 +171,7 @@ export default function TerrainWorkspace() {
 
   // ── Disaster metadata & GeoJSON features ──
   const [buildingsMeta, setBuildingsMeta] = useState(null);
-  const [buildings3d, setBuildings3d] = useState({ available: false, count: 0, damageClassified: 0, damageClasses: [], enabled: true });
+  const [buildings3d, setBuildings3d] = useState({ available: false, count: 0, damageClassified: 0, damageClasses: [], treeCount: 0, enabled: true });
   const [damageMeta, setDamageMeta]       = useState(null);
   const damageGeoJsonRef                  = useRef(null);
 
@@ -238,6 +238,7 @@ export default function TerrainWorkspace() {
           count: b3dMeta.count ?? 0,
           damageClassified: b3dMeta.damage_classified ?? 0,
           damageClasses: b3dMeta.damage_classes ?? [],
+          treeCount: b3dMeta.tree_count ?? 0,
           enabled: true, // auto-on when available; toggle lives in Layers
         });
       }
@@ -891,6 +892,83 @@ export default function TerrainWorkspace() {
             leftOffset={292}
             rgbUrl={state.terrain?.texture_url ?? null}
           />
+        )}
+
+        {/* Buildings-3D legend — what each colour represents */}
+        {buildings3d.available && buildings3d.enabled && !isLoading && (
+          <div
+            role="note"
+            aria-label="Buildings 3D colour legend"
+            style={{
+              position: 'absolute',
+              left: 16,
+              bottom: 72,
+              zIndex: 30,
+              background: 'rgba(10,14,23,0.82)',
+              border: '1px solid var(--dw-rim)',
+              borderRadius: 'var(--dw-radius-sm)',
+              padding: '10px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              pointerEvents: 'none',
+            }}
+          >
+            <p style={{
+              fontFamily: 'var(--dw-font-ui)', fontSize: 10.5, fontWeight: 600,
+              letterSpacing: '0.08em', textTransform: 'uppercase',
+              color: 'var(--dw-fg-muted)', margin: 0,
+            }}>
+              3D buildings — {buildings3d.count}
+            </p>
+            {(buildings3d.damageClasses?.length
+              ? [
+                  ['no-damage', '#4CAF50', 'No damage'],
+                  ['minor-damage', '#FFC107', 'Minor damage'],
+                  ['major-damage', '#FF5722', 'Major damage'],
+                  ['destroyed', '#D32F2F', 'Destroyed'],
+                ].filter(([cls]) => buildings3d.damageClasses.includes(cls))
+              : [
+                  ['high', '#34d399', 'High confidence'],
+                  ['mid', '#38bdf8', 'Medium confidence'],
+                  ['low', '#fbbf24', 'Low confidence'],
+                ]
+            ).map(([key, color, label]) => (
+              <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  width: 10, height: 10, borderRadius: 2,
+                  background: color, flexShrink: 0,
+                }} />
+                <span style={{
+                  fontFamily: 'var(--dw-font-ui)', fontSize: 12,
+                  color: 'var(--dw-fg)',
+                }}>
+                  {label}
+                </span>
+              </div>
+            ))}
+            {(buildings3d.treeCount ?? 0) > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                <span style={{
+                  width: 0, height: 0, borderLeft: '5px solid transparent',
+                  borderRight: '5px solid transparent',
+                  borderBottom: '11px solid #2fbf71', flexShrink: 0,
+                }} />
+                <span style={{
+                  fontFamily: 'var(--dw-font-ui)', fontSize: 12,
+                  color: 'var(--dw-fg)',
+                }}>
+                  Trees ({buildings3d.treeCount}) — estimated height
+                </span>
+              </div>
+            )}
+            <p style={{
+              fontFamily: 'var(--dw-font-data)', fontSize: 10.5,
+              color: 'var(--dw-fg-ghost)', margin: 0,
+            }}>
+              heights from predicted DSM
+            </p>
+          </div>
         )}
 
         {/* Top in-viewport control bar — view tabs, camera, interaction mode */}

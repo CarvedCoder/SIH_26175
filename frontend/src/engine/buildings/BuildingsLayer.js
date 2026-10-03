@@ -93,6 +93,50 @@ function buildingGeometries(building, geoRef, minElevation) {
   return geoms;
 }
 
+/** Canvas sprite carrying a building's estimated height (metres). */
+function makeHeightLabel(text, worldSpan) {
+  const c = document.createElement('canvas');
+  c.width = 160; c.height = 56;
+  const ctx = c.getContext('2d');
+  ctx.font = '600 34px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(10,14,23,0.75)';
+  const w = ctx.measureText(text).width + 24;
+  ctx.fillRect((160 - w) / 2, 6, w, 44);
+  ctx.fillStyle = '#eaf6ff';
+  ctx.fillText(text, 80, 30);
+  const tex = new THREE.CanvasTexture(c);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, transparent: true, depthTest: false,
+  }));
+  spr.scale.set(worldSpan * 0.02, worldSpan * 0.007, 1);
+  spr.renderOrder = 60;
+  spr.userData.disposeMap = true;
+  return spr;
+}
+
+/** Low-poly tree: trunk cylinder + two-tier crown cones. */
+function buildTreeGeometry(heightM, crownRadius) {
+  const geoms = [];
+  const trunkH = Math.max(0.6, heightM * 0.22);
+  const crownH = Math.max(0.8, heightM * 0.78);
+  const trunk = new THREE.CylinderGeometry(
+    crownRadius * 0.12, crownRadius * 0.16, trunkH, 6,
+  );
+  trunk.translate(0, trunkH / 2, 0);
+  geoms.push(trunk);
+  const crown1 = new THREE.ConeGeometry(crownRadius, crownH * 0.62, 7);
+  crown1.translate(0, trunkH + crownH * 0.31, 0);
+  geoms.push(crown1);
+  const crown2 = new THREE.ConeGeometry(crownRadius * 0.72, crownH * 0.5, 7);
+  crown2.translate(0, trunkH + crownH * 0.7, 0);
+  geoms.push(crown2);
+  const merged = mergeGeometries(geoms, false) ?? geoms[0];
+  for (const g of geoms) if (g !== merged) g.dispose();
+  return merged;
+}
+
 export class BuildingsLayer {
   /**
    * @param {THREE.Scene} scene
@@ -107,6 +151,9 @@ export class BuildingsLayer {
     scene.add(this.group);
 
     this.buildings = [];
+    this._labels = [];
+    this._trees = [];
+    this._lights = null;
     this.loaded = false;
     this.disposed = false;
   }
@@ -175,6 +222,40 @@ export class BuildingsLayer {
     this.group.add(hemi, dir, dir2);
     this._lights = [hemi, dir, dir2];
 
+    // Per-building estimated-height labels (model-derived, from the DSM)
+    const worldSpan = Math.max(this.geoRef.worldWidth, this.geoRef.worldDepth);
+    for (const entry of this.buildings) {
+      const b = entry.building;
+      const label = makeHeightLabel(`${b.height_m.toFixed(1)} m`, worldSpan);
+      label.position.copy(entry.mesh.position);
+      // place above the building's tallest point
+      entry.mesh.geometry.computeBoundingBox();
+      const box = entry.mesh.geometry.boundingBox;
+      label.position.y += (box?.max.y ?? 0) + worldSpan * 0.012;
+      this.group.add(label);
+      this._labels.push(label);
+    }
+
+    // Custom tree objects from vegetation candidates (green + elevated)
+    const treeMat = new THREE.MeshStandardMaterial({
+      color: 0x2fbf71, roughness: 0.85, flatShading: true,
+    });
+    const trunkMat = new THREE.MeshStandardMaterial({
+      color: 0x6b4a2f, roughness: 0.9, flatShading: true,
+    });
+    const treeR = Math.max(1.6, worldSpan * 0.004);
+    for (const tree of data.trees ?? []) {
+      if (!(tree.height_m > 0.5)) continue;
+      const { x, z } = this.geoRef.pixelToLocal(tree.x_px, tree.y_px, 0);
+      const geom = buildTreeGeometry(tree.height_m, treeR);
+      const mesh = new THREE.Mesh(geom, [trunkMat, treeMat]);
+      // geometry is Y-up with base at 0; place relative to min elevation,
+      // standing on the GROUND surface (buildings removed under trees too)
+      mesh.position.set(x, (tree.ground_elevation_m ?? minElevation) - minElevation, z);
+      this.group.add(mesh);
+      this._trees.push(mesh);
+    }
+
     this.group.position.y = minElevation;
     this.group.scale.y = 1.0; // exaggeration applied via setExaggeration
     this.loaded = this.buildings.length > 0;
@@ -205,6 +286,18 @@ export class BuildingsLayer {
       light.dispose?.();
     }
     this._lights = null;
+    for (const l of this._labels) {
+      l.material.map?.dispose();
+      l.material.dispose();
+      this.group.remove(l);
+    }
+    this._labels = [];
+    for (const t of this._trees) {
+      t.geometry.dispose();
+      (Array.isArray(t.material) ? t.material : [t.material]).forEach(m => m.dispose());
+      this.group.remove(t);
+    }
+    this._trees = [];
     for (const entry of this.buildings) {
       entry.mesh.geometry.dispose();
       entry.mesh.material.dispose();

@@ -612,7 +612,7 @@ class ProcessingService:
         if disaster_result:
             payload["disaster"] = disaster_result
 
-        buildings3d = self._run_buildings3d_stage(job_id, output_dir)
+        buildings3d = self._run_buildings3d_stage(job_id, scene_id, output_dir)
         if buildings3d:
             payload["buildings3d"] = buildings3d
 
@@ -1019,7 +1019,7 @@ class ProcessingService:
             min_confidence_for_primitive=s.buildings3d_min_building_conf,
         )
 
-    def _run_buildings3d_stage(self, job_id: str, output_dir: Path) -> dict | None:
+    def _run_buildings3d_stage(self, job_id: str, scene_id: str, output_dir: Path) -> dict | None:
         """Geometry-aware 3D building reconstruction (optional stage).
 
         Consumes EXISTING outputs only — the disaster ONNX building mask
@@ -1100,6 +1100,8 @@ class ProcessingService:
                 if dmg_conf_path.is_file():
                     damage_conf = np.load(dmg_conf_path).astype(np.float32)
 
+            from scipy import ndimage as _nd
+
             reconstruction = reconstruct_buildings_3d(
                 building_mask.astype(np.uint8),
                 dsm.astype(np.float32),
@@ -1111,6 +1113,99 @@ class ProcessingService:
                 damage_labels=damage_labels,
                 damage_confidence=damage_conf,
             )
+
+            # -- ground DSM: building regions replaced by their nearest
+            # surrounding ground so the Buildings-3D mode can remove ONLY
+            # the structures from the relief while mountains/hills keep
+            # their elevation (natural terrain is never flattened).
+            bmask = building_mask.astype(bool)
+            ground_dsm = dsm.copy()
+            if bmask.any():
+                _, (iy, ix) = _nd.distance_transform_edt(
+                    bmask, return_indices=True
+                )
+                ground_dsm[bmask] = dsm[iy[bmask], ix[bmask]]
+                # light smooth over the inpainted regions only
+                blurred = _nd.median_filter(np.nan_to_num(ground_dsm, nan=0.0), size=5)
+                ground_dsm[bmask] = blurred[bmask]
+
+            lo = float(np.nanmin(dsm)) if np.isfinite(dsm).any() else 0.0
+            hi = float(np.nanmax(dsm)) if np.isfinite(dsm).any() else 1.0
+            if hi - lo < 1e-6:
+                hi = lo + 1.0
+            gnorm = np.clip(
+                (np.nan_to_num(ground_dsm, nan=lo) - lo) / (hi - lo), 0.0, 1.0
+            )
+            from PIL import Image as _Image
+
+            gimg = _Image.fromarray((gnorm * 65535.0).astype(np.uint16))
+            gmax = max(gimg.size)
+            if gmax > 1024:
+                gimg = gimg.resize(
+                    (int(gimg.width * 1024 / gmax), int(gimg.height * 1024 / gmax)),
+                    _Image.LANCZOS,
+                )
+            gimg.save(output_dir / "ground_heightmap.png")
+            reconstruction["has_ground"] = True
+            reconstruction["ground_range_m"] = [round(lo, 3), round(hi, 3)]
+
+            # -- vegetation/tree candidates: green-dominant + elevated
+            # pixels OUTSIDE building footprints, clustered to stand
+            # centers. A classical CV heuristic (NOT a semantic model —
+            # labeled honestly in the payload) so the 3D view can render
+            # custom tree objects; a detection model can replace it later.
+            trees = []
+            try:
+                from backend.app.application.scenes.service import scene_service
+
+                input_path = scene_service.find_scene_input(scene_id)
+                if input_path is not None:
+                    import rasterio
+
+                    with rasterio.open(input_path) as ds:
+                        bands = min(3, ds.count)
+                        arr = ds.read(list(range(1, bands + 1)))
+                    rgb = np.moveaxis(arr, 0, -1).astype(np.float32)
+                    if rgb.shape[:2] != dsm.shape[:2]:
+                        im = _Image.fromarray(rgb.astype(np.uint8)).resize(
+                            (dsm.shape[1], dsm.shape[0]), _Image.BILINEAR
+                        )
+                        rgb = np.asarray(im, dtype=np.float32)
+                    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+                    greenish = (g > r * 1.05) & (g > b * 1.05) & (g > 40)
+                    elevated = np.isfinite(dsm) & ((dsm - ground_dsm) > 1.5)
+                    cand = greenish & elevated & ~bmask
+                    if cand.sum() >= 200:
+                        tl, tn = _nd.label(_nd.binary_opening(cand, np.ones((3, 3))))
+                        tsz = _nd.sum_labels(
+                            np.ones_like(cand, np.int32), tl, range(1, tn + 1)
+                        )
+                        order = np.argsort(tsz)[::-1][:100]
+                        structure = np.ones((3, 3), bool)
+                        for oi in order:
+                            if tsz[oi] < 60:
+                                continue
+                            comp = tl == (oi + 1)
+                            core = _nd.binary_erosion(comp, structure=structure)
+                            use = core if core.sum() >= 20 else comp
+                            ys, xs = np.nonzero(use)
+                            tv = dsm[use] - ground_dsm[use]
+                            tv = tv[np.isfinite(tv)]
+                            if tv.size == 0 or float(np.median(tv)) <= 1.5:
+                                continue
+                            cy, cx = int(ys.mean()), int(xs.mean())
+                            trees.append({
+                                "x_px": round(float(xs.mean()), 1),
+                                "y_px": round(float(ys.mean()), 1),
+                                "height_m": round(float(np.median(tv)), 2),
+                                "ground_elevation_m": round(float(ground_dsm[cy, cx]), 2),
+                                "pixel_count": int(comp.sum()),
+                            })
+            except Exception as _tree_err:  # noqa: BLE001 — trees are additive
+                logger.warning("tree candidate extraction failed: %s", _tree_err)
+            reconstruction["trees"] = trees
+            reconstruction["tree_count"] = len(trees)
+            reconstruction["trees_source"] = "heuristic_greenery_height"
 
             with open(output_dir / "buildings3d.json", "w", encoding="utf-8") as f:
                 json.dump(reconstruction, f)
@@ -1141,6 +1236,8 @@ class ProcessingService:
                 "georeferenced": bool(reconstruction.get("georeferenced")),
                 "damage_classified": int(reconstruction.get("damage_classified", 0)),
                 "damage_classes": reconstruction.get("damage_classes", []),
+                "tree_count": int(reconstruction.get("tree_count", 0)),
+                "has_ground": bool(reconstruction.get("has_ground")),
             }
 
         except Exception as exc:
@@ -1166,7 +1263,7 @@ class ProcessingService:
             "validation.json", "error_map.png", "validation_error_map.png",
             "heightmap.png",
             # Geometry-aware 3D building reconstruction artifacts
-            "buildings3d.json", "buildings3d_preview.png",
+            "buildings3d.json", "buildings3d_preview.png", "ground_heightmap.png",
             # TerraHeight-S backend artifacts (AGL product + provenance)
             "terraheight_agl.tif", "terraheight_agl.npy",
             "terraheight_preview.png", "terraheight_meta.json",

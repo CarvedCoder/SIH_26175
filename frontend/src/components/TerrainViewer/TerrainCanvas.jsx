@@ -329,11 +329,15 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       const g = glRef.current;
       g.buildings3dEnabled = !!enabled;
       g.buildingsLayer?.setVisible(!!enabled);
-      // Buildings-3D ON  -> terrain relief collapses to the flat datum so
-      // only the reconstructed 3D structures stand; OFF -> full elevation
-      // returns with every detection overlay (semantics, footprints,
-      // damage) draping it exactly as before.
-      g.engine?.setElevationVisible(!!enabled);
+      // Buildings-3D ON  -> the terrain renders from the building-removed
+      // ground field (mountains keep their elevation; only structures
+      // leave the relief), falling back to the flat datum when no ground
+      // field exists. OFF -> the original DSM returns with every detection
+      // overlay (semantics, footprints, damage) draping it as before.
+      const swapped = g.engine?.setBuildings3DTerrain(!!enabled);
+      if (!swapped) {
+        g.engine?.setElevationVisible(!!enabled);
+      }
     },
     setSemanticLayerActive(active) {
       const g = glRef.current;
@@ -1109,9 +1113,30 @@ async function loadBuildings3D(g, scene, sceneId) {
     layer.load(data);
     layer.setExaggeration(g.exaggeration ?? 1.0);
     layer.setVisible(g.buildings3dEnabled !== false);
+
+    // Ground heightfield: the DSM with building regions replaced by their
+    // surrounding ground. Buildings-3D mode swaps THIS in — mountains and
+    // hills keep their elevation; only the structures leave the relief.
+    // Scenes without one fall back to the flat datum (uFlatten).
+    if (data.has_ground) {
+      try {
+        const ground = await decodeHeightmap(
+          resolveAssetUrl(`/api/v1/scenes/${sceneId}/results/ground-heightmap`)
+        );
+        if (ground.width === g.hmWidth && ground.height === g.hmHeight) {
+          g.engine.setGroundHeightField(ground.data, ground.width, ground.height);
+        }
+      } catch (err) {
+        console.warn('[buildings3d] ground heightfield unavailable:', err?.message ?? err);
+      }
+    }
+
     if (layer.visible) {
-      // auto-activated on load: collapse relief so the 3D structures read
-      g.engine.setElevationVisible(false);
+      // auto-activated on load: swap to the ground field (mountains stay),
+      // falling back to the flat datum when no ground field exists
+      if (!g.engine.setBuildings3DTerrain(true)) {
+        g.engine.setElevationVisible(false);
+      }
     }
     g.buildingsLayer = layer;
     console.info(

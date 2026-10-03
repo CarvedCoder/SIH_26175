@@ -68,6 +68,11 @@ async def get_buildings3d_meta(scene_id: str):
         "units": reconstruction.get("units", "m"),
         "damage_classified": int(reconstruction.get("damage_classified", 0)),
         "damage_classes": reconstruction.get("damage_classes", []),
+        "tree_count": int(reconstruction.get("tree_count", 0)),
+        "has_ground": bool(reconstruction.get("has_ground")),
+        "ground_heightmap_url": _artifact_url(
+            scene_id, "ground_heightmap.png", f"{base}/ground-heightmap"
+        ) if reconstruction.get("has_ground") else None,
         "url": _artifact_url(scene_id, "buildings3d.json", f"{base}/buildings3d"),
         "preview_url": _artifact_url(
             scene_id, "buildings3d_preview.png", f"{base}/buildings3d-preview"

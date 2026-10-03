@@ -228,6 +228,46 @@ export class LODManager {
   }
 
   /**
+   * Rebuild every tile from the CURRENT dataset — used by the
+   * Buildings-3D mode to swap the heightfield (building-removed ground
+   * DSM) without tearing down the engine. Streaming is reset with the
+   * tiles; the caller re-enables it when restoring the original field.
+   */
+  resetTiles() {
+    for (const [, tile] of this.activeTiles.entries()) {
+      if (tile.mesh && tile.mesh.parent) {
+        tile.mesh.parent.remove(tile.mesh);
+      }
+      tile.dispose();
+    }
+    this.activeTiles.clear();
+    this.pendingBuilds.clear();
+    this._wantedIds.clear();
+    this.root.dispose();
+
+    const halfW = this.geoRef.worldWidth * 0.5;
+    const halfD = this.geoRef.worldDepth * 0.5;
+    this.root = new QuadtreeNode({
+      id: 'root',
+      level: 0,
+      tx: 0,
+      ty: 0,
+      maxLod: this.maxLod,
+      worldMinX: -halfW, worldMaxX: halfW,
+      worldMinZ: -halfD, worldMaxZ: halfD,
+      uMin: 0.0, uMax: 1.0,
+      vMin: 0.0, vMax: 1.0,
+      segments: this.segments,
+      sampleHeight: (u, v) => this.dataset.sampleElevation(u, v),
+      material: this.material,
+    });
+    if (this.heightTiles) {
+      this.root.tile.sampleHeight = null;
+      this._requestHeightBuild(this.root.tile, 0);
+    }
+  }
+
+  /**
    * Clean up all tiles, materials, and geometries.
    */
   dispose() {

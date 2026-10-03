@@ -143,6 +143,11 @@ export class TerrainEngine {
     });
 
     this.exaggeration = 1.0;
+    // Buildings-3D mode state: the ORIGINAL heightfield is preserved so
+    // toggling off restores the full DSM relief (buildings included).
+    this._savedHeightTiles = this.heightStreamer ? { streamer: this.heightStreamer } : null;
+    this._originalHeightData = null;
+    this.groundHeightData = null;
     // True once an RGB/layer texture has been applied (drives hybrid view)
     this.textureReady = false;
     this.disposed = false;
@@ -207,6 +212,53 @@ export class TerrainEngine {
   setElevationVisible(visible) {
     this.material.uniforms.uFlatten.value = visible ? 0.0 : 1.0;
     this.material.needsUpdate = true;
+  }
+
+  /**
+   * Provide the building-removed ground heightfield (normalized [0,1],
+   * SAME grid as the loaded height data) for the Buildings-3D mode.
+   * @param {Float32Array} data
+   * @param {number} width @param {number} height
+   * @returns {boolean} false when the grid does not match
+   */
+  setGroundHeightField(data, width, height) {
+    if (!data || width !== this.hmWidth || height !== this.hmHeight) {
+      console.warn('[buildings3d] ground heightfield grid mismatch — flat fallback');
+      return false;
+    }
+    this.groundHeightData = data;
+    return true;
+  }
+
+  get hasGroundHeightField() {
+    return !!this.groundHeightData;
+  }
+
+  /**
+   * Buildings-3D terrain mode. ON: the terrain renders from the
+   * building-removed ground field — ONLY the structures leave the relief;
+   * mountains/hills keep their elevation. OFF: the original DSM field
+   * (buildings back in the relief) is restored and all detection overlays
+   * drape it exactly as before.
+   * @param {boolean} on
+   * @returns {boolean} true when the heightfield was swapped
+   */
+  setBuildings3DTerrain(on) {
+    if (on) {
+      if (!this.groundHeightData) return false;
+      if (this.dataset.heightData === this.groundHeightData) return true;
+      if (!this._originalHeightData) this._originalHeightData = this.dataset.heightData;
+      this.dataset.heightData = this.groundHeightData;
+      this.lodManager.heightTiles = null; // streamed bumps would undo the swap
+      this.lodManager.resetTiles();
+      return true;
+    }
+    if (this._originalHeightData && this.dataset.heightData !== this._originalHeightData) {
+      this.dataset.heightData = this._originalHeightData;
+      this.lodManager.heightTiles = this._savedHeightTiles;
+      this.lodManager.resetTiles();
+    }
+    return false;
   }
 
   /**
