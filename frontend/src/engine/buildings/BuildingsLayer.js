@@ -184,6 +184,20 @@ export class BuildingsLayer {
 
     const minElevation = this.geoRef.minElevation ?? 0;
 
+    // crown radius follows the ACTUAL canopy extent: the cluster's pixel
+    // footprint converted to metres via the ground sampling distance
+    const gsd = Math.max(this.geoRef.gsdX || 1, this.geoRef.gsdY || 1);
+    const crownFor = (px) => Math.min(14, Math.max(1.2, Math.sqrt(px || 0) * 0.5 * gsd));
+    // sample the CURRENT rendered surface at a pixel — objects sit exactly
+    // on the ground field (buildings removed beneath trees too)
+    const placeOnSurface = (px, py) => {
+      if (!this.surfaceSampler) return minElevation;
+      const { x, z } = this.geoRef.pixelToLocal(px, py, 0);
+      const u = x / this.geoRef.worldWidth + 0.5;
+      const v = z / this.geoRef.worldDepth + 0.5;
+      return this.surfaceSampler(u, v);
+    };
+
     for (const building of data.buildings) {
       // per-entity isolation: one malformed footprint can never kill the
       // whole layer
@@ -276,7 +290,8 @@ export class BuildingsLayer {
           mesh = new THREE.Mesh(buildTreeGeometry(obj.height_m, crownFor(obj.pixel_count)), [trunkMat, treeMat]);
           mesh.position.set(x, base, z);
         } else {
-          const box = new THREE.BoxGeometry(treeR * 1.4, obj.height_m, treeR * 0.9);
+          const boxW = crownFor(obj.pixel_count) * 1.4;
+          const box = new THREE.BoxGeometry(boxW, obj.height_m, boxW * 0.64);
           mesh = new THREE.Mesh(box, objMat);
           mesh.position.set(x, base + obj.height_m / 2, z);
         }
@@ -294,19 +309,6 @@ export class BuildingsLayer {
     const trunkMat = new THREE.MeshStandardMaterial({
       color: 0x6b4a2f, roughness: 0.9, flatShading: true,
     });
-    // crown radius follows the ACTUAL canopy extent: the cluster's pixel
-    // footprint converted to metres via the ground sampling distance
-    const gsd = Math.max(this.geoRef.gsdX || 1, this.geoRef.gsdY || 1);
-    const crownFor = (px) => Math.min(14, Math.max(1.2, Math.sqrt(px || 0) * 0.5 * gsd));
-    const placeOnSurface = (px, py) => {
-      if (!this.surfaceSampler) {
-        return minElevation;
-      }
-      const { x, z } = this.geoRef.pixelToLocal(px, py, 0);
-      const u = x / this.geoRef.worldWidth + 0.5;
-      const v = z / this.geoRef.worldDepth + 0.5;
-      return this.surfaceSampler(u, v);
-    };
     for (const tree of data.trees ?? []) {
       if (!(tree.height_m > 0.5)) continue;
       try {

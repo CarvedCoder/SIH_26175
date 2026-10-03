@@ -67,6 +67,8 @@ export class TerrainEngine {
     });
 
     // 2. Instantiate Terrain Dataset
+    this.hmWidth = options.hmWidth;
+    this.hmHeight = options.hmHeight;
     this.dataset = new TerrainDataset({
       heightData: options.heightData,
       width: options.hmWidth,
@@ -222,7 +224,9 @@ export class TerrainEngine {
    * @returns {boolean} false when the grid does not match
    */
   setGroundHeightField(data, width, height) {
-    if (!data || width !== this.hmWidth || height !== this.hmHeight) {
+    const dw = width ?? this.dataset.width;
+    const dh = height ?? this.dataset.height;
+    if (!data || dw !== this.dataset.width || dh !== this.dataset.height) {
       console.warn('[buildings3d] ground heightfield grid mismatch — flat fallback');
       return false;
     }

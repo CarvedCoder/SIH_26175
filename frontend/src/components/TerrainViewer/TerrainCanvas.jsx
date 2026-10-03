@@ -1160,13 +1160,19 @@ async function loadBuildings3D(g, scene, sceneId) {
     // blocks and trees sit exactly on the surface, never floating.
     // Mountains/hills keep their elevation; only structures leave the
     // relief. Scenes without a ground field fall back to the flat datum.
-    if (data.has_ground) {
+    if (data.has_ground && data.ground_heightmap_url) {
       try {
         const ground = await decodeHeightmap(
-          resolveAssetUrl(`/api/v1/scenes/${sceneId}/results/ground-heightmap`)
+          resolveAssetUrl(data.ground_heightmap_url)
         );
         if (ground.width === g.hmWidth && ground.height === g.hmHeight) {
           g.engine.setGroundHeightField(ground.data, ground.width, ground.height);
+        } else {
+          console.warn(
+            `[buildings3d] ground grid ${ground.width}x${ground.height} != ` +
+            `terrain ${g.hmWidth}x${g.hmHeight} (hmW=${g.hmWidth}, hmH=${g.hmHeight}, ` +
+            `dsW=${g.engine.dataset.width}) — swap skipped`
+          );
         }
       } catch (err) {
         console.warn('[buildings3d] ground heightfield unavailable:', err?.message ?? err);

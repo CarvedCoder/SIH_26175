@@ -38,7 +38,10 @@ export const getBuildings3D = async (sceneId) => {
       status: res.status,
     });
   }
-  return res.json();
+  const json = await res.json();
+  // carry the presigned ground-heightmap URL through — the result-file
+  // route cannot be fetched directly (307 redirect fails cross-origin)
+  return { ...json, ground_heightmap_url: meta.ground_heightmap_url ?? null };
 };
 
 /**
