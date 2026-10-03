@@ -164,6 +164,17 @@ export class BuildingsLayer {
       this.buildings.push({ mesh, line, building });
     }
 
+    // The terrain material is a custom shader — the scene carries no
+    // scene-wide lights, so the buildings bring their own (scoped to this
+    // group, disposed with it).
+    const hemi = new THREE.HemisphereLight(0xdfeaff, 0x35404f, 1.5);
+    const dir = new THREE.DirectionalLight(0xffffff, 2.2);
+    dir.position.set(0.4, 1.0, 0.35).normalize();
+    const dir2 = new THREE.DirectionalLight(0xcfe4ff, 0.8);
+    dir2.position.set(-0.6, 0.7, -0.5).normalize();
+    this.group.add(hemi, dir, dir2);
+    this._lights = [hemi, dir, dir2];
+
     this.group.position.y = minElevation;
     this.group.scale.y = 1.0; // exaggeration applied via setExaggeration
     this.loaded = this.buildings.length > 0;
@@ -189,6 +200,11 @@ export class BuildingsLayer {
   }
 
   clear() {
+    for (const light of this._lights ?? []) {
+      this.group.remove(light);
+      light.dispose?.();
+    }
+    this._lights = null;
     for (const entry of this.buildings) {
       entry.mesh.geometry.dispose();
       entry.mesh.material.dispose();

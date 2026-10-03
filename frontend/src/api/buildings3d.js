@@ -4,7 +4,7 @@
  * (footprints + DSM-derived heights + confidence). Independent of the
  * 2D building-footprint detection and of semantic segmentation.
  */
-import { apiFetch, getBaseUrl } from './client.js';
+import { apiFetch, assetFetch, getBaseUrl, resolveAssetUrl } from './client.js';
 
 /**
  * Fetch 3D reconstruction metadata and availability.
@@ -17,12 +17,29 @@ export const getBuildings3DMeta = (sceneId) =>
 
 /**
  * Fetch the full reconstruction (footprint polygons + heights).
- * GET /scenes/{scene_id}/results/buildings3d
+ *
+ * Two-step transport (the app's established pattern, same as the minimap):
+ * the metadata route returns a short-lived presigned URL (or the legacy
+ * file route when no object store is configured), which is then fetched
+ * via assetFetch. Fetching the result-file route directly would mean
+ * following a cross-origin 307, which some browser/network stacks refuse
+ * even when both endpoints serve correct CORS headers.
  * @param {string} sceneId
  * @returns {Promise<object>}
  */
-export const getBuildings3D = (sceneId) =>
-  apiFetch(`/scenes/${sceneId}/results/buildings3d`);
+export const getBuildings3D = async (sceneId) => {
+  const meta = await apiFetch(`/scenes/${sceneId}/buildings3d`);
+  if (!meta?.available || !meta.url) {
+    return { available: false, count: 0, buildings: [] };
+  }
+  const res = await assetFetch(resolveAssetUrl(meta.url));
+  if (!res.ok) {
+    throw Object.assign(new Error(`buildings3d fetch failed: ${res.status}`), {
+      status: res.status,
+    });
+  }
+  return res.json();
+};
 
 /**
  * URL for the reconstruction preview PNG.

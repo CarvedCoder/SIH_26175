@@ -676,8 +676,9 @@ def piecewise_levels(dsm: np.ndarray, inside_mask: np.ndarray, base: float,
             if poly is None:
                 continue
             poly = poly.simplify(cfg.simplify_tol_px, preserve_topology=True)
-            if poly.is_empty:
-                poly = _polygon_from_mask(comp)
+            poly = _as_single_polygon(poly) or _polygon_from_mask(comp)
+            if poly is None:
+                continue
             levels.append({
                 "polygon": poly,
                 "height_m": round(lvl_height, 3),
@@ -861,6 +862,19 @@ def _classify_damage(footprint_mask, damage_labels, damage_confidence):
     }
 
 
+def _as_single_polygon(geom):
+    """Return the largest polygon of a (Multi)polygon — level footprints
+    must be single rings for the JSON contract and the viewer."""
+    if geom is None or geom.is_empty:
+        return None
+    if geom.geom_type == "Polygon":
+        return geom
+    if hasattr(geom, "geoms"):
+        biggest = max(geom.geoms, key=lambda g: g.area)
+        return biggest if biggest.geom_type == "Polygon" else None
+    return None
+
+
 def reconstruct_buildings_3d(
     building_mask: np.ndarray,
     dsm: np.ndarray,
@@ -972,6 +986,7 @@ def reconstruct_buildings_3d(
             + cfg.w_height * max(0.0, height_consistency)
         )
 
+        footprint = _as_single_polygon(footprint) or footprint
         ext_px = [[round(float(x), 2), round(float(y), 2)]
                   for x, y in footprint.exterior.coords[:-1]]
         building: dict[str, Any] = {
