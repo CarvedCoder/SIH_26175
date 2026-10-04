@@ -301,6 +301,12 @@ class Settings:
         self.buildings3d_min_building_conf: float = float(
             os.environ.get("DW_BUILDINGS3D_MIN_BUILDING_CONF", "0.45")
         )
+        # Morphological closing (3x3, this many iterations) applied to the
+        # FUSED building mask so fragments of one structure (a stadium ring
+        # the detector splits into segments) merge into ONE building.
+        self.buildings3d_cluster_close_px: int = _int_env(
+            "DW_BUILDINGS3D_CLUSTER_CLOSE_PX", 3
+        )
 
 
 settings = get_settings()

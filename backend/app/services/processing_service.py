@@ -1017,6 +1017,7 @@ class ProcessingService:
             height_mad_trim=s.buildings3d_mad_trim,
             piecewise_gap_m=s.buildings3d_piecewise_gap_m,
             min_confidence_for_primitive=s.buildings3d_min_building_conf,
+            cluster_close_px=s.buildings3d_cluster_close_px,
         )
 
     def _run_buildings3d_stage(self, job_id: str, scene_id: str, output_dir: Path) -> dict | None:
@@ -1104,32 +1105,15 @@ class ProcessingService:
 
             from scipy import ndimage as _nd
 
-            reconstruction = reconstruct_buildings_3d(
-                building_mask.astype(np.uint8),
-                dsm.astype(np.float32),
-                confidence_raster=confidence,
-                mask_source=mask_source,
-                crs=crs,
-                transform=transform,
-                config=self._building3d_config(),
-                damage_labels=damage_labels,
-                damage_confidence=damage_conf,
-            )
-
-            # -- recall-fusion pass: catch structures the primary detector
-            # missed (DSM elevation evidence + optional RGB), and small
-            # compact objects (tree canopies, vehicles, containers).
-            # The reconstruction is re-run on the FUSED mask when the pass
-            # adds candidates, so missed buildings go through the exact
-            # same regularization + fitting + DSM-height path.
+            # -- recall-fusion pass FIRST: catch structures the primary
+            # detector missed (DSM elevation evidence + optional RGB), and
+            # small compact objects (tree canopies, vehicles, containers).
+            objects = []
+            object_mask = np.zeros_like(building_mask, dtype=bool)
+            extra_count = 0
             try:
                 from depthwizard.reconstruction import fuse_building_candidates
 
-                bmask_bool = building_mask.astype(bool)
-                _med = float(np.nanmedian(dsm))
-                ground_est = _nd.median_filter(
-                    np.nan_to_num(dsm, nan=_med), size=64
-                )
                 rgb_frame = None
                 try:
                     from backend.app.application.scenes.service import (
@@ -1155,37 +1139,47 @@ class ProcessingService:
                 except Exception as _rgb_err:
                     logger.info("fusion pass without RGB: %s", _rgb_err)
 
-                extra_mask, objects = fuse_building_candidates(
+                extra_mask, objects, object_mask = fuse_building_candidates(
                     dsm.astype(np.float32),
                     building_mask,
                     rgb=rgb_frame,
                     config=self._building3d_config(),
                 )
                 extra_count = int(extra_mask.sum())
-                if extra_count > 0:
-                    fused = np.logical_or(building_mask.astype(bool), extra_mask)
-                    reconstruction = reconstruct_buildings_3d(
-                        fused.astype(np.uint8),
-                        dsm.astype(np.float32),
-                        confidence_raster=confidence,
-                        mask_source=mask_source,
-                        crs=crs,
-                        transform=transform,
-                        config=self._building3d_config(),
-                        damage_labels=damage_labels,
-                        damage_confidence=damage_conf,
-                        source_ref_mask=bmask_bool,
-                    )
             except Exception as _fus_err:  # noqa: BLE001 — recall is additive
                 logger.warning("fusion detection pass failed: %s", _fus_err)
-                objects = []
-                extra_count = 0
 
-            # -- ground DSM: building regions replaced by their nearest
-            # surrounding ground so the Buildings-3D mode can remove ONLY
-            # the structures from the relief while mountains/hills keep
-            # their elevation (natural terrain is never flattened).
-            bmask = building_mask.astype(bool)
+            # -- cluster the fused mask: fragments of ONE structure (a
+            # stadium ring the detector splits into segments, L-wings)
+            # are merged into a single component so the reconstruction
+            # emits ONE coherent 3D object per building.
+            _structure = np.ones((3, 3), dtype=bool)
+            fused_mask = np.logical_or(building_mask.astype(bool), extra_mask)
+            clustered_mask = _nd.binary_closing(
+                fused_mask, structure=_structure,
+                iterations=self._building3d_config().cluster_close_px,
+            )
+            clustered_mask = _nd.binary_fill_holes(clustered_mask)
+
+            reconstruction = reconstruct_buildings_3d(
+                clustered_mask.astype(np.uint8),
+                dsm.astype(np.float32),
+                confidence_raster=confidence,
+                mask_source=mask_source,
+                crs=crs,
+                transform=transform,
+                config=self._building3d_config(),
+                damage_labels=damage_labels,
+                damage_confidence=damage_conf,
+                source_ref_mask=building_mask.astype(bool),
+            )
+
+            # -- ground DSM: every RENDERED region (clustered buildings +
+            # fusion extras + small objects) replaced by its nearest
+            # surrounding ground, so the Buildings-3D mode removes exactly
+            # the bumps that got 3D objects — mountains/hills keep their
+            # elevation (natural terrain is never flattened).
+            bmask = np.logical_or(clustered_mask, object_mask.astype(bool))
             ground_dsm = dsm.copy()
             if bmask.any():
                 _, (iy, ix) = _nd.distance_transform_edt(

@@ -100,6 +100,10 @@ class Building3DConfig:
 
     # -- limits -----------------------------------------------------------------
     max_buildings: int = 60          # hard cap on reconstructed buildings
+    # Closing applied to the FUSED mask before labelling: merges fragments
+    # of one structure (stadium ring segments, L-wings) into a single
+    # building so the reconstruction emits ONE coherent 3D object.
+    cluster_close_px: int = 3
 
 
 # ---------------------------------------------------------------------------
@@ -886,12 +890,14 @@ def fuse_building_candidates(dsm, primary_mask, *, rgb=None, ground_dsm=None,
     (DSM − local ground), which is exactly where structure edges live;
     an optional RGB frame adds a green-dominance check for vegetation.
 
-    Returns (extra_mask, objects):
+    Returns (extra_mask, objects, object_mask):
         extra_mask  bool [H,W] — additional building-candidate pixels
                     (clusters large enough to be structures)
         objects     list of {x_px, y_px, height_m, ground_elevation_m,
                     kind: 'tree'|'object', pixel_count} — small compact
                     clusters (canopies, vehicles, containers)
+        object_mask bool [H,W] — the small-object pixels themselves (so
+                    the ground heightfield can remove their bumps too)
     """
     cfg = config or Building3DConfig()
     h, w = dsm.shape[:2]
@@ -910,7 +916,7 @@ def fuse_building_candidates(dsm, primary_mask, *, rgb=None, ground_dsm=None,
     structure = np.ones((3, 3), bool)
     cand = (
         np.isfinite(rel)
-        & (rel > 1.2)
+        & (rel > 2.0)
         & ~ndimage.binary_dilation(pm, structure=structure, iterations=2)
     )
     cand = ndimage.binary_opening(cand, structure=structure)
@@ -918,10 +924,17 @@ def fuse_building_candidates(dsm, primary_mask, *, rgb=None, ground_dsm=None,
     extra = np.zeros((h, w), dtype=bool)
     objects = []
     if not n:
-        return extra, objects
+        return extra, objects, cand
 
     sizes = ndimage.sum_labels(np.ones_like(cand, np.int32), labels,
                                np.arange(1, n + 1))
+
+    # near-primary: clusters adjacent to an already-detected building are
+    # likely parts of the same complex (accepted at a lower height);
+    # standalone clusters must be big AND tall to count as buildings —
+    # otherwise they are vegetation/terrain noise and stay out.
+    near_primary = ndimage.binary_dilation(pm, structure=structure,
+                                           iterations=12)
 
     # green-dominance raster (when RGB exists) for tree vs object
     green = None
@@ -938,7 +951,8 @@ def fuse_building_candidates(dsm, primary_mask, *, rgb=None, ground_dsm=None,
         if vals.size == 0:
             continue
         rel_h = float(np.median(vals))
-        if area >= cfg.min_area_px and rel_h > 1.5:
+        near = near_primary[comp].any()
+        if area >= cfg.min_area_px and rel_h > 1.5 and (near or area >= 1200):
             extra |= comp                      # missed building/structure
         elif area >= 25 and 0.8 <= rel_h <= 12.0:
             # small compact object: tree (canopy) or vehicle/container
@@ -962,7 +976,7 @@ def fuse_building_candidates(dsm, primary_mask, *, rgb=None, ground_dsm=None,
                 "kind": kind,
                 "pixel_count": area,
             })
-    return extra, objects
+    return extra, objects, cand
 
 
 def reconstruct_buildings_3d(
