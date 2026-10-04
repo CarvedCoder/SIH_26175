@@ -128,6 +128,31 @@ export default function ResultDashboard() {
       }
     : scene;
 
+  // Processing provenance (Part O): the backend mirrors the inference
+  // payload meta through GET /scenes/{id}/results — height model, output
+  // type, DEM provenance. Absent on resumed/legacy sessions; every item
+  // degrades independently and never shows an unearned "Absolute DSM".
+  const provMeta = results?.metadata ?? null;
+  const MODEL_LABELS = {
+    terraheight_s: 'TerraHeight-S',
+    rdah: 'RDAH',
+    calibration_net: 'CalibrationNet',
+  };
+  const heightModelLabel =
+    provMeta?.height_model_label
+    ?? MODEL_LABELS[provMeta?.model_architecture]
+    ?? null;
+  const outputType = provMeta?.output_type ?? null;
+  const pipelineLabel =
+    outputType === 'absolute_dsm' ? 'Absolute DSM'
+    : outputType === 'anchored_constant_dsm' ? 'Anchored DSM (constant datum)'
+    : outputType === 'relative_height' ? 'Relative (AGL)'
+    : (isAbsolute ? 'Absolute DSM' : 'Relative DSM');
+  const demProv = provMeta?.provenance ?? null;
+  const gsdM = Array.isArray(provMeta?.pixel_size_m)
+    ? provMeta.pixel_size_m[0]
+    : null;
+
   // Scene metadata line items
   const meta = metaScene ? [
     { label: 'SOURCE', value: metaScene.filename },
@@ -135,7 +160,11 @@ export default function ResultDashboard() {
     { label: 'FORMAT', value: metaScene.format },
     { label: 'GEOREF', value: metaScene.georeferenced ? 'YES' : 'NO' },
     metaScene.crs ? { label: 'CRS', value: metaScene.crs } : null,
-    { label: 'PIPELINE', value: isAbsolute ? 'Absolute DSM' : 'Relative DSM' },
+    { label: 'PIPELINE', value: pipelineLabel },
+    heightModelLabel ? { label: 'HEIGHT MODEL', value: heightModelLabel } : null,
+    demProv?.dem_source ? { label: 'DEM SOURCE', value: demProv.dem_source } : null,
+    demProv?.dem_vertical_reference ? { label: 'DEM VERT. REF', value: demProv.dem_vertical_reference } : null,
+    gsdM != null ? { label: 'GSD', value: `${gsdM.toFixed(2)} m/px` } : null,
     depthData?.statistics ? { label: 'RELIEF', value: `${depthData.statistics.relief?.toFixed(1)} ${elevUnits}` } : null,
     heatmap ? { label: 'NO-GO AREA', value: `${heatmap.blocked_pct}% (fire truck)` } : null,
   ].filter(Boolean) : [];

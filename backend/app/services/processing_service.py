@@ -230,6 +230,11 @@ class ProcessingService:
             "live_backbone": s.live_backbone,
             "backbone_id": s.backbone_id,
             "anchor_dem": s.anchor_dem,
+            # Automatic reference-DEM acquisition (absolute DSM Part A);
+            # run_inference falls back to the relative product with an
+            # explicit notice when retrieval fails.
+            "dem_provider": s.dem_provider,
+            "dem_cache_dir": s.dem_cache_dir,
             "postprocess": s.postprocess,
             "postprocess_params": {
                 "wls_lambda": s.wls_lambda,

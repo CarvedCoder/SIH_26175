@@ -142,7 +142,23 @@ async def get_scene_results(scene_id: str):
         assets=[
             _asset(name, scene_id, path) for name, path in files.items()
         ],
+        # Processing provenance from the job payload meta (height model,
+        # output_type, absolute-reference availability, DEM provenance,
+        # GSD). Empty when no job record exists — never reconstructed
+        # from guesses.
+        metadata=_provenance_meta(job),
     )
+
+
+def _provenance_meta(job) -> dict:
+    """The payload meta block of the latest job, if a job record exists."""
+    if job is None:
+        return {}
+    result = getattr(job, "result", None)
+    if not isinstance(result, dict):
+        return {}
+    meta = result.get("meta")
+    return dict(meta) if isinstance(meta, dict) else {}
 
 
 @router.get("/{scene_id}/depth", response_model=DepthMetaResponse)
