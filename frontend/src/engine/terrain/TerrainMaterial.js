@@ -29,6 +29,10 @@ import * as THREE from 'three';
 
 const TERRAIN_VERT = /* glsl */ `
   uniform float uExaggeration;
+  // Buildings-3D mode: collapse all terrain relief to the min-elevation
+  // datum so the reconstructed 3D structures are the only standing
+  // geometry (imagery/semantic overlays still drape the flat ground).
+  uniform float uFlatten;
   uniform float uMinElevation;
 
   varying vec2 vUv;       // GLOBAL raster UV [0, 1] — drape, semantic masks, colormaps
@@ -44,7 +48,11 @@ const TERRAIN_VERT = /* glsl */ `
     // Apply visualization-only vertical exaggeration around the min elevation datum
     vec3 displacedPos = position;
     vec3 n = normal;
-    if (abs(uExaggeration - 1.0) > 0.001) {
+    if (uFlatten > 0.5) {
+      // flat-ground mode: every terrain vertex drops to the datum
+      displacedPos.y = uMinElevation;
+      n = vec3(0.0, 1.0, 0.0);
+    } else if (abs(uExaggeration - 1.0) > 0.001) {
       float baseH = max(0.0, position.y - uMinElevation);
       displacedPos.y = uMinElevation + baseH * uExaggeration;
       // A Y-stretch by s maps a surface gradient (fx, fz) to (s·fx, s·fz),
@@ -53,7 +61,8 @@ const TERRAIN_VERT = /* glsl */ `
       n = normalize(vec3(n.x * uExaggeration, n.y, n.z * uExaggeration));
     }
 
-    vElevation = position.y;
+    // colormap/contours follow the DISPLACED surface in flatten mode
+    vElevation = uFlatten > 0.5 ? displacedPos.y : position.y;
     // Calculate world normal from model matrix
     vNormal = normalize((modelMatrix * vec4(n, 0.0)).xyz);
 
@@ -294,6 +303,7 @@ export function createTerrainMaterial(options = {}) {
     uAmbient: { value: 0.42 },
     uReliefStrength: { value: 0.0 },
     uExaggeration: { value: options.exaggeration || 1.0 },
+    uFlatten: { value: 0.0 },
     uMinElevation: { value: options.minElevation || 0.0 },
     uMaxElevation: { value: options.maxElevation || 100.0 },
     uColormapMode: { value: options.colormapMode || 0.0 },

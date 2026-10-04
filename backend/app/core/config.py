@@ -266,5 +266,47 @@ class Settings:
             os.environ.get("DW_ROUTE_DAMAGE_MINOR_COST", "3.0")
         )
 
+        # --- Geometry-aware 3D building reconstruction --------------------
+        # Extra reconstruction layer ON TOP of the terrain pipeline: the
+        # building mask (disaster ONNX detector, else semantic class 0) is
+        # regularized, fitted to geometric primitives (rectangle / square /
+        # circle / ellipse / semicircle / stadium / composite rectangles /
+        # polygon) and extruded with heights taken ONLY from the predicted
+        # metric DSM. Never a fixed height; never a second height model.
+        self.buildings3d_enabled: bool = (
+            os.environ.get("DW_BUILDINGS3D_ENABLED", "true").strip().lower()
+            in {"1", "true", "yes"}
+        )
+        self.buildings3d_min_area_px: int = _int_env("DW_BUILDINGS3D_MIN_AREA_PX", 40)
+        self.buildings3d_simplify_tol_px: float = float(
+            os.environ.get("DW_BUILDINGS3D_SIMPLIFY_TOL_PX", "1.5")
+        )
+        self.buildings3d_rect_iou: float = float(
+            os.environ.get("DW_BUILDINGS3D_RECT_IOU", "0.80")
+        )
+        self.buildings3d_circle_circularity: float = float(
+            os.environ.get("DW_BUILDINGS3D_CIRCLE_CIRCULARITY", "0.85")
+        )
+        self.buildings3d_stadium_iou: float = float(
+            os.environ.get("DW_BUILDINGS3D_STADIUM_IOU", "0.88")
+        )
+        self.buildings3d_max_parts: int = _int_env("DW_BUILDINGS3D_MAX_PARTS", 4)
+        self.buildings3d_max_vertices: int = _int_env("DW_BUILDINGS3D_MAX_VERTICES", 64)
+        self.buildings3d_mad_trim: float = float(
+            os.environ.get("DW_BUILDINGS3D_MAD_TRIM", "3.0")
+        )
+        self.buildings3d_piecewise_gap_m: float = float(
+            os.environ.get("DW_BUILDINGS3D_PIECEWISE_GAP_M", "2.0")
+        )
+        self.buildings3d_min_building_conf: float = float(
+            os.environ.get("DW_BUILDINGS3D_MIN_BUILDING_CONF", "0.45")
+        )
+        # Morphological closing (3x3, this many iterations) applied to the
+        # FUSED building mask so fragments of one structure (a stadium ring
+        # the detector splits into segments) merge into ONE building.
+        self.buildings3d_cluster_close_px: int = _int_env(
+            "DW_BUILDINGS3D_CLUSTER_CLOSE_PX", 3
+        )
+
 
 settings = get_settings()

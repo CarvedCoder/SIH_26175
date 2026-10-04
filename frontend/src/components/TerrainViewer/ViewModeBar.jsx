@@ -12,7 +12,7 @@
  *   - Inspect/Measure/Navigate maps to the probe / distance / no tool.
  *     Finer tools (height, slope, structure, route) stay in the bottom toolbar.
  */
-import { Orbit, Footprints, Search, Ruler, Navigation, Map, PanelRight, Eye, EyeOff } from 'lucide-react';
+import { Orbit, Footprints, Search, Ruler, Navigation, Map, PanelRight, Eye, EyeOff, Building2 } from 'lucide-react';
 
 export const VIEW_TABS = [
   { id: 'rgb', label: 'RGB' },
@@ -110,6 +110,11 @@ export default function ViewModeBar({
   // Side-panel visibility toggle (walkthrough auto-hides the docks)
   panelsHidden = false,
   onTogglePanels,
+  // 3D buildings view mode — mutually exclusive with the elevated relief:
+  // ON renders the building-removed ground + 3D blocks/trees/objects,
+  // OFF restores the elevated DSM (with flat-topped buildings).
+  buildings3d = null,
+  onToggleBuildings3d,
 }) {
   return (
     <div
@@ -184,6 +189,37 @@ export default function ViewModeBar({
           { id: 'top', label: 'Top', icon: <Map size={13} strokeWidth={1.5} aria-hidden="true" /> },
         ]}
       />
+
+      {/* 3D buildings view mode — a first-class top-bar toggle */}
+      {buildings3d?.available && onToggleBuildings3d && (
+        <button
+          onClick={onToggleBuildings3d}
+          disabled={disabled}
+          aria-pressed={!!buildings3d.enabled}
+          title={buildings3d.enabled
+            ? '3D objects ON — flat ground with building blocks/trees/objects (click to return to the elevated terrain)'
+            : '3D objects OFF — elevated terrain (click to switch to the 3D objects view)'}
+          style={{
+            height: 36,
+            padding: '0 12px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 7,
+            background: buildings3d.enabled ? 'var(--dw-accent)' : 'rgba(16,16,18,0.92)',
+            border: buildings3d.enabled ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
+            borderRadius: 8,
+            fontFamily: 'var(--dw-font-ui)',
+            fontSize: 13,
+            fontWeight: 600,
+            color: buildings3d.enabled ? 'var(--dw-fg-invert)' : 'var(--dw-fg-muted)',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            transition: 'background 120ms ease, color 120ms ease',
+          }}
+        >
+          <Building2 size={15} strokeWidth={1.5} aria-hidden="true" />
+          3D Objects
+        </button>
+      )}
 
       {/* Interaction mode */}
       <Segmented

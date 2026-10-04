@@ -54,6 +54,7 @@ import {
   getDamageMeta,
   getDamageGeoJsonUrl,
 } from '../api/disaster.js';
+import { getBuildings3DMeta } from '../api/buildings3d.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 import {
   RotateCcw,
@@ -162,6 +163,9 @@ export default function TerrainWorkspace() {
     const sceneId = state.scene?.scene_id;
     if (!sceneId || isLoading) return;
     let cancelled = false;
+    // NOTE: isLoading is in the dependency array — during TERRAIN_LOADING
+    // this effect bails (early return); it must re-run the moment loading
+    // finishes or the buildings3d metadata (and legend) never arrive.
     getMinimap(sceneId)
       .then(meta => { if (!cancelled) setMinimapMeta(meta); })
       .catch(() => { /* minimap is optional — silently skip */ });
@@ -170,6 +174,7 @@ export default function TerrainWorkspace() {
 
   // ── Disaster metadata & GeoJSON features ──
   const [buildingsMeta, setBuildingsMeta] = useState(null);
+  const [buildings3d, setBuildings3d] = useState({ available: false, count: 0, damageClassified: 0, damageClasses: [], treeCount: 0, objectCount: 0, fusionBuildings: 0, enabled: true });
   const [damageMeta, setDamageMeta]       = useState(null);
   const damageGeoJsonRef                  = useRef(null);
 
@@ -215,6 +220,9 @@ export default function TerrainWorkspace() {
     const sceneId = state.scene?.scene_id;
     if (!sceneId || isLoading) return;
     let cancelled = false;
+    // NOTE: isLoading is in the dependency array — during TERRAIN_LOADING
+    // this effect bails (early return); it must re-run the moment loading
+    // finishes or the buildings3d metadata (and legend) never arrive.
     // Optimistic defaults keep the menu responsive; the fetches below then
     // disable exactly the products the scene is missing.
     setLayerAvail({ dsm: true, reference: true, error: true, semantics: true, route_risk: true, buildings: true, damage: true });
@@ -224,11 +232,24 @@ export default function TerrainWorkspace() {
       getSemanticMeta(sceneId).catch(() => null),
       getBuildingsMeta(sceneId).catch(() => null),
       getDamageMeta(sceneId).catch(() => null),
-    ]).then(([results, reference, semMeta, bldMeta, dmgMeta]) => {
+      getBuildings3DMeta(sceneId).catch(() => null),
+    ]).then(([results, reference, semMeta, bldMeta, dmgMeta, b3dMeta]) => {
       if (cancelled) return;
       const semAvail = !!semMeta?.available;
       setBuildingsMeta(bldMeta);
       setDamageMeta(dmgMeta);
+      if (b3dMeta) {
+        setBuildings3d({
+          available: !!b3dMeta.available,
+          count: b3dMeta.count ?? 0,
+          damageClassified: b3dMeta.damage_classified ?? 0,
+          damageClasses: b3dMeta.damage_classes ?? [],
+          treeCount: b3dMeta.tree_count ?? 0,
+          objectCount: b3dMeta.object_count ?? 0,
+          fusionBuildings: b3dMeta.fusion_buildings ?? 0,
+          enabled: true, // auto-on when available; toggle lives in Layers
+        });
+      }
       setLayerAvail({
         dsm: !!(results?.dsm?.available ?? results?.dsm),
         reference: !!reference?.available,
@@ -321,6 +342,9 @@ export default function TerrainWorkspace() {
     const sceneId = state.scene?.scene_id;
     if (!sceneId || isLoading) return;
     let cancelled = false;
+    // NOTE: isLoading is in the dependency array — during TERRAIN_LOADING
+    // this effect bails (early return); it must re-run the moment loading
+    // finishes or the buildings3d metadata (and legend) never arrive.
 
     const applyStats = (stats) => {
       if (cancelled || !stats) return;
@@ -468,6 +492,14 @@ export default function TerrainWorkspace() {
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
   /** Fetch the texture URL for a layer and swap the terrain texture (task 8.2) */
+  function handleToggleBuildings3d() {
+    setBuildings3d(curr => {
+      const next = { ...curr, enabled: !curr.enabled };
+      terrainRef.current?.setBuildings3DEnabled(next.enabled);
+      return next;
+    });
+  }
+
   async function handleLayerChange(layerId) {
     if (layerId === activeLayer) return;
     setActiveLayer(layerId);
@@ -898,6 +930,8 @@ export default function TerrainWorkspace() {
             onToggleAnalysis={() => setAnalysisPanelOpen(v => !v)}
             panelsHidden={panelsHidden}
             onTogglePanels={() => setPanelsHidden(v => !v)}
+            buildings3d={buildings3d}
+            onToggleBuildings3d={handleToggleBuildings3d}
           />
         )}
 
@@ -907,6 +941,7 @@ export default function TerrainWorkspace() {
         {!isLoading && (
           <TerrainRightPanel
             hidden={panelsHidden}
+            buildings3d={buildings3d}
             exaggeration={exaggeration}
             onExaggeration={handleExaggeration}
             contourEnabled={contourEnabled}
@@ -1128,6 +1163,8 @@ export default function TerrainWorkspace() {
         onSelectTool={handleSelectTool}
         disabled={isLoading}
         layerAvailability={layerAvail}
+        buildings3d={buildings3d}
+        onToggleBuildings3d={handleToggleBuildings3d}
         onOpenValidation={() => {
           setAnalysisPanelOpen(true);
           setAnalysisPanelTab('validation');

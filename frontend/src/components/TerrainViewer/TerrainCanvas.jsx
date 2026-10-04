@@ -23,6 +23,8 @@ import { TerrainEngine } from '../../engine/TerrainEngine.js';
 import TerrainDebugHUD from '../../engine/debug/TerrainDebugHUD.jsx';
 import { decodeHeightPng16 } from '../../engine/streaming/heightDecode.js';
 import { decodeHeightmap } from '../../engine/streaming/heightFetch.js';
+import { BuildingsLayer } from '../../engine/buildings/BuildingsLayer.js';
+import { getBuildings3D } from '../../api/buildings3d.js';
 import { overviewToHeightfield } from '../../engine/streaming/PatchHeightfield.js';
 
 /* ─── Streaming thresholds ─────────────────────────────────────────────────
@@ -134,6 +136,10 @@ function SceneBridge({ canvasRef, glRef, orbitControlsRef, sceneState, actions, 
         scene.remove(g.routeGroup);
         g.routeGroup = null;
       }
+      if (g.buildingsLayer) {
+        g.buildingsLayer.dispose();
+        g.buildingsLayer = null;
+      }
     };
   }, [sceneState?.scene?.scene_id, scene, actions, glRef, onEngineReady]);
 
@@ -226,6 +232,8 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
     isGeoreferencedScale: false,
     measureGroup: null,
     routeGroup: null,
+    buildingsLayer: null,
+    buildings3dEnabled: true,
   });
 
   // Toggle debug HUD with backtick or 'H'
@@ -317,6 +325,37 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       }
       g.semanticTextures = confTex ? [tex, confTex] : [tex];
     },
+    setBuildings3DEnabled(enabled) {
+      const g = glRef.current;
+      g.buildings3dEnabled = !!enabled;
+      if (enabled && !g.buildingsLayer) {
+        // layer failed to mount earlier (network blip) — retry now
+        const sceneId = g.sceneId;
+        if (sceneId && g.engine) {
+          retryBuildings3D(g, g.scene, sceneId).then(() => {
+            g.buildingsLayer?.setExaggeration(g.exaggeration ?? 1.0);
+            g.buildingsLayer?.setVisible(true);
+            g.engine.setTerrainHeightMode('flat');
+            liftCameraAboveSurface(g);
+          });
+        }
+      }
+      g.buildingsLayer?.setVisible(!!enabled);
+      // Buildings-3D ON  -> the terrain renders from the building-removed
+      // ground field (mountains keep their elevation; only structures
+      // leave the relief), falling back to the flat datum when no ground
+      // field exists. OFF -> the original DSM returns with every detection
+      // overlay (semantics, footprints, damage) draping it as before.
+      if (enabled) {
+        // ON: a true flat plane (the input image laid flat) + 3D objects on it
+        g.engine?.setTerrainHeightMode('flat');
+        liftCameraAboveSurface(g);
+      } else if (g.engine?.hasHeightField('clean')) {
+        g.engine.setTerrainHeightMode('clean'); // elevated, flat building tops
+      } else {
+        g.engine?.setElevationVisible(true);
+      }
+    },
     setSemanticLayerActive(active) {
       const g = glRef.current;
       g.semanticLayerActive = !!active;
@@ -327,6 +366,7 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       const prev = g.exaggeration ?? 1;
       g.exaggeration = v;
       g.engine?.setExaggeration(v);
+      g.buildingsLayer?.setExaggeration(v);
       // Raising exaggeration raises the rendered surface — an orbit camera
       // framed at the old scale can end up UNDER the mesh, viewing mirrored
       // backface shards (the "melted/shredded terrain" failure). Lift the
@@ -898,6 +938,7 @@ export default TerrainCanvas;
 /* ─── Async terrain data loader ────────────────────────────────────────── */
 
 async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
+  g.sceneId = sceneId;
   try {
     console.info('[terrain-engine] loading terrain metadata for', sceneId);
     const terrainMeta = await getTerrain(sceneId);
@@ -1036,6 +1077,11 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
     // Mark terrain ready in store
     actions.terrainReady(terrainMeta);
 
+    // Geometry-aware 3D building reconstruction overlay (footprints +
+    // DSM-derived heights from the backend's buildings3d.json). Purely
+    // additive: a missing/failed payload leaves the terrain untouched.
+    loadBuildings3D(g, scene, sceneId);
+
     // Load diffuse texture if available (authenticated fetch — TextureLoader
     // cannot send the Authorization header and result files are auth-gated)
     if (texture_url) {
@@ -1063,5 +1109,110 @@ async function loadTerrainData(g, scene, sceneId, actions, onEngineReady) {
         recoverable: true,
       });
     }
+  }
+}
+
+function layerWillBeVisible(enabledFlag) {
+  return enabledFlag !== false;
+}
+
+/** After the ground-heightfield swap the surface under the camera can drop
+ *  by the height of the buildings that used to be there — the camera then
+ *  sits at/below the flat plane and the ground renders edge-on (invisible
+ *  void). Lift the camera (and the orbit target) above the new surface. */
+function liftCameraAboveSurface(g) {
+  const engine = g.engine;
+  const cam = g.camera;
+  if (!engine?.spatial || !cam) return;
+  try {
+    const elev = engine.spatial.sampleElevation(cam.position.x, cam.position.z);
+    const minSafe = elev + 3.0;
+    if (cam.position.y < minSafe) {
+      cam.position.y = minSafe + 0.12 * Math.max(g.worldWidth || 0, g.worldDepth || 0);
+    }
+    const target = g.orbit?.target;
+    if (target && target.y < elev) {
+      target.y = elev;
+      g.orbit.update?.();
+    }
+  } catch (err) {
+    console.warn('[buildings3d] camera lift failed:', err?.message ?? err);
+  }
+}
+
+/** Fetch and mount the 3D building reconstruction layer for a scene.
+ * Availability follows the artifact on disk — scenes processed before
+ * this feature (or with no building candidates) simply render without it. */
+async function loadBuildings3D(g, scene, sceneId) {
+  try {
+    const data = await getBuildings3D(sceneId);
+    if (g.disposed || !g.engine) return;
+    if (!data?.available || !data.buildings?.length) return;
+
+    // dispose a previous scene's layer
+    if (g.buildingsLayer) {
+      g.buildingsLayer.dispose();
+      g.buildingsLayer = null;
+    }
+
+    // Ground heightfield FIRST: the DSM with building regions replaced by
+    // their surrounding ground. Swapping BEFORE the layer is built lets
+    // every object sample the rendered ground surface at its own pixel —
+    // blocks and trees sit exactly on the surface, never floating.
+    // Mountains/hills keep their elevation; only structures leave the
+    // relief. Scenes without a ground field fall back to the flat datum.
+    // Heightfield variant (same grid as the terrain height data):
+    //   'clean' — elevated rendering with building tops LEVELLED to their
+    //             model-derived heights (the off-state view)
+    // The ON-state ('flat') needs no backend field — the engine creates a
+    // true plane at the datum, with the RGB imagery draped on it.
+    if (data.has_clean && data.clean_heightmap_url) {
+      try {
+        const clean = await decodeHeightmap(
+          resolveAssetUrl(data.clean_heightmap_url)
+        );
+        g.engine.setHeightField('clean', clean.data, clean.width, clean.height);
+      } catch (err) {
+        console.warn('[buildings3d] clean heightfield unavailable:', err?.message ?? err);
+      }
+    }
+
+    if (layerWillBeVisible(g.buildings3dEnabled)) {
+      // ON: a true flat plane (the input image laid flat) — the 3D objects
+      // stand exactly on it at zero base height
+      g.engine.setTerrainHeightMode('flat');
+      liftCameraAboveSurface(g);
+    } else if (g.engine.hasHeightField('clean')) {
+      g.engine.setTerrainHeightMode('clean'); // elevated, flat building tops
+    }
+
+    const layer = new BuildingsLayer(scene, g.engine.geoRef, (u, v) =>
+      g.engine.dataset.sampleElevation(u, v)
+    );
+    layer.load(data);
+    layer.setExaggeration(g.exaggeration ?? 1.0);
+    layer.setVisible(g.buildings3dEnabled !== false);
+    g.buildingsLayer = layer;
+    console.info(
+      `[buildings3d] ${layer.count} structure(s) reconstructed ` +
+      `(heights from ${data.height_source ?? 'predicted DSM'})`
+    );
+  } catch (err) {
+    if (typeof window !== 'undefined') {
+      window.__b3dError = String(err?.stack ?? err?.message ?? err);
+    }
+    console.warn('[buildings3d] reconstruction layer unavailable:', err?.message ?? err);
+  }
+}
+
+/** Self-healing: a transient failure (object store blip, expired presign)
+ *  must not permanently lose the layer — the next toggle retries. */
+async function retryBuildings3D(g, scene, sceneId) {
+  if (g.buildingsLayer || g.buildings3dRetrying) return;
+  g.buildings3dRetrying = true;
+  try {
+    await loadBuildings3D(g, scene, sceneId);
+  } finally {
+    g.buildings3dRetrying = false;
   }
 }

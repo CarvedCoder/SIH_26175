@@ -67,6 +67,8 @@ export class TerrainEngine {
     });
 
     // 2. Instantiate Terrain Dataset
+    this.hmWidth = options.hmWidth;
+    this.hmHeight = options.hmHeight;
     this.dataset = new TerrainDataset({
       heightData: options.heightData,
       width: options.hmWidth,
@@ -143,6 +145,11 @@ export class TerrainEngine {
     });
 
     this.exaggeration = 1.0;
+    // Buildings-3D mode state: the ORIGINAL heightfield is preserved so
+    // toggling off restores the full DSM relief (buildings included).
+    this._savedHeightTiles = this.heightStreamer ? { streamer: this.heightStreamer } : null;
+    this._heightFields = {};
+    this._originalHeightData = null;
     // True once an RGB/layer texture has been applied (drives hybrid view)
     this.textureReady = false;
     this.disposed = false;
@@ -194,6 +201,72 @@ export class TerrainEngine {
   setExaggeration(factor) {
     this.exaggeration = Math.max(0.1, Number(factor) || 1.0);
     this.material.uniforms.uExaggeration.value = this.exaggeration;
+  }
+
+  /**
+   * Buildings-3D mode: collapse terrain relief to the flat datum plane so
+   * the reconstructed 3D structures are the only standing geometry. The
+   * RGB/semantic drapes stay on the flat ground; toggling back restores
+   * the full elevation surface (and every detection overlay on it).
+   *
+   * @param {boolean} visible - false flattens the terrain
+   */
+  setElevationVisible(visible) {
+    this.material.uniforms.uFlatten.value = visible ? 0.0 : 1.0;
+    this.material.needsUpdate = true;
+  }
+
+  /**
+   * Register a named heightfield variant (normalized [0,1], SAME grid as
+   * the loaded height data):
+   *   'ground' — building-removed ground (Buildings-3D blocks mode)
+   *   'clean'  — elevated rendering with building tops LEVELLED to their
+   *              model-derived heights (Buildings-3D off state)
+   * @param {string} kind @param {Float32Array} data
+   * @param {number} width @param {number} height
+   * @returns {boolean} false when the grid does not match
+   */
+  setHeightField(kind, data, width, height) {
+    if (!data || width !== this.dataset.width || height !== this.dataset.height) {
+      console.warn(`[buildings3d] ${kind} heightfield grid mismatch — variant unavailable`);
+      return false;
+    }
+    this._heightFields = this._heightFields || {};
+    this._heightFields[kind] = data;
+    return true;
+  }
+
+  /**
+   * Switch the rendered heightfield:
+   *   'flat'  — a true plane at the datum (the input image laid flat) for
+   *             the 3D objects mode
+   *   'clean' — elevated rendering, building tops LEVELLED to their
+   *             model-derived heights (the off-state view)
+   *   'raw'   — the original DSM as predicted (fallback)
+   * Streaming is disabled for non-raw modes: streamed patches would
+   * re-introduce the raw bumps.
+   * @param {'flat'|'clean'|'raw'} mode
+   * @returns {boolean} true when the heightfield changed
+   */
+  setTerrainHeightMode(mode) {
+    this._heightFields = this._heightFields || {};
+    if (!this._originalHeightData) this._originalHeightData = this.dataset.heightData;
+    // 'flat' = a true plane at the min-elevation datum (the input image
+    // laid flat) — created on demand, no backend field needed
+    if (mode === 'flat' && !this._heightFields.flat) {
+      this._heightFields.flat = new Float32Array(this.dataset.width * this.dataset.height);
+    }
+    const target = this._heightFields[mode] ?? this._originalHeightData;
+    if (this.dataset.heightData === target) return true;
+    this.dataset.heightData = target;
+    this.lodManager.heightTiles =
+      target === this._originalHeightData ? this._savedHeightTiles : null;
+    this.lodManager.resetTiles();
+    return true;
+  }
+
+  hasHeightField(kind) {
+    return !!this._heightFields?.[kind];
   }
 
   /**
