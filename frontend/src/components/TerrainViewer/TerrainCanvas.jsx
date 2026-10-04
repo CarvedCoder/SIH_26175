@@ -335,12 +335,8 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
           retryBuildings3D(g, g.scene, sceneId).then(() => {
             g.buildingsLayer?.setExaggeration(g.exaggeration ?? 1.0);
             g.buildingsLayer?.setVisible(true);
-            if (g.engine.hasHeightField('ground')) {
-              g.engine.setTerrainHeightMode('ground');
-              liftCameraAboveSurface(g);
-            } else {
-              g.engine.setElevationVisible(false);
-            }
+            g.engine.setTerrainHeightMode('flat');
+            liftCameraAboveSurface(g);
           });
         }
       }
@@ -351,12 +347,9 @@ const TerrainCanvas = forwardRef(function TerrainCanvas({ onReady }, ref) {
       // field exists. OFF -> the original DSM returns with every detection
       // overlay (semantics, footprints, damage) draping it as before.
       if (enabled) {
-        if (g.engine?.hasHeightField('ground')) {
-          g.engine.setTerrainHeightMode('ground');
-          liftCameraAboveSurface(g);
-        } else {
-          g.engine?.setElevationVisible(true); // flat fallback (no ground field)
-        }
+        // ON: a true flat plane (the input image laid flat) + 3D objects on it
+        g.engine?.setTerrainHeightMode('flat');
+        liftCameraAboveSurface(g);
       } else if (g.engine?.hasHeightField('clean')) {
         g.engine.setTerrainHeightMode('clean'); // elevated, flat building tops
       } else {
@@ -1168,20 +1161,11 @@ async function loadBuildings3D(g, scene, sceneId) {
     // blocks and trees sit exactly on the surface, never floating.
     // Mountains/hills keep their elevation; only structures leave the
     // relief. Scenes without a ground field fall back to the flat datum.
-    // Heightfield variants (same grid as the terrain height data):
-    //   'ground' — building-removed ground for the blocks mode
-    //   'clean'  — elevated rendering with building tops LEVELLED to their
-    //              model-derived heights (the off-state view)
-    if (data.has_ground && data.ground_heightmap_url) {
-      try {
-        const ground = await decodeHeightmap(
-          resolveAssetUrl(data.ground_heightmap_url)
-        );
-        g.engine.setHeightField('ground', ground.data, ground.width, ground.height);
-      } catch (err) {
-        console.warn('[buildings3d] ground heightfield unavailable:', err?.message ?? err);
-      }
-    }
+    // Heightfield variant (same grid as the terrain height data):
+    //   'clean' — elevated rendering with building tops LEVELLED to their
+    //             model-derived heights (the off-state view)
+    // The ON-state ('flat') needs no backend field — the engine creates a
+    // true plane at the datum, with the RGB imagery draped on it.
     if (data.has_clean && data.clean_heightmap_url) {
       try {
         const clean = await decodeHeightmap(
@@ -1194,12 +1178,10 @@ async function loadBuildings3D(g, scene, sceneId) {
     }
 
     if (layerWillBeVisible(g.buildings3dEnabled)) {
-      if (g.engine.hasHeightField('ground')) {
-        g.engine.setTerrainHeightMode('ground');
-        liftCameraAboveSurface(g);
-      } else {
-        g.engine.setElevationVisible(false); // flat fallback (no ground field)
-      }
+      // ON: a true flat plane (the input image laid flat) — the 3D objects
+      // stand exactly on it at zero base height
+      g.engine.setTerrainHeightMode('flat');
+      liftCameraAboveSurface(g);
     } else if (g.engine.hasHeightField('clean')) {
       g.engine.setTerrainHeightMode('clean'); // elevated, flat building tops
     }

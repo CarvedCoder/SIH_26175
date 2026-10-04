@@ -236,24 +236,26 @@ export class TerrainEngine {
     return true;
   }
 
-  hasHeightField(kind) {
-    return !!this._heightFields?.[kind];
-  }
-
   /**
    * Switch the rendered heightfield:
-   *   'ground' — flat ground under the 3D blocks (blocks mode)
-   *   'clean'  — elevated rendering, building tops LEVELLED to their
-   *              model-derived heights (the default off-state view)
-   *   'raw'    — the original DSM as predicted (fallback)
+   *   'flat'  — a true plane at the datum (the input image laid flat) for
+   *             the 3D objects mode
+   *   'clean' — elevated rendering, building tops LEVELLED to their
+   *             model-derived heights (the off-state view)
+   *   'raw'   — the original DSM as predicted (fallback)
    * Streaming is disabled for non-raw modes: streamed patches would
    * re-introduce the raw bumps.
-   * @param {'ground'|'clean'|'raw'} mode
+   * @param {'flat'|'clean'|'raw'} mode
    * @returns {boolean} true when the heightfield changed
    */
   setTerrainHeightMode(mode) {
     this._heightFields = this._heightFields || {};
     if (!this._originalHeightData) this._originalHeightData = this.dataset.heightData;
+    // 'flat' = a true plane at the min-elevation datum (the input image
+    // laid flat) — created on demand, no backend field needed
+    if (mode === 'flat' && !this._heightFields.flat) {
+      this._heightFields.flat = new Float32Array(this.dataset.width * this.dataset.height);
+    }
     const target = this._heightFields[mode] ?? this._originalHeightData;
     if (this.dataset.heightData === target) return true;
     this.dataset.heightData = target;
