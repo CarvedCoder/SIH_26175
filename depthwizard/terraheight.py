@@ -601,6 +601,8 @@ def run_terraheight_inference(
     fp16: bool = False,
     anchor_dem: Path | str | None = None,
     ground_elev: float | None = None,
+    dem_provider: str | None = None,
+    dem_cache_dir: Path | str | None = None,
     write_files: bool = True,
     should_cancel: Callable[[], bool] | None = None,
     progress_cb: Callable[[int, int], None] | None = None,
@@ -618,7 +620,7 @@ def run_terraheight_inference(
 
     import torch
 
-    from .anchoring import ANCHORED_LABEL, anchor
+    from .anchoring import ANCHORED_LABEL
     from .geo import pixel_size_metres
     from .inference import InferenceCancelled, read_image
     from .pipeline.scene_outputs import (
@@ -679,21 +681,47 @@ def run_terraheight_inference(
     )
 
     anchored = None
-    if anchor_dem is not None or ground_elev is not None:
-        tile_profile = {
-            "crs": crs,
-            "transform": tf,
-            "height": h,
-            "width": w,
-        }
-        anchored = anchor(dsm, anchor_dem, ground_elev, tile_profile)
-        assert anchored is not None
+    anchor_requested = (
+        anchor_dem is not None or ground_elev is not None
+        or dem_provider not in (None, "", "none")
+    )
+    if anchor_requested:
+        from .absolute_dsm import maybe_acquire_reference_dem
+
+        dem_result, _ = maybe_acquire_reference_dem(
+            anchor_dem, dem_provider, dem_cache_dir, profile, (h, w)
+        )
+    else:
+        dem_result = None
+
+    # Output-type classification ALWAYS runs (Part D): the payload and
+    # terraheight_meta record output_type + absolute_reference_available.
+    from .absolute_dsm import build_absolute_dsm
+
+    abs_result = build_absolute_dsm(
+        dsm,
+        profile,
+        dem_result,
+        ground_elev if dem_result is None else None,
+        height_model=ARCHITECTURE,
+        height_model_version=str(ckpt_path),
+        calibration_enabled=False,
+        calibration_model=None,
+    )
+    anchored = abs_result.anchored
+    if anchored is not None:
         a_stats = compute_stats(anchored.dsm)
         print(
             f"[stats] ANCHORED DSM (m): min {a_stats['min']:.2f}  "
             f"mean {a_stats['mean']:.2f}  max {a_stats['max']:.2f}  "
-            f"[{ANCHORED_LABEL} | source={anchored.source}]"
+            f"[{ANCHORED_LABEL} | source={anchored.source} | "
+            f"output_type={abs_result.output_type}]"
         )
+        if write_files and dem_result is not None:
+            from .absolute_dsm import write_provenance
+
+            prov_path = write_provenance(abs_result.provenance, out_dir)
+            print(f"[out] {prov_path}")
     elif not georef:
         print(
             "[i] Input raster is not georeferenced — the TerraHeight result "
@@ -727,6 +755,12 @@ def run_terraheight_inference(
         "peak_vram_mb": round(peak_vram_mb, 1) if peak_vram_mb is not None else None,
         "georeferenced": bool(georef),
         "georef_state": "georeferenced (CRS + transform preserved)" if georef else "pixel-space (no CRS on input — none fabricated)",
+        "output_type": (
+            abs_result.output_type if abs_result is not None else "relative_height"
+        ),
+        "absolute_reference_available": (
+            bool(abs_result and abs_result.absolute_reference_available)
+        ),
         "published_reference_metrics": (
             "Embedded validation metrics of the released checkpoint — "
             "PUBLISHED reference values, NOT this scene's accuracy"
@@ -808,10 +842,22 @@ def run_terraheight_inference(
     payload["meta"]["model_architecture"] = ARCHITECTURE
     payload["meta"]["height_type"] = HEIGHT_TYPE
     payload["meta"]["height_model_label"] = "TerraHeight-S"
+    if abs_result is not None:
+        from .absolute_dsm import payload_output_fields
+
+        payload["meta"].update(payload_output_fields(abs_result))
     if anchored is not None:
-        payload["meta"]["height_semantics"] = (
-            f"{HEIGHT_TYPE} + ground datum = absolute DSM ({ANCHORED_LABEL})"
-        )
+        if abs_result is not None and abs_result.output_type == "absolute_dsm":
+            payload["meta"]["height_semantics"] = (
+                f"{HEIGHT_TYPE} + reference DEM = absolute DSM "
+                f"({ANCHORED_LABEL})"
+            )
+        else:
+            payload["meta"]["height_semantics"] = (
+                f"{HEIGHT_TYPE} + user-supplied constant datum "
+                f"({ANCHORED_LABEL}; datum asserted by the user, not an "
+                "external DEM)"
+            )
     else:
         payload["meta"]["height_semantics"] = (
             f"{HEIGHT_TYPE} (above-ground height in metres, clamped >= 0 — "

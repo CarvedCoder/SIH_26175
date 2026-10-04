@@ -5,12 +5,16 @@ Two tracks (mirrors the problem statement):
   georeferenced   (GeoTIFF)   -> metric DSM : + dsm.tif (CRS/transform preserved)
 
 Track-2 anchoring (absolute DSM): pass --anchor-dem <DEM.tif> (bilinear
-resample onto the image grid; requires a georeferenced input) or
---ground-elev <metres> (constant datum). Output is labeled
+resample onto the image grid; requires a georeferenced input),
+--dem-provider copernicus (automatic Copernicus GLO-30 acquisition; see
+docs/absolute_dsm.md), or --ground-elev <metres> (constant datum).
+Output is labeled
 
     ANCHORED (not learned)
 
-because anchoring is arithmetic, not a model prediction.
+because anchoring is arithmetic, not a model prediction. The scene
+payload records output_type ("relative_height" | "absolute_dsm" |
+"anchored_constant_dsm") plus full DEM provenance.
 
 --json-out writes the same scene payload the webapp consumes (grid + RGB +
 stats) so the CLI and the FastAPI service stay in lockstep.
@@ -96,6 +100,20 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:
         "--anchor-dem", default=None, help="DEM/DTM raster for absolute DSM (Track 2)"
     )
     p.add_argument(
+        "--dem-provider",
+        choices=["none", "copernicus"],
+        default="none",
+        help="automatic reference-DEM acquisition for absolute DSM: "
+        "none (default; --anchor-dem stays the manual path) | copernicus "
+        "(Copernicus GLO-30 public COGs on AWS; requires georeferenced "
+        "input + network; falls back to the RELATIVE product with an "
+        "explicit notice when retrieval fails)",
+    )
+    p.add_argument(
+        "--dem-cache-dir", default=None,
+        help="DEM tile/mosaic cache dir (default: outputs/dem_cache)",
+    )
+    p.add_argument(
         "--ground-elev",
         type=float,
         default=None,
@@ -160,6 +178,7 @@ def run(args) -> int:
     paths = cfg.get("paths", {})
     icfg = cfg.get("infer", {})
     mcfg = cfg.get("model", {}) or {}
+    dcfg = cfg.get("dem", {}) or {}
 
     # Backend selection (RDAH integration): CLI --architecture > config
     # model.architecture > config infer.architecture > "auto" (detect
@@ -289,6 +308,16 @@ def run(args) -> int:
         backbone_id=backbone_id,
         anchor_dem=args.anchor_dem,
         ground_elev=args.ground_elev,
+        dem_provider=(
+            args.dem_provider
+            if args.dem_provider != "none"
+            else dcfg.get("provider", "none")
+        ),
+        dem_cache_dir=(
+            args.dem_cache_dir
+            or dcfg.get("cache_dir")
+            or (Path(paths.get("outputs_dir", "outputs")) / "dem_cache")
+        ),
         write_files=(not args.no_write),
         postprocess=args.postprocess,
         postprocess_params=pp_params,

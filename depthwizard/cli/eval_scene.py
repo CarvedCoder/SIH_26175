@@ -7,6 +7,10 @@ of the certified `evaluate` command —
 (the gt_check false-alarm chain in the worklog is why) — but it runs on
 hand-picked scenes, so its numbers are diagnostics, never leaderboard rows.
 
+AGL evaluation only: the comparison target is a truth AGL raster. This is
+NOT absolute-DSM evaluation — see `eval-absolute` for predicted absolute
+DSM vs reference absolute DSM.
+
 Usage:
   python model.py eval-scene --pred outputs/infer/JAX_004_014/dsm.tif \
       --truth rgb_data_truth/Train-Track1-Truth/Track1-Truth/JAX_004_014_AGL.tif

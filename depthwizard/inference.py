@@ -53,7 +53,7 @@ from pathlib import Path
 import numpy as np
 from rasterio import CRS, Affine
 
-from .anchoring import ANCHORED_LABEL, AnchorResult, anchor
+from .anchoring import ANCHORED_LABEL
 from .normalize import minmax_normalize, minmax_normalize_with_stats
 from .tiling import OverlapStitcher, TilingConfig, iter_tile_windows
 
@@ -701,6 +701,8 @@ def run_inference(
     backbone_id: str = "depth-anything/Depth-Anything-V2-Base-hf",
     anchor_dem: Path | str | None = None,
     ground_elev: float | None = None,
+    dem_provider: str | None = None,
+    dem_cache_dir: Path | str | None = None,
     write_files: bool = True,
     postprocess: str = "none",
     postprocess_params: dict | None = None,
@@ -788,6 +790,8 @@ def run_inference(
             fp16=terraheight_fp16,
             anchor_dem=anchor_dem,
             ground_elev=ground_elev,
+            dem_provider=dem_provider,
+            dem_cache_dir=dem_cache_dir,
             write_files=write_files,
             should_cancel=should_cancel,
             progress_cb=progress_cb,
@@ -926,23 +930,57 @@ def run_inference(
             )
 
     anchored = None
+    abs_result = None
     if _cancelled():
         raise InferenceCancelled("cancelled before anchoring")
-    if anchor_dem is not None or ground_elev is not None:
-        tile_profile = {
-            "crs": crs,
-            "transform": tf,
-            "height": dsm.shape[0],
-            "width": dsm.shape[1],
-        }
-        anchored = anchor(dsm, anchor_dem, ground_elev, tile_profile)
-        assert anchored is not None
+    anchor_requested = (
+        anchor_dem is not None or ground_elev is not None
+        or dem_provider not in (None, "", "none")
+    )
+    if anchor_requested:
+        from .absolute_dsm import maybe_acquire_reference_dem, write_provenance
+
+        dem_result, _ = maybe_acquire_reference_dem(
+            anchor_dem, dem_provider, dem_cache_dir, profile, dsm.shape
+        )
+    else:
+        dem_result = None
+
+    # The output-type classification ALWAYS runs (Part D): every scene
+    # payload records output_type + absolute_reference_available, even
+    # for the plain relative product.
+    from .absolute_dsm import build_absolute_dsm
+
+    abs_result = build_absolute_dsm(
+        dsm,
+        profile,
+        dem_result,
+        ground_elev if dem_result is None else None,
+        height_model=predictor.model.architecture,
+        height_model_version=str(
+            getattr(predictor.model, "checkpoint", "unknown")
+        ),
+        calibration_enabled=(predictor.model.architecture == "calibration_net"),
+        calibration_model=(
+            predictor.model_tag
+            if predictor.model.architecture == "calibration_net"
+            else None
+        ),
+    )
+    anchored = abs_result.anchored
+    if anchored is not None:
         a_stats = compute_stats(anchored.dsm)
         print(
             f"[stats] ANCHORED DSM (m): min {a_stats['min']:.2f}  "
             f"mean {a_stats['mean']:.2f}  max {a_stats['max']:.2f}  "
-            f"[{ANCHORED_LABEL} | source={anchored.source}]"
+            f"[{ANCHORED_LABEL} | source={anchored.source} | "
+            f"output_type={abs_result.output_type}]"
         )
+        if write_files and dem_result is not None:
+            from .absolute_dsm import write_provenance as _write_prov
+
+            prov_path = _write_prov(abs_result.provenance, Path(out_dir))
+            print(f"[out] {prov_path}")
     elif not georef:
         print(
             "[i] Input raster is not georeferenced — the prediction is a "
@@ -1015,11 +1053,23 @@ def run_inference(
     # anchoring ran, DSM = heights + ground datum (ANCHORED, not learned).
     payload["meta"]["model_architecture"] = predictor.model.architecture
     payload["meta"]["height_type"] = predictor.model.height_type
+    if abs_result is not None:
+        from .absolute_dsm import payload_output_fields
+
+        payload["meta"].update(payload_output_fields(abs_result))
+        payload["meta"]["height_model_label"] = predictor.model_tag
     if anchored is not None:
-        payload["meta"]["height_semantics"] = (
-            f"{predictor.model.height_type} + ground datum = absolute DSM "
-            f"({ANCHORED_LABEL})"
-        )
+        if abs_result is not None and abs_result.output_type == "absolute_dsm":
+            payload["meta"]["height_semantics"] = (
+                f"{predictor.model.height_type} + reference DEM = absolute "
+                f"DSM ({ANCHORED_LABEL})"
+            )
+        else:
+            payload["meta"]["height_semantics"] = (
+                f"{predictor.model.height_type} + user-supplied constant "
+                f"datum ({ANCHORED_LABEL}; datum asserted by the user, not "
+                "an external DEM)"
+            )
     else:
         payload["meta"]["height_semantics"] = (
             f"{predictor.model.height_type} (above-ground height in metres, "

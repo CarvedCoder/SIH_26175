@@ -9,6 +9,10 @@ the false-alarm chain in the worklog):
 This prints the same error/saturation lines the smoke test used; it is a
 diagnostic, never a citable number.
 
+This is AGL evaluation (pred height field vs truth AGL, GAMUS protocol).
+It is NOT absolute-DSM evaluation — that lives in `eval-absolute` and
+requires a reference ABSOLUTE DSM raster.
+
 Usage:
   python model.py gt-check --pred outputs/infer/JAX_004_014/dsm.npy \
       --truth rgb_data_truth/.../JAX_004_014_AGL.tif

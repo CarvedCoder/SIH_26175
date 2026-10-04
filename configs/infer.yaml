@@ -43,3 +43,13 @@ infer:
   # Aligned to ViT-B (Phase 0.2): the SAME variant the training cache was
   # built with — live Dn stays distribution-consistent with cached Dn.
   backbone: depth-anything/Depth-Anything-V2-Base-hf
+
+dem:
+  # Automatic reference-DEM acquisition for the ABSOLUTE DSM product
+  # (Part A — docs/absolute_dsm.md). "none" keeps --anchor-dem as the
+  # only DEM path. "copernicus" fetches Copernicus GLO-30 public COGs
+  # from the AWS Open Data registry (network required, tiles cached);
+  # on retrieval failure the run falls back to the RELATIVE product
+  # with an explicit notice — never fake data.
+  provider: none                # none | copernicus
+  cache_dir: outputs/dem_cache  # DEM tile/mosaic cache
