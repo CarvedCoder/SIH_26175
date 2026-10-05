@@ -12,6 +12,24 @@ ground-truth-quality elevation; the project is explicit about what is
 learned, what is arithmetic, and what is anchored — see
 [Limitations and honesty contracts](#limitations-and-honesty-contracts).
 
+## Contents
+
+Click any entry to jump straight to that section.
+
+- [What it does](#what-it-does)
+- [Key features](#key-features)
+- [Demo / screenshots](#demo--screenshots)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [Prerequisites](#prerequisites)
+- [Master CLI](#master-cli) · [What `dw setup` does](#what-dw-setup-does)
+- [ML pipeline](#ml-pipeline)
+- [Backend](#backend) · [Frontend](#frontend) · [Object storage](#object-storage) · [Native acceleration](#native-acceleration)
+- [Project structure](#project-structure)
+- [Configuration](#configuration) · [Docker](#docker) · [Testing](#testing) · [Troubleshooting](#troubleshooting)
+- [Limitations and honesty contracts](#limitations-and-honesty-contracts)
+- [Contributing / development](#contributing--development) · [License](#license)
+
 ## What it does
 
 ```text
@@ -59,6 +77,13 @@ Models, metrics, features and benchmarks are kept distinct — see
 
 - **Single-image processing jobs** — upload imagery, watch the pipeline
   stage-by-stage, cancel cooperatively at any checkpoint.
+- **Lazy two-phase delivery (fast-first DSM)** — by default a processing
+  job completes as soon as the elevation products exist (`dsm.npy` /
+  `dsm.tif` / preview, stage `dsm_ready`); the slower tail — reference
+  validation, disaster assessment, 3D building reconstruction — runs on
+  demand via `POST /scenes/{id}/analyze` ("Run Full Analysis" in the
+  dashboard). Opt back into the single-job behaviour with
+  `{"eager_analysis": true}`.
 - **Three switchable height-model backends** — pretrained RDAH-Net (default),
   the legacy CalibrationNet, and the external pretrained **TerraHeight-S**
   (GAMUS AGL, Depth Anything V2 Small backbone — computes metres AGL
@@ -342,24 +367,54 @@ toolchain is available.
 
 ```text
 .
-├── backend/            # FastAPI application (backend.app.main:app)
-│   └── app/{api,services,storage,db,core,schemas,jobs}
-├── frontend/           # React/Vite app + three.js terrain engine
-├── depthwizard/        # ML library: backbone, height models, datasets, CLIs
-├── native/             # C++ SIMD kernels (pybind11) + build
-├── scripts/            # start.py (stack runner), dw.py (master CLI)
-├── configs/            # ML experiment/training configs
-├── backend_tests/      # backend API/service tests
-├── model_tests/        # ML core tests
-├── tests/              # pipeline tests
-├── docs/               # docs + screenshots
-├── data/               # local runtime data (gitignored)
-├── outputs/            # model outputs / checkpoints
-├── docker-compose.yml  # rustfs + backend + frontend
-├── pyproject.toml      # Python project + uv lockfile
-├── Model.md            # deep ML/training documentation
-└── dw, dw.cmd          # master CLI entry points
+├── backend/                    # FastAPI application (backend.app.main:app)
+│   ├── app/
+│   │   ├── api/routes/         # HTTP layer: scenes, jobs, results, terrain,
+│   │   │                       #   semantic, disaster, buildings3d, export...
+│   │   ├── application/        # use-case services (scenes, jobs)
+│   │   ├── services/           # processing, terrain, results, export services
+│   │   ├── domain/             # core entities (Job, Scene)
+│   │   ├── schemas/            # pydantic request/response contracts
+│   │   ├── jobs/               # durable job-store facade (manager)
+│   │   ├── infrastructure/     # persistence (file/sqlite/postgres), queue, storage
+│   │   ├── storage/            # object-storage backends + scene artifact store
+│   │   ├── db/                 # SQLAlchemy models + engine
+│   │   └── core/               # config (Settings), auth, errors, paths, logging
+│   └── worker.py               # standalone external-worker loop (DW_WORKER_MODE)
+├── frontend/                   # React/Vite app + three.js terrain engine
+│   └── src/
+│       ├── api/                # typed fetch wrappers per backend area
+│       ├── components/         # dashboard, processing, terrain viewer, analysis UI
+│       ├── engine/             # three.js quadtree-LOD terrain engine
+│       ├── pages/              # app screens (Home, Processing, ResultDashboard, ...)
+│       ├── store/              # global app state machine
+│       ├── hooks/              # polling / data hooks
+│       └── lib/, types/        # helpers and shared type defs
+├── depthwizard/                # ML library: backbone, height models, datasets, CLIs
+│   ├── inference.py            # certified single-image pipeline (run_inference)
+│   ├── disaster/               # HOTOSM ONNX building + earthquake damage models
+│   ├── pipeline/               # scene output writers
+│   ├── postprocess/            # WLS / guided / bilateral refinement
+│   ├── datasets/, cli/         # training data + command-line entry points
+│   └── rdah.py, terraheight.py, calibration_net.py, ...
+├── native/                     # C++ SIMD kernels (pybind11) + build
+├── scripts/                    # start.py (stack runner), dw.py (master CLI)
+├── configs/                    # ML experiment/training configs
+├── backend_tests/              # backend API/service tests
+├── model_tests/                # ML core tests
+├── tests/                      # pipeline tests
+├── docs/                       # architecture + feature docs + screenshots
+├── data/                       # local runtime data (gitignored)
+├── outputs/                    # model outputs / checkpoints
+├── docker-compose.yml          # rustfs + backend + frontend
+├── pyproject.toml              # Python project + uv lockfile
+├── Model.md                    # deep ML/training documentation
+└── dw, dw.cmd                  # master CLI entry points
 ```
+
+Each part is described in its own section: [Backend](#backend),
+[Frontend](#frontend), [ML pipeline](#ml-pipeline) and
+[Object storage](#object-storage).
 
 ## Configuration
 
