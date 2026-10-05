@@ -528,8 +528,18 @@ class ProcessingService:
         mode: str = "auto",
         architecture: str = "auto",
         ground_elev: float | None = None,
+        eager_analysis: bool = False,
     ) -> dict[str, Any]:
-        """Run DepthWizard inference for a scene (blocking; call from a worker)."""
+        """Run DepthWizard inference for a scene (blocking; call from a worker).
+
+        Lazy two-phase delivery (default): the job completes as soon as the
+        elevation products exist — dsm.npy / dsm.tif / dsm_anchored /
+        dsm_preview.png written by run_inference — and the slower tail
+        (reference validation, disaster assessment, 3D building
+        reconstruction) is DEFERRED to continue_analysis(), triggered by
+        POST /scenes/{id}/analyze. ``eager_analysis=True`` restores the
+        single-job behaviour (everything runs before completion).
+        """
 
         input_path = self.resolve_scene_input(scene_id)
         output_dir = scene_artifact_store().path_for(scene_output_dir_key(scene_id))
@@ -599,6 +609,36 @@ class ProcessingService:
             self.jobs.update_job(job_id, status="cancelled", stage="cancelled")
             return {"cancelled": True}
 
+        # ── Lazy fast path: elevation products ARE the deliverable ──────
+        # run_inference has written dsm.npy / dsm.tif / dsm_anchored /
+        # dsm_preview.png (and the semantic artifacts). Everything below
+        # this point in the eager path is the slow analysis tail; in lazy
+        # mode it waits for an explicit POST /scenes/{id}/analyze.
+        if not eager_analysis:
+            payload["analysis_status"] = "pending"
+            payload["analysis_pending"] = True
+            payload["analysis_stages"] = [
+                "validation", "disaster_assessment", "buildings3d",
+            ]
+
+            # Publication is cheap and keeps the object-store contract
+            # intact (presigned asset URLs in the results response).
+            self._publish_artifacts(scene_id, output_dir)
+
+            self.jobs.update_job(
+                job_id,
+                status="completed",
+                stage="dsm_ready",
+                progress=100.0,
+                message="Elevation products ready — full analysis available on demand",
+                result=self._sanitize_payload_paths(payload),
+            )
+            logger.info(
+                "job completed (dsm_ready, analysis deferred): %s scene=%s",
+                job_id, scene_id,
+            )
+            return payload
+
         # Live validation: if the scene carries a ground-truth reference
         # raster, produce reference.npy / validation.json / error_map.png
         # NOW — get_validation only reports what actually exists on disk.
@@ -623,6 +663,7 @@ class ProcessingService:
 
         self._publish_artifacts(scene_id, output_dir)
 
+        payload["analysis_status"] = "complete"
         self.jobs.update_job(
             job_id,
             status="completed",
@@ -752,6 +793,84 @@ class ProcessingService:
             result=self._sanitize_payload_paths(payload),
         )
         logger.info("refine job completed: %s scene=%s", job_id, scene_id)
+        return payload
+
+    def continue_analysis(
+        self, job_id: str, scene_id: str
+    ) -> dict[str, Any]:
+        """Run the analysis tail a lazy processing job deferred.
+
+        Consumes EXISTING elevation products only (no re-inference):
+        reference validation -> disaster assessment -> 3D building
+        reconstruction -> artifact publication. The merged payload of the
+        original processing job (meta, provenance) plus the new analysis
+        blocks becomes this job's result, so GET /scenes/{id}/results
+        keeps serving full provenance from the latest job record.
+        """
+        input_path = self.resolve_scene_input(scene_id)
+        output_dir = scene_artifact_store().path_for(scene_output_dir_key(scene_id))
+        if not (output_dir / "dsm.npy").is_file():
+            raise FileNotFoundError(
+                "scene has no elevation products yet — process it first "
+                f"(scene={scene_id})"
+            )
+
+        self.jobs.update_job(
+            job_id,
+            status="processing",
+            stage="analyzing",
+            progress=5.0,
+            message="Running deferred analysis",
+        )
+
+        with self.jobs.lease_heartbeat(job_id):
+            # Live validation (reference.npy / validation.json / error_map).
+            self.jobs.update_job(
+                job_id, progress=20.0, message="Writing validation artifacts"
+            )
+            self._write_validation_artifacts(scene_id, input_path, output_dir)
+
+            # Disaster assessment (optional, never fatal).
+            disaster_result = self._run_disaster_stage(
+                job_id, scene_id, input_path, output_dir
+            )
+
+            # Geometry-aware 3D building reconstruction.
+            self.jobs.update_job(
+                job_id, progress=60.0, message="Reconstructing building geometry"
+            )
+            buildings3d = self._run_buildings3d_stage(job_id, scene_id, output_dir)
+
+        self._publish_artifacts(scene_id, output_dir)
+
+        # Merge into the original processing payload so the latest job
+        # record keeps serving meta/provenance through the results route.
+        payload: dict[str, Any] = {}
+        try:
+            for job in reversed(self.jobs.list_jobs_for_scene(scene_id)):
+                result = getattr(job, "result", None)
+                if isinstance(result, dict) and result.get("analysis_pending"):
+                    payload = dict(result)
+                    break
+        except Exception:  # noqa: BLE001 — merge is best-effort
+            logger.warning(
+                "could not merge original payload for scene %s", scene_id
+            )
+        if disaster_result:
+            payload["disaster"] = disaster_result
+        if buildings3d:
+            payload["buildings3d"] = buildings3d
+        payload["analysis_status"] = "complete"
+        payload.pop("analysis_pending", None)
+
+        self.jobs.update_job(
+            job_id,
+            status="completed",
+            stage="completed",
+            progress=100.0,
+            result=self._sanitize_payload_paths(payload),
+        )
+        logger.info("analysis job completed: %s scene=%s", job_id, scene_id)
         return payload
 
     @staticmethod
@@ -888,12 +1007,15 @@ class ProcessingService:
                     ),
                     architecture=request.get("architecture", "auto"),
                 )
+            if request.get("kind") == "analyze":
+                return self.continue_analysis(job_id, job.scene_id)
             return self.process_scene(
                 job_id,
                 job.scene_id,
                 mode=request.get("mode", "auto"),
                 architecture=request.get("architecture", "auto"),
                 ground_elev=request.get("ground_elev"),
+                eager_analysis=bool(request.get("eager_analysis", False)),
             )
         except Exception as exc:
             self.record_failure(job_id, exc)

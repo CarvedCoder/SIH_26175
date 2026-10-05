@@ -77,6 +77,15 @@ class ProcessRequest(BaseModel):
         description="Constant ground datum (metres) for absolute anchoring "
         "[ANCHORED (not learned)]. Ignored when None.",
     )
+    eager_analysis: bool = Field(
+        default=False,
+        description="Run the full pipeline in ONE job (legacy behaviour). "
+        "By default the job completes as soon as the elevation products "
+        "(DSM raster/preview, depth, semantics) are written, and the "
+        "slower tail — reference validation, disaster assessment, 3D "
+        "building reconstruction — is deferred until POST "
+        "/scenes/{id}/analyze is called.",
+    )
 
 
 class ProcessAccepted(BaseModel):
@@ -119,6 +128,16 @@ class RefineRequest(BaseModel):
 
 class RefineAccepted(BaseModel):
     """Returned when a refinement job was created."""
+
+    job_id: str
+    scene_id: str
+    status: str = "queued"
+    stage: str = "queued"
+    progress: float | None = None
+
+
+class AnalyzeAccepted(BaseModel):
+    """Returned when a deferred-analysis continuation job was created."""
 
     job_id: str
     scene_id: str

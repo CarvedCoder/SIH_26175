@@ -68,3 +68,15 @@ export async function refineScene(sceneId, opts) {
     }),
   });
 }
+
+/**
+ * Continue a lazily-processed scene: run the analysis tail (validation,
+ * disaster assessment, 3D building reconstruction) that the processing job
+ * deferred. Requires the elevation products to exist (dsm_ready).
+ * POST /scenes/{id}/analyze
+ * @param {string} sceneId
+ * @returns {Promise<{ job_id: string, scene_id: string, status: string }>}
+ */
+export async function startAnalysis(sceneId) {
+  return apiFetch(`/scenes/${sceneId}/analyze`, { method: 'POST' });
+}

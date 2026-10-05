@@ -98,7 +98,9 @@ def building_scene(client, tmp_path, monkeypatch):
     assert response.status_code == 200, response.text
     scene_id = response.json()["scene_id"]
 
-    response = client.post(f"/api/v1/scenes/{scene_id}/process", json={})
+    response = client.post(
+        f"/api/v1/scenes/{scene_id}/process", json={"eager_analysis": True}
+    )
     assert response.status_code == 200, response.text
     job_id = response.json()["job_id"]
     for _ in range(100):

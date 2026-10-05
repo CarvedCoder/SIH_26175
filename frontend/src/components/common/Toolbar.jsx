@@ -70,6 +70,13 @@ export default function Toolbar({
   layerAvailability,
   buildings3d = null,
   onToggleBuildings3d,
+  // Deferred analysis (lazy pipeline): pending scenes have no
+  // buildings/damage artifacts yet — those controls start the analysis
+  // instead of staying dead-grey.
+  analysisPending = false,
+  analysisRunning = false,
+  analysisProgress = null,
+  onRunAnalysis,
 }) {
   // Real per-layer availability, fetched from the backend by the workspace
   // (results + reference endpoints). Defaults to "available" so the popover
@@ -221,18 +228,37 @@ export default function Toolbar({
               { id: 'error',         label: 'Error Map (Diverging)', disabled: !avail.error },
               { id: 'buildings',     label: 'Building Footprints (DINOv3)', disabled: !avail.buildings },
               { id: 'damage',        label: 'Damage Severity Map (HOTOSM)', disabled: !avail.damage },
-            ].map(l => (
-              <PopoverButton
-                key={l.id}
-                label={l.label}
-                active={activeLayer === l.id}
-                disabled={l.disabled}
-                onClick={() => {
-                  onSelectLayer(l.id);
-                  setOpenMenu(null);
-                }}
-              />
-            ))}
+            ].map(l => {
+              // Lazy pipeline: building/damage layers exist only after the
+              // deferred analysis runs. While it is pending/running, the
+              // items stay CLICKABLE and start (or report) the analysis
+              // instead of being permanently grey.
+              const needsAnalysis = l.disabled
+                && (l.id === 'buildings' || l.id === 'damage')
+                && (analysisPending || analysisRunning);
+              const suffix = needsAnalysis
+                ? (analysisRunning
+                  ? ` · Analysing ${analysisProgress != null ? Math.round(analysisProgress) : 0}%`
+                  : ' · Run Analysis')
+                : '';
+              return (
+                <PopoverButton
+                  key={l.id}
+                  label={l.label + suffix}
+                  active={activeLayer === l.id}
+                  disabled={l.disabled && !needsAnalysis}
+                  onClick={() => {
+                    if (needsAnalysis) {
+                      onRunAnalysis?.();
+                      setOpenMenu(null);
+                      return;
+                    }
+                    onSelectLayer(l.id);
+                    setOpenMenu(null);
+                  }}
+                />
+              );
+            })}
             {onOpenValidation && (
               <>
                 <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
@@ -246,18 +272,27 @@ export default function Toolbar({
                 />
               </>
             )}
-            {buildings3d?.available && (
+            {(buildings3d?.available || analysisPending || analysisRunning) && (
               <>
                 <div style={{ height: 1, background: 'var(--dw-rim)', margin: '4px 0' }} />
                 <PopoverButton
-                  label={buildings3d.damageClassified > 0
-                    ? `Buildings 3D (${buildings3d.count} · damage-classified)`
-                    : `Buildings 3D (${buildings3d.count} · DSM heights)`}
+                  label={buildings3d?.available
+                    ? (buildings3d.damageClassified > 0
+                      ? `Buildings 3D (${buildings3d.count} · damage-classified)`
+                      : `Buildings 3D (${buildings3d.count} · DSM heights)`)
+                    : analysisRunning
+                      ? `Buildings 3D · Analysing ${analysisProgress != null ? Math.round(analysisProgress) : 0}%`
+                      : 'Buildings 3D · Run Analysis'}
                   icon={Building2}
-                  active={buildings3d.enabled}
+                  active={buildings3d?.available && buildings3d.enabled}
                   onClick={() => {
-                    onToggleBuildings3d?.();
-                    // keep the menu open so the user sees the state flip
+                    if (buildings3d?.available) {
+                      onToggleBuildings3d?.();
+                      // keep the menu open so the user sees the state flip
+                    } else {
+                      onRunAnalysis?.();
+                      setOpenMenu(null);
+                    }
                   }}
                 />
               </>
