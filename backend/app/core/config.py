@@ -165,6 +165,15 @@ class Settings:
         self.dn_path: str | None = os.environ.get("DW_DN_PATH") or None
         self.anchor_dem: str | None = os.environ.get("DW_ANCHOR_DEM") or None
         self.cache_dir: str | None = os.environ.get("DW_CACHE_DIR") or None
+        # Automatic reference-DEM acquisition (absolute DSM Part A):
+        # DW_DEM_PROVIDER = none (default) | copernicus. "copernicus"
+        # fetches Copernicus GLO-30 tiles for georeferenced scenes (AWS
+        # Open Data, cached under DW_DEM_CACHE_DIR); on retrieval failure
+        # the run degrades to the RELATIVE product with an explicit notice.
+        self.dem_provider: str = os.environ.get("DW_DEM_PROVIDER", "none")
+        self.dem_cache_dir: str | None = (
+            os.environ.get("DW_DEM_CACHE_DIR") or None
+        )
 
         # Post-processing (run_inference postprocess= preset + params).
         # Presets: none|median|guided|bilateral|wls|conf|semantic|full

@@ -30,10 +30,13 @@ post-processing              (median / guided / bilateral / WLS / TTA — option
         ↓
 DSM generation               GeoTIFF when input is georeferenced, else relative
         ↓
-optional anchoring           DEM or constant datum — arithmetic, labelled
-        ↓  "ANCHORED (not learned)"
-validation                   reference-DEM metrics (RMSE/MAE/bias) when a
-        ↓                     reference raster is available
+optional anchoring           reference DEM (manual --anchor-dem or automatic
+        ↓                     Copernicus GLO-30 via --dem-provider) or constant
+        ↓                     datum — arithmetic, labelled "ANCHORED (not learned)"
+        ↓                     output_type: absolute_dsm | anchored_constant_dsm |
+        ↓                     relative_height (full DEM provenance recorded)
+validation                   AGL eval (gt-check / eval-scene / evaluate) vs
+        ↓                     absolute-DSM eval (eval-absolute) — kept separate
 object storage + presigned access (RustFS, S3 API)
         ↓
 3D terrain workspace         orbit / walkthrough, layers, measurement, export
@@ -45,7 +48,12 @@ The three elevation concepts are kept distinct everywhere in the product:
 | --- | --- | --- |
 | Relative depth | Scale-free DAv2 output | — |
 | AGL / nDSM | Above-ground height in metres (model output) | `nDSM`, `height_type: nDSM` |
-| Absolute DSM | AGL + ground datum (**arithmetic**, not learned) | `ANCHORED (not learned)` |
+| Absolute DSM | AGL + reference DEM (**arithmetic**, not learned) | `ANCHORED (not learned)`, `output_type: absolute_dsm` |
+| Anchored constant | AGL + user-asserted constant datum | `output_type: anchored_constant_dsm` (not an external reference) |
+
+Models, metrics, features and benchmarks are kept distinct — see
+[docs/absolute_dsm.md](docs/absolute_dsm.md) for the full contract
+(DEM acquisition, alignment, provenance, `eval-absolute`, error codes).
 
 ## Key features
 
