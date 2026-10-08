@@ -82,6 +82,13 @@ class SceneResultsResponse(BaseModel):
 
     status: str
 
+    #: Deferred-analysis state of the lazy pipeline: "pending" when the
+    #: processing job completed with elevation products only (dsm_ready)
+    #: and POST /scenes/{id}/analyze has not run yet; "complete" once the
+    #: analysis tail ran (or for eager/legacy jobs). Absent job records
+    #: report "complete" — the artifacts on disk are what they are.
+    analysis_status: str = "complete"
+
     depth: DepthResult = Field(
         default_factory=DepthResult
     )

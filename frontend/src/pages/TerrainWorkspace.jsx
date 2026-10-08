@@ -55,6 +55,7 @@ import {
   getDamageGeoJsonUrl,
 } from '../api/disaster.js';
 import { getBuildings3DMeta } from '../api/buildings3d.js';
+import { startAnalysis, getJobStatus } from '../api/processing.js';
 import { useApp, AppState } from '../store/appStore.jsx';
 import {
   RotateCcw,
@@ -178,6 +179,62 @@ export default function TerrainWorkspace() {
   const [damageMeta, setDamageMeta]       = useState(null);
   const damageGeoJsonRef                  = useRef(null);
 
+  // ── Deferred analysis (lazy pipeline) ──
+  // A dsm_ready scene has no disaster/buildings3d artifacts yet: the
+  // 3D-buildings toggle and the building/damage layers run them on demand
+  // via POST /scenes/{id}/analyze instead of being permanently disabled.
+  const [analysisPending, setAnalysisPending] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(null); // 0-100 while a job runs, else null
+  const [analysisRefresh, setAnalysisRefresh] = useState(0);      // bumped when the job finishes → meta reloads
+  const analysisPollRef = useRef(null);
+
+  useEffect(() => () => clearInterval(analysisPollRef.current), []);
+
+  async function runFullAnalysis() {
+    const sceneId = state.scene?.scene_id;
+    if (!sceneId || analysisProgress != null) return;
+    try {
+      const accepted = await startAnalysis(sceneId);
+      setAnalysisProgress(accepted.progress ?? 0);
+      if (analysisPollRef.current) clearInterval(analysisPollRef.current);
+      const poll = async () => {
+        try {
+          const job = await getJobStatus(accepted.job_id);
+          if (job.status === 'completed') {
+            clearInterval(analysisPollRef.current);
+            setAnalysisProgress(null);
+            setAnalysisPending(false);
+            setAnalysisRefresh(t => t + 1); // availability effect re-fetches meta
+          } else if (job.status === 'failed' || job.status === 'cancelled') {
+            clearInterval(analysisPollRef.current);
+            setAnalysisProgress(null);
+            setAnalysisPending(false); // not pending anymore — controls show honestly unavailable
+          } else if (typeof job.progress === 'number') {
+            setAnalysisProgress(job.progress);
+          }
+        } catch { /* transient network error — the interval keeps polling */ }
+      };
+      poll();
+      analysisPollRef.current = setInterval(poll, 2000);
+    } catch (err) {
+      console.warn('[TerrainWorkspace] startAnalysis failed', err);
+      setAnalysisPending(false);
+    }
+  }
+
+  // Browser-level guard while the analysis job runs (parity with the
+  // dashboard popup): warn before closing / reloading the tab.
+  useEffect(() => {
+    if (analysisProgress == null) return undefined;
+    const warn = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [analysisProgress]);
+
   // Scene switches (batch switcher) must not carry the previous scene's
   // selections, measurements or layer texture cache into the new terrain.
   useEffect(() => {
@@ -196,6 +253,9 @@ export default function TerrainWorkspace() {
     damageGeoJsonRef.current = null;
     setBuildingsMeta(null);
     setDamageMeta(null);
+    setAnalysisPending(false);
+    setAnalysisProgress(null);
+    if (analysisPollRef.current) clearInterval(analysisPollRef.current);
     terrainRef.current?.setMeasurePoints?.(null);
   }, [state.scene?.scene_id]);
 
@@ -236,6 +296,7 @@ export default function TerrainWorkspace() {
     ]).then(([results, reference, semMeta, bldMeta, dmgMeta, b3dMeta]) => {
       if (cancelled) return;
       const semAvail = !!semMeta?.available;
+      setAnalysisPending(results?.analysis_status === 'pending');
       setBuildingsMeta(bldMeta);
       setDamageMeta(dmgMeta);
       if (b3dMeta) {
@@ -271,7 +332,7 @@ export default function TerrainWorkspace() {
       }
     });
     return () => { cancelled = true; };
-  }, [state.scene?.scene_id, isLoading]);
+  }, [state.scene?.scene_id, isLoading, analysisRefresh]);
 
   // Load semantic segmentation arrays on scene change
   useEffect(() => {
@@ -932,6 +993,10 @@ export default function TerrainWorkspace() {
             onTogglePanels={() => setPanelsHidden(v => !v)}
             buildings3d={buildings3d}
             onToggleBuildings3d={handleToggleBuildings3d}
+            analysisPending={analysisPending}
+            analysisRunning={analysisProgress != null}
+            analysisProgress={analysisProgress}
+            onRunAnalysis={runFullAnalysis}
           />
         )}
 
@@ -1165,6 +1230,10 @@ export default function TerrainWorkspace() {
         layerAvailability={layerAvail}
         buildings3d={buildings3d}
         onToggleBuildings3d={handleToggleBuildings3d}
+        analysisPending={analysisPending}
+        analysisRunning={analysisProgress != null}
+        analysisProgress={analysisProgress}
+        onRunAnalysis={runFullAnalysis}
         onOpenValidation={() => {
           setAnalysisPanelOpen(true);
           setAnalysisPanelTab('validation');

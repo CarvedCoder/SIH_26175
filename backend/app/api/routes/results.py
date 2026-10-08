@@ -136,6 +136,7 @@ async def get_scene_results(scene_id: str):
         scene_id=scene_id,
         job_id=job_id,
         status=status,
+        analysis_status=_analysis_status(job),
         depth=depth,
         dsm=dsm,
         capabilities=capabilities,
@@ -159,6 +160,19 @@ def _provenance_meta(job) -> dict:
         return {}
     meta = result.get("meta")
     return dict(meta) if isinstance(meta, dict) else {}
+
+
+def _analysis_status(job) -> str:
+    """The latest job's deferred-analysis state; legacy payloads (no flag)
+    and missing job records report "complete" — never a fake pending."""
+    if job is None:
+        return "complete"
+    result = getattr(job, "result", None)
+    if isinstance(result, dict):
+        status = result.get("analysis_status")
+        if isinstance(status, str) and status:
+            return status
+    return "complete"
 
 
 @router.get("/{scene_id}/depth", response_model=DepthMetaResponse)

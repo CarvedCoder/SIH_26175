@@ -32,6 +32,10 @@ from backend.app.api.routes._deps import require_scene as _require_scene
 from backend.app.appstate import task_queue_for
 from backend.app.core.auth import current_user, ensure_owner
 from backend.app.core.errors import AppError, SceneBusy
+from backend.app.infrastructure.storage.scene_artifacts import (
+    scene_artifact_store,
+    scene_output_dir_key,
+)
 from backend.app.jobs.manager import job_manager
 from backend.app.schemas.job import (
     CancelResponse,
@@ -40,6 +44,7 @@ from backend.app.schemas.job import (
     JobStatus,
 )
 from backend.app.schemas.processing import (
+    AnalyzeAccepted,
     ProcessAccepted,
     ProcessRequest,
     RefineAccepted,
@@ -71,6 +76,7 @@ def _job_request_payload(request: ProcessRequest | RefineRequest) -> dict:
         "mode": request.mode.value,
         "architecture": request.architecture.value,
         "ground_elev": request.ground_elev,
+        "eager_analysis": request.eager_analysis,
     }
 
 
@@ -142,6 +148,45 @@ async def refine_scene(
     _dispatch(job.job_id, http_request, background_tasks)
 
     return RefineAccepted(
+        job_id=job.job_id,
+        scene_id=job.scene_id,
+        status=job.status,
+        stage=job.stage,
+        progress=job.progress,
+    )
+
+
+@router.post("/api/v1/scenes/{scene_id}/analyze", response_model=AnalyzeAccepted)
+async def analyze_scene(
+    scene_id: str,
+    http_request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """Continue a lazily-processed scene: run the analysis tail a
+    dsm_ready processing job deferred (validation, disaster assessment,
+    3D building reconstruction). No re-inference — the elevation products
+    must already exist."""
+    _require_scene(scene_id)
+
+    output_dir = scene_artifact_store().path_for(scene_output_dir_key(scene_id))
+    if not (output_dir / "dsm.npy").is_file():
+        raise AppError(
+            status_code=409,
+            code="SCENE_NOT_PROCESSED",
+            message="Scene has no elevation products yet — process it first.",
+            details={"scene_id": scene_id},
+            recoverable=True,
+        )
+
+    active = job_manager.get_active_job_for_scene(scene_id)
+    if active is not None:
+        raise SceneBusy(scene_id, active.job_id)
+
+    job = job_manager.create_job(scene_id)
+    job_manager.update_job(job.job_id, request={"kind": "analyze"})
+    _dispatch(job.job_id, http_request, background_tasks)
+
+    return AnalyzeAccepted(
         job_id=job.job_id,
         scene_id=job.scene_id,
         status=job.status,

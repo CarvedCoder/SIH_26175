@@ -36,6 +36,12 @@ class JobStage(str, Enum):
     VALIDATION = "validation"
     DISASTER_ASSESSMENT = "disaster_assessment"
     DISASTER_COMPLETE = "disaster_complete"
+    #: Lazy pipeline: the elevation products (dsm.npy/dsm.tif/preview) are
+    #: written and the job completes; validation/disaster/buildings3d stay
+    #: deferred until POST /scenes/{id}/analyze is called.
+    DSM_READY = "dsm_ready"
+    #: Umbrella stage of a deferred-analysis continuation job.
+    ANALYZING = "analyzing"
     FINALIZING = "finalizing"
     COMPLETED = "completed"
     FAILED = "failed"

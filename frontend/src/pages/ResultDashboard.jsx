@@ -16,8 +16,8 @@
  * No card shadows. No decorative statistics. Monospace for data values.
  * Spec §33 Scene 3, §53 (Depth), §54 (DSM).
  */
-import { useEffect, useState } from 'react';
-import { Mountain, Download } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Mountain, Download, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
 import Header from '../components/common/Header.jsx';
 import LayerImageCard from '../components/common/LayerImageCard.jsx';
 import MetricsPanel from '../components/Validation/MetricsPanel.jsx';
@@ -26,8 +26,9 @@ import PartialResultBanner from '../components/common/PartialResultBanner.jsx';
 import ApiErrorAlert from '../components/common/ApiErrorAlert.jsx';
 import { useValidation } from '../hooks/useValidation.js';
 import { useApp } from '../store/appStore.jsx';
-import { getDepth, getDsm, getScene } from '../api/results.js';
+import { getDepth, getDsm, getScene, getResults } from '../api/results.js';
 import { getRouteHeatmap } from '../api/route.js';
+import { startAnalysis, getJobStatus } from '../api/processing.js';
 import { resolveAssetUrl } from '../api/client.js';
 
 /**
@@ -50,6 +51,16 @@ export default function ResultDashboard() {
   // reconstructed scene object whose georef/CRS/dimensions may be guesses.
   const [sceneDetail, setSceneDetail] = useState(null);
   const [showExport, setShowExport] = useState(false);
+
+  // Deferred-analysis state (lazy pipeline): the processing job completed
+  // with elevation products only; validation / disaster / buildings-3D run
+  // on demand when the user clicks "Run Full Analysis". Tracked locally —
+  // the dashboard stays usable while the analysis job runs.
+  const [analysisJob, setAnalysisJob] = useState(null);
+  const [analysisError, setAnalysisError] = useState(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [showLeavePopup, setShowLeavePopup] = useState(false);
+  const analysisPollRef = useRef(null);
 
   // Capability flags from ResultsMeta. A resumed session may carry a
   // reconstructed results object, so prefer the backend's authoritative
@@ -94,10 +105,89 @@ export default function ResultDashboard() {
 
     fetchLayerMeta();
     return () => { cancelled = true; };
-  }, [scene?.scene_id, isAbsolute]);
+  }, [scene?.scene_id, isAbsolute, refreshTick]);
 
   /** Units label from D10: 'm' for absolute, 'scene units' for relative */
   const elevUnits = 'm'; // world scale is metres (1 m/pixel documented fallback)
+
+  // -- Deferred analysis (lazy pipeline) ------------------------------------
+  const analysisPending = results?.analysis_status === 'pending';
+  const analysisRunning =
+    !!analysisJob && !['completed', 'failed', 'cancelled'].includes(analysisJob.status);
+
+  const runAnalysis = async () => {
+    if (!scene?.scene_id || analysisRunning) return;
+    setAnalysisError(null);
+    try {
+      const accepted = await startAnalysis(scene.scene_id);
+      setAnalysisJob({
+        job_id: accepted.job_id,
+        status: accepted.status ?? 'queued',
+        stage: accepted.stage ?? 'queued',
+        progress: accepted.progress ?? 0,
+        message: null,
+      });
+      setShowLeavePopup(true);
+    } catch (err) {
+      setAnalysisError(err?.message ?? 'Could not start the analysis job.');
+    }
+  };
+
+  // Browser-level guard: while the analysis job runs, warn before the user
+  // closes / reloads / navigates away — the live progress and the
+  // auto-refresh of the results live on this page.
+  useEffect(() => {
+    if (!analysisRunning) return undefined;
+    const warn = (e) => {
+      e.preventDefault();
+      e.returnValue = ''; // required for Chrome to show the dialog
+      return '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [analysisRunning]);
+
+  // Poll the analysis job; on completion refresh the authoritative results
+  // (analysis_status flips to "complete", validation metrics appear) and
+  // re-run the layer-metadata fetch via refreshTick.
+  useEffect(() => {
+    const jobId = analysisJob?.job_id;
+    if (!jobId) return undefined;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const job = await getJobStatus(jobId);
+        if (stopped) return;
+        setAnalysisJob(job);
+        if (job.status === 'completed') {
+          clearInterval(analysisPollRef.current);
+          try {
+            const fresh = await getResults(scene.scene_id);
+            actions.processingDone(fresh);
+          } catch { /* results can be re-fetched later */ }
+          setRefreshTick(t => t + 1);
+        } else if (job.status === 'failed') {
+          clearInterval(analysisPollRef.current);
+          setAnalysisError(job.error?.message ?? job.message ?? 'Analysis failed.');
+        }
+      } catch { /* transient network error — the interval keeps polling */ }
+    };
+    poll();
+    analysisPollRef.current = setInterval(poll, 2000);
+    return () => {
+      stopped = true;
+      clearInterval(analysisPollRef.current);
+    };
+  }, [analysisJob?.job_id, scene?.scene_id, actions]);
+
+  const ANALYSIS_STAGE_LABELS = {
+    queued: 'Waiting in queue',
+    analyzing: 'Running deferred analysis',
+    validation: 'Validating against reference',
+    disaster_assessment: 'Assessing disaster damage',
+    disaster_complete: 'Disaster assessment complete',
+    completed: 'Analysis complete',
+  };
 
   /**
    * The backend exposes depth and DSM preview images via their `url` / `download_url`.
@@ -262,6 +352,108 @@ export default function ResultDashboard() {
           />
         </section>
 
+        {/* Deferred-analysis panel (lazy pipeline): elevation products are
+            ready; validation / disaster / buildings-3D run on click. */}
+        {(analysisPending || analysisRunning || analysisError) && (
+          <section aria-label="Deferred analysis">
+            <div style={{
+              background: 'var(--dw-panel)',
+              border: '1px solid var(--dw-rim)',
+              borderRadius: 'var(--dw-radius)',
+              padding: '16px 20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              maxWidth: 760,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 240 }}>
+                  <p style={{
+                    fontFamily: 'var(--dw-font-ui)',
+                    fontSize: 14.5,
+                    fontWeight: 600,
+                    color: 'var(--dw-fg)',
+                    margin: 0,
+                  }}>
+                    {analysisRunning
+                      ? 'Full analysis running…'
+                      : analysisError
+                        ? 'Analysis failed'
+                        : 'Elevation products ready'}
+                  </p>
+                  <p style={{
+                    fontFamily: 'var(--dw-font-ui)',
+                    fontSize: 13,
+                    color: 'var(--dw-fg-muted)',
+                    margin: 0,
+                    lineHeight: 1.5,
+                  }}>
+                    {analysisRunning
+                      ? (analysisJob.message ?? ANALYSIS_STAGE_LABELS[analysisJob.stage] ?? 'Working…')
+                      : analysisError
+                        ? analysisError
+                        : 'Validation metrics, disaster assessment and 3D building reconstruction were deferred to keep this step fast. Run them when you need them.'}
+                  </p>
+                </div>
+                {!analysisRunning && !analysisError && (
+                  <button
+                    onClick={runAnalysis}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      height: 38,
+                      padding: '0 18px',
+                      background: 'var(--dw-panel)',
+                      border: '1px solid var(--dw-accent)',
+                      borderRadius: 'var(--dw-radius-sm)',
+                      fontFamily: 'var(--dw-font-ui)',
+                      fontSize: 14,
+                      fontWeight: 500,
+                      color: 'var(--dw-accent)',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      transition: 'background 120ms ease',
+                    }}
+                    onFocus={e => {
+                      e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+                      e.currentTarget.style.outlineOffset = '3px';
+                    }}
+                    onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+                  >
+                    <RefreshCw size={16} strokeWidth={1.5} aria-hidden="true" />
+                    Run Full Analysis
+                  </button>
+                )}
+                {analysisRunning && (
+                  <Loader2 size={18} strokeWidth={1.5} aria-hidden="true"
+                    style={{ animation: 'dw-pulse 1.2s ease-in-out infinite', color: 'var(--dw-live)' }} />
+                )}
+              </div>
+              {analysisRunning && typeof analysisJob.progress === 'number' && (
+                <div
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(analysisJob.progress)}
+                  style={{ height: 4, borderRadius: 2, background: 'var(--dw-rim)', overflow: 'hidden' }}
+                >
+                  <div style={{
+                    height: '100%',
+                    width: `${Math.round(analysisJob.progress)}%`,
+                    borderRadius: 2,
+                    background: 'var(--dw-live)',
+                    transition: 'width 600ms ease',
+                  }} />
+                </div>
+              )}
+              {analysisRunning && (
+                <style>{`@keyframes dw-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* Result cards — 3 columns (RGB / Depth / DSM) */}
         <section aria-labelledby="layers-heading">
           <p
@@ -350,13 +542,16 @@ export default function ResultDashboard() {
             >
               ACCURACY EVALUATION
             </h2>
-            <div style={{
-              background: 'var(--dw-panel)',
-              border: '1px solid var(--dw-rim)',
-              borderRadius: 'var(--dw-radius-md)',
-              padding: '20px',
-              maxWidth: 760,
-            }}>
+            <div
+              key={`validation-${refreshTick}`}
+              style={{
+                background: 'var(--dw-panel)',
+                border: '1px solid var(--dw-rim)',
+                borderRadius: 'var(--dw-radius-md)',
+                padding: '20px',
+                maxWidth: 760,
+              }}
+            >
               <MetricsPanel
                 available={validation?.available === true && !!validation?.metrics}
                 metrics={validation?.metrics ?? null}
@@ -505,6 +700,97 @@ export default function ResultDashboard() {
         </section>
 
       </main>
+
+      {/* "Please don't leave the page" popup — shown the moment the
+          deferred-analysis job starts (dismissed with the button; the
+          beforeunload guard keeps protecting until the job finishes). */}
+      {showLeavePopup && analysisRunning && (
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="stay-popup-title"
+          onClick={() => setShowLeavePopup(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--dw-panel)',
+              border: '1px solid var(--dw-accent)',
+              borderRadius: 'var(--dw-radius-md)',
+              padding: '24px 28px',
+              maxWidth: 440,
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <AlertTriangle size={20} strokeWidth={1.5} aria-hidden="true"
+                style={{ color: 'var(--dw-live)', flexShrink: 0 }} />
+              <p
+                id="stay-popup-title"
+                style={{
+                  fontFamily: 'var(--dw-font-ui)',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  color: 'var(--dw-fg)',
+                  margin: 0,
+                }}
+              >
+                Please don&rsquo;t leave the page
+              </p>
+            </div>
+            <p style={{
+              fontFamily: 'var(--dw-font-ui)',
+              fontSize: 14,
+              color: 'var(--dw-fg-muted)',
+              margin: 0,
+              lineHeight: 1.55,
+            }}>
+              Full analysis is running on the server. Stay on this page until
+              it completes — your validation metrics, disaster assessment and
+              3D building results will appear here automatically. Leaving or
+              reloading now would interrupt the live progress tracking.
+            </p>
+            <button
+              onClick={() => setShowLeavePopup(false)}
+              autoFocus
+              style={{
+                alignSelf: 'flex-end',
+                height: 36,
+                padding: '0 18px',
+                background: 'var(--dw-accent)',
+                border: '1px solid var(--dw-accent)',
+                borderRadius: 'var(--dw-radius-sm)',
+                fontFamily: 'var(--dw-font-ui)',
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--dw-fg-invert)',
+                cursor: 'pointer',
+                outline: 'none',
+              }}
+              onFocus={e => {
+                e.currentTarget.style.outline = '2px solid var(--dw-accent)';
+                e.currentTarget.style.outlineOffset = '3px';
+              }}
+              onBlur={e => { e.currentTarget.style.outline = 'none'; }}
+            >
+              Got it, I&rsquo;ll stay
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

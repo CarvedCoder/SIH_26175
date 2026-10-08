@@ -34,7 +34,9 @@ def _write_reference_tif(path: Path, transform, crs, values) -> None:
 
 
 def _process(client, scene_id: str) -> None:
-    response = client.post(f"/api/v1/scenes/{scene_id}/process", json={})
+    response = client.post(
+        f"/api/v1/scenes/{scene_id}/process", json={"eager_analysis": True}
+    )
     assert response.status_code == 200, response.text
     job_id = response.json()["job_id"]
     for _ in range(100):

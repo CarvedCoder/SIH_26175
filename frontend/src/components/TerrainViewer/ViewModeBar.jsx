@@ -115,6 +115,13 @@ export default function ViewModeBar({
   // OFF restores the elevated DSM (with flat-topped buildings).
   buildings3d = null,
   onToggleBuildings3d,
+  // Deferred analysis (lazy pipeline): when the scene is dsm_ready the
+  // 3D-buildings artifacts don't exist yet — the button stays VISIBLE and
+  // starts POST /scenes/{id}/analyze instead of disappearing.
+  analysisPending = false,
+  analysisRunning = false,
+  analysisProgress = null,
+  onRunAnalysis,
 }) {
   return (
     <div
@@ -190,34 +197,48 @@ export default function ViewModeBar({
         ]}
       />
 
-      {/* 3D buildings view mode — a first-class top-bar toggle */}
-      {buildings3d?.available && onToggleBuildings3d && (
+      {/* 3D buildings view mode — a first-class top-bar toggle. When the
+          deferred analysis hasn't run yet, the button remains visible and
+          click-starts the analysis (with live progress) instead. */}
+      {(buildings3d?.available || analysisPending || analysisRunning) && (
         <button
-          onClick={onToggleBuildings3d}
-          disabled={disabled}
-          aria-pressed={!!buildings3d.enabled}
-          title={buildings3d.enabled
-            ? '3D objects ON — flat ground with building blocks/trees/objects (click to return to the elevated terrain)'
-            : '3D objects OFF — elevated terrain (click to switch to the 3D objects view)'}
+          onClick={buildings3d?.available ? onToggleBuildings3d : onRunAnalysis}
+          disabled={disabled || (analysisRunning && !buildings3d?.available)}
+          aria-pressed={!!buildings3d?.enabled}
+          title={buildings3d?.available
+            ? (buildings3d.enabled
+              ? '3D objects ON — flat ground with building blocks/trees/objects (click to return to the elevated terrain)'
+              : '3D objects OFF — elevated terrain (click to switch to the 3D objects view)')
+            : analysisRunning
+              ? 'Full analysis is running — 3D buildings become available when it completes'
+              : '3D buildings need the full analysis — click to run it now (validation, disaster, buildings)'}
           style={{
             height: 36,
             padding: '0 12px',
             display: 'inline-flex',
             alignItems: 'center',
             gap: 7,
-            background: buildings3d.enabled ? 'var(--dw-accent)' : 'rgba(16,16,18,0.92)',
-            border: buildings3d.enabled ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
+            background: buildings3d?.available && buildings3d.enabled
+              ? 'var(--dw-accent)' : 'rgba(16,16,18,0.92)',
+            border: buildings3d?.available && buildings3d.enabled
+              ? '1px solid var(--dw-accent)' : '1px solid var(--dw-rim)',
             borderRadius: 8,
             fontFamily: 'var(--dw-font-ui)',
             fontSize: 13,
             fontWeight: 600,
-            color: buildings3d.enabled ? 'var(--dw-fg-invert)' : 'var(--dw-fg-muted)',
-            cursor: disabled ? 'not-allowed' : 'pointer',
+            color: buildings3d?.available && buildings3d.enabled
+              ? 'var(--dw-fg-invert)' : 'var(--dw-fg-muted)',
+            cursor: (disabled || (analysisRunning && !buildings3d?.available))
+              ? 'wait' : 'pointer',
             transition: 'background 120ms ease, color 120ms ease',
           }}
         >
           <Building2 size={15} strokeWidth={1.5} aria-hidden="true" />
-          3D Objects
+          {buildings3d?.available
+            ? '3D Objects'
+            : analysisRunning
+              ? `3D Objects · analysing ${analysisProgress != null ? Math.round(analysisProgress) : 0}%`
+              : '3D Objects · Run Analysis'}
         </button>
       )}
 

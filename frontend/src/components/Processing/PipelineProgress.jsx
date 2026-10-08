@@ -26,6 +26,8 @@ const STAGE_LABELS = {
   validation:           'Validating result',
   disaster_assessment:  'Assessing disaster damage',
   disaster_complete:    'Disaster assessment complete',
+  dsm_ready:            'Elevation products ready',
+  analyzing:            'Running deferred analysis',
   finalizing:           'Finalizing',
   completed:            'Complete',
   failed:               'Failed',
